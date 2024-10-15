@@ -1,0 +1,33 @@
+FROM php:8.3-fpm
+
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+
+RUN chmod +x /usr/local/bin/install-php-extensions
+RUN install-php-extensions curl
+RUN install-php-extensions ctype
+RUN install-php-extensions dom
+RUN install-php-extensions exif
+RUN install-php-extensions fileinfo
+RUN install-php-extensions gd
+RUN install-php-extensions iconv
+# See https://github.com/Imagick/imagick/issues/643
+RUN install-php-extensions imagick/imagick@master
+RUN install-php-extensions intl
+RUN install-php-extensions json
+RUN install-php-extensions opcache
+RUN install-php-extensions mbstring
+RUN install-php-extensions pcre
+RUN install-php-extensions pdo
+RUN install-php-extensions pdo_mysql
+RUN install-php-extensions session
+RUN install-php-extensions simplexml
+RUN install-php-extensions xdebug
+RUN install-php-extensions xml
+RUN install-php-extensions zip
+RUN install-php-extensions zlib
+
+# Copy opcache configuration
+COPY php/conf.d/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
