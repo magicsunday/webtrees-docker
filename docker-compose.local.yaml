@@ -1,0 +1,33 @@
+# Add services to database network
+# Stop the local database
+services:
+    db:
+        entrypoint: /bin/bash
+        command: -c "exit 0"
+        restart: no
+
+    buildbox:
+        networks:
+            - database
+
+    buildbox-root:
+        networks:
+            - database
+
+    php-fpm:
+        networks:
+            - database
+
+    nginx:
+        networks:
+            - database
+
+    pma:
+        networks:
+            - database
+
+networks:
+    # Database network
+    database:
+        external: true
+        name: ${MARIADB_HOST}

@@ -1,0 +1,22 @@
+services:
+    nginx:
+        labels:
+            - traefik.enable=true
+            - traefik.http.routers.${COMPOSE_PROJECT_NAME}.service=${COMPOSE_PROJECT_NAME}-service
+            - traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`${DEV_DOMAIN}`)
+            - traefik.http.services.${COMPOSE_PROJECT_NAME}-service.loadbalancer.server.port=80
+        networks:
+            - traefik
+
+    pma:
+        labels:
+            - traefik.enable=true
+            - traefik.http.routers.${COMPOSE_PROJECT_NAME}-pma.service=${COMPOSE_PROJECT_NAME}-pma-service
+            - traefik.http.routers.${COMPOSE_PROJECT_NAME}-pma.rule=Host(`pma-${DEV_DOMAIN}`)
+            - traefik.http.services.${COMPOSE_PROJECT_NAME}-pma-service.loadbalancer.server.port=80
+        networks:
+            - traefik
+
+networks:
+    traefik:
+        external: true

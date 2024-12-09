@@ -1,0 +1,16 @@
+:: Tasks - Application
+make install                    Installs the application initially.
+make composer-install           Install the package with the locked verisons and references
+make composer-update            Triggers an update of the composer packages.
+
+:: Tasks - Docker
+make build                      Builds/Updates the used docker images
+make push                       Pushes the docker images to the configured docker servers
+make up                         Starts docker containers via docker compose as defined.
+make down                       Downs and removes all with ``make up`` started docker containers.
+make status                     Prints the docker compose ps for running containers
+make logs                       Opens the logs for started containers
+
+:: Tasks - Development
+make bash                       Opens a bash within the build box as the configured user
+make bash-root                  Opens a bash within the build box as root

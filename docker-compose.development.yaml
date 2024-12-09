@@ -1,0 +1,58 @@
+volumes:
+    database:
+        driver: local
+        driver_opts:
+            type: none
+            device: ${PWD}/persistent/database # abs. path ONLY
+            o: bind
+
+x-buildbox-base: &buildbox-base
+    build:
+        dockerfile: ./Dockerfiles/buildbox/Dockerfile
+        context: .
+        args:
+            - PHP_VERSION
+            - DOCKER_SERVER
+    image: ${DOCKER_SERVER}/webtrees/buildbox:${PHP_VERSION}
+    depends_on:
+        - db
+        - php-fpm
+    working_dir: /var/www/html
+    env_file:
+        - .env
+    environment:
+        - SSH_AUTH_SOCK=/tmp/ssh.sock
+        - TERM=xterm-256color
+    volumes:
+        - /etc/timezone:/etc/timezone:ro
+        - /etc/localtime:/etc/localtime:ro
+        - ./:/var/www/html
+        - ${APP_DIR}:/var/www/html/app
+        - ${HOME}/.ssh:/root/.ssh
+        - ${SSH_AUTH_SOCK}:/tmp/ssh.sock
+    networks:
+        - default
+
+services:
+    db:
+        volumes:
+            - database:/var/lib/mysql
+
+    buildbox-root:
+        <<: *buildbox-base
+        entrypoint: "/opt/root-entrypoint.sh"
+        environment:
+            - COMPOSER_AUTH
+
+    buildbox:
+        <<: *buildbox-base
+
+#    nginx:
+#        # Add a port to access the website via IP. 50010 is an available port mapped to port 80
+#        ports:
+#            - "50010:80"
+
+    pma:
+        environment:
+            PMA_USER: ${MARIADB_USER}
+            PMA_PASSWORD: ${MARIADB_PASSWORD}
