@@ -20,6 +20,8 @@ RUN set -e && \
         make \
         mysql-client \
         nano \
+        nodejs \
+        npm \
         openssl \
         shadow \
         ssmtp \
