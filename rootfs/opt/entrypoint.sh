@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 set -e # Exit immediately if a command exits with a non-zero status.
 set -u # Treat unset variables as an error.
 set -m
@@ -9,25 +8,25 @@ if [ -z "${LOCAL_GROUP_NAME}" ]; then
     LOCAL_GROUP_NAME='www-data'
 fi
 
-if [ -z "${LOCAL_GID}" ]; then
-    LOCAL_GID=82
+if [ -z "${LOCAL_GROUP_ID}" ]; then
+    LOCAL_GROUP_ID=82
 fi
 
 if [ -z "${LOCAL_USER_NAME}" ]; then
     LOCAL_USER_NAME=user
 fi
 
-if [ -z "${LOCAL_UID}" ]; then
-    LOCAL_UID=1001
+if [ -z "${LOCAL_USER_ID}" ]; then
+    LOCAL_USER_ID=1001
 fi
 
-echo "Create user ${LOCAL_USER_NAME} (${LOCAL_UID}) within group ${LOCAL_GROUP_NAME}(${LOCAL_GID})"
+echo "Create user ${LOCAL_USER_NAME} (${LOCAL_USER_ID}) within group ${LOCAL_GROUP_NAME} (${LOCAL_GROUP_ID})"
 
 # Create the group
-groupadd -r "${LOCAL_GROUP_NAME}" -g "${LOCAL_GID}" >/dev/null 2>&1 || true
+groupadd -r "${LOCAL_GROUP_NAME}" -g "${LOCAL_GROUP_ID}" >/dev/null 2>&1 || true
 
 # Create the user
-useradd --no-log-init --create-home -u "${LOCAL_UID}" -g "${LOCAL_GROUP_NAME}" -s /bin/bash -d "/home/${LOCAL_USER_NAME}" "${LOCAL_USER_NAME}" >/dev/null 2>&1 || true
+useradd --no-log-init --create-home -u "${LOCAL_USER_ID}" -g "${LOCAL_GROUP_NAME}" -s /bin/bash -d "/home/${LOCAL_USER_NAME}" "${LOCAL_USER_NAME}" >/dev/null 2>&1 || true
 
 HOME_DIR="/home/${LOCAL_USER_NAME}"
 FILE_PROFILE="${HOME_DIR}/.bashrc"

@@ -1,16 +1,24 @@
+ .____                         .__                                .___               ____.
+ |   _|   _____ _____     ____ |__| ____   ________ __  ____    __| _/____  ___.__. |_   |
+ |  |    /     \\__  \   / ___\|  |/ ___\ /  ___/  |  \/    \  / __ |\__  \<   |  |   |  |
+ |  |   |  Y Y  \/ __ \_/ /_/  >  \  \___ \___ \|  |  /   |  \/ /_/ | / __ \\___  |   |  |
+ |  |_  |__|_|  (____  /\___  /|__|\___  >____  >____/|___|  /\____ |(____  / ____|  _|  |
+ |____|       \/     \//_____/         \/     \/           \/      \/     \/\/      |____|
+
+
 :: Tasks - Application
 make install                    Installs the application initially.
-make composer-install           Install the package with the locked verisons and references
+make composer-install           Installs the packages with the locked versions and references.
 make composer-update            Triggers an update of the composer packages.
 
 :: Tasks - Docker
-make build                      Builds/Updates the used docker images
-make push                       Pushes the docker images to the configured docker servers
-make up                         Starts docker containers via docker compose as defined.
-make down                       Downs and removes all with ``make up`` started docker containers.
-make status                     Prints the docker compose ps for running containers
-make logs                       Opens the logs for started containers
+make build                      Builds/Updates the used docker images.
+make push                       Pushes the docker images to the configured docker server.
+make up                         Starts all defined docker containers.
+make down                       Stops and removes all docker containers started with `make up`.
+make status                     Shows the status of the running containers.
+make logs                       Shows the logs of the started containers.
 
 :: Tasks - Development
-make bash                       Opens a bash within the build box as the configured user
-make bash-root                  Opens a bash within the build box as root
+make bash                       Opens a bash within the build box as the configured user.
+make bash-root                  Opens a bash within the build box as root.
