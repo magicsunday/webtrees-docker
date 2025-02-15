@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-set -e # Exit immediately if a command exits with a non-zero status.
-set -u # Treat unset variables as an error.
+set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+set -u # Treats unset or undefined variables as an error when substituting (during parameter expansion).
 
 ###############
 # Environment #
@@ -45,18 +45,18 @@ if [ -z "$PHP_MEMORY_LIMIT" ]; then
     PHP_MEMORY_LIMIT=128M
 fi
 
-sed -i "/^max_execution_time =/s/=.*/= $PHP_MAX_EXECUTION_TIME/" $PHP_INI_DIR/conf.d/webtrees-php.ini
-sed -i "/^max_input_vars =/s/=.*/= $PHP_MAX_INPUT_VARS/" $PHP_INI_DIR/conf.d/webtrees-php.ini
-sed -i "/^memory_limit =/s/=.*/= $PHP_MEMORY_LIMIT/" $PHP_INI_DIR/conf.d/webtrees-php.ini
+sed -i "/^max_execution_time =/s/=.*/= $PHP_MAX_EXECUTION_TIME/" "$PHP_INI_DIR/conf.d/webtrees-php.ini"
+sed -i "/^max_input_vars =/s/=.*/= $PHP_MAX_INPUT_VARS/" "$PHP_INI_DIR/conf.d/webtrees-php.ini"
+sed -i "/^memory_limit =/s/=.*/= $PHP_MEMORY_LIMIT/" "$PHP_INI_DIR/conf.d/webtrees-php.ini"
 
 # Setup post_max_size
 if [ -n "$PHP_POST_MAX_SIZE" ]; then
-    sed -i "/^post_max_size =/s/=.*/= $PHP_POST_MAX_SIZE/" $PHP_INI_DIR/conf.d/webtrees-php.ini
+    sed -i "/^post_max_size =/s/=.*/= $PHP_POST_MAX_SIZE/" "$PHP_INI_DIR/conf.d/webtrees-php.ini"
 fi
 
 # Setup upload_max_filesize
 if [ -n "$PHP_UPLOAD_MAX_FILESIZE" ]; then
-    sed -i "/^upload_max_filesize =/s/=.*/= $PHP_UPLOAD_MAX_FILESIZE/" $PHP_INI_DIR/conf.d/webtrees-php.ini
+    sed -i "/^upload_max_filesize =/s/=.*/= $PHP_UPLOAD_MAX_FILESIZE/" "$PHP_INI_DIR/conf.d/webtrees-php.ini"
 fi
 
 #################

@@ -25,13 +25,18 @@ if [ ! -d "persistent/database" ]; then
     mkdir -p "persistent/database"
 fi
 
+if [ ! -d "persistent/media" ]; then
+    echo "Create media directory"
+    mkdir -p "persistent/media"
+fi
+
 echo "Setup local development docker stack in COMPOSE_FILE"
 pattern="s/COMPOSE_FILE=.*/COMPOSE_FILE=docker-compose.yaml\:docker-compose.development.yaml\:docker-compose.traefik.yaml\:docker-compose.local.yaml/"
 sed -i "${pattern}" .env
 
-read -rp "Enter the directory where your Webtrees installation is located: " APP_DIR
-pattern="s#APP_DIR=.*#APP_DIR=${APP_DIR}#"
-sed -i "${pattern}" .env
+#read -rp "Enter the directory where your Webtrees installation is located: " APP_DIR
+#pattern="s#APP_DIR=.*#APP_DIR=${APP_DIR}#"
+#sed -i "${pattern}" .env
 
 read -rp "Enter the domain under which the DEV system should be accessible [webtrees.nas.lan]: " DEV_DOMAIN
 : ${DEV_DOMAIN:=webtrees.nas.lan}
@@ -83,7 +88,7 @@ sed -i "${pattern}" .env
 
 echo "Run install"
 bash -c "docker compose pull"
-#make install
+make install
 
 echo "Development environment setup complete."
 echo "You can now start the development environment with 'make up'"

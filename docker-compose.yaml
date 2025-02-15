@@ -1,6 +1,8 @@
 name: webtrees
 
 volumes:
+    app:
+    media:
     database:
 
 services:
@@ -20,12 +22,14 @@ services:
         networks:
             - default
 
-    php-fpm:
+    phpfpm:
         depends_on:
             - db
         build:
-            dockerfile: ./Dockerfiles/php/Dockerfile
             context: .
+#            dockerfile: ./Dockerfiles/php/Dockerfile
+            dockerfile: ./Dockerfiles/Dockerfile
+            target: php-build
             args:
                 - PHP_VERSION
         image: ${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}
@@ -44,17 +48,19 @@ services:
         volumes:
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
-            - ${APP_DIR}:/var/www/html
+            - app:/var/www
+            - media:/var/www/public/data/media
         networks:
             - default
 
     nginx:
         depends_on:
-            - php-fpm
+            - phpfpm
         image: nginx:stable-alpine
         restart: unless-stopped
         volumes:
-            - ${APP_DIR}:/var/www/html:ro
+            - app:/var/www:ro
+            - media:/var/www/public/data/media:ro
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
             - ./rootfs/etc/nginx/includes/enforce-https.conf:/etc/nginx/includes/enforce-https.conf

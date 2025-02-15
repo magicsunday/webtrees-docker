@@ -1,0 +1,29 @@
+{
+    "name": "magicsunday/webtrees-base",
+    "description": "Webtrees base installation",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Rico Sonntag",
+            "email": "mail@ricosonntag.de",
+            "role": "Developer",
+            "homepage": "https://www.ricosonntag.de/"
+        }
+    ],
+    "repositories": {
+        "fisharebest/webtrees": {
+            "type": "package",
+            "package": {
+                "name": "fisharebest/webtrees",
+                "version": "2.2.1",
+                "dist": {
+                    "url": "https://github.com/fisharebest/webtrees/releases/download/2.2.1/webtrees-2.2.1.zip",
+                    "type": "zip"
+                }
+            }
+        }
+    },
+    "require": {
+        "fisharebest/webtrees": "^2.2.1"
+    }
+}

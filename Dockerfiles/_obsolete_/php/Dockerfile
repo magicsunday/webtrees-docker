@@ -1,7 +1,7 @@
 ARG PHP_VERSION=8.3
 ARG VERSION=1.0.0
 
-FROM php:${PHP_VERSION}-fpm-alpine
+FROM php:${PHP_VERSION}-fpm-alpine AS php
 
 # docker-entrypoint.sh dependencies
 RUN apk add --no-cache \

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-set -e # Exit immediately if a command exits with a non-zero status.
-set -u # Treat unset variables as an error.
-set -m
+set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+set -u # Treats unset or undefined variables as an error when substituting (during parameter expansion).
+set -m # Displays a message when a task completes.
 
 if [ -z "${LOCAL_GROUP_NAME}" ]; then
     LOCAL_GROUP_NAME='www-data'
@@ -20,7 +20,7 @@ if [ -z "${LOCAL_USER_ID}" ]; then
     LOCAL_USER_ID=1001
 fi
 
-echo "Create user ${LOCAL_USER_NAME} (${LOCAL_USER_ID}) within group ${LOCAL_GROUP_NAME} (${LOCAL_GROUP_ID})"
+echo -e "\033[0;32m ✔\033[0m Create user ${LOCAL_USER_NAME} (${LOCAL_USER_ID}) within group ${LOCAL_GROUP_NAME} (${LOCAL_GROUP_ID})"
 
 # Create the group
 groupadd -r "${LOCAL_GROUP_NAME}" -g "${LOCAL_GROUP_ID}" >/dev/null 2>&1 || true

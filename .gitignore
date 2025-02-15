@@ -4,9 +4,12 @@
 /.env
 /.env.*
 !/.env.dist
+/app/*
+
 /docker-compose.override.yml
 
 /persistent/database/*
 !/persistent/database/.gitkeep
 
-README.html
+/persistent/media/*
+!/persistent/media/.gitkeep

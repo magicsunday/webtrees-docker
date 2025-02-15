@@ -1,23 +1,37 @@
 volumes:
+    app:
+        driver: local
+        driver_opts:
+            type: none
+            device: ${PWD}/app
+            o: bind
+    media:
+        driver: local
+        driver_opts:
+            type: none
+            device: ${PWD}/persistent/media
+            o: bind
     database:
         driver: local
         driver_opts:
             type: none
-            device: ${PWD}/persistent/database # abs. path ONLY
+            device: ${PWD}/persistent/database
             o: bind
 
 x-buildbox-base: &buildbox-base
     build:
-        dockerfile: ./Dockerfiles/buildbox/Dockerfile
         context: .
+        dockerfile: ./Dockerfiles/Dockerfile
+#        dockerfile: ./Dockerfiles/buildbox/Dockerfile
+        target: build-box
         args:
             - PHP_VERSION
             - DOCKER_SERVER
     image: ${DOCKER_SERVER}/webtrees/buildbox:${PHP_VERSION}
     depends_on:
         - db
-        - php-fpm
-    working_dir: /var/www/html
+        - phpfpm
+    working_dir: /var/webtrees
     env_file:
         - .env
     environment:
@@ -26,8 +40,7 @@ x-buildbox-base: &buildbox-base
     volumes:
         - /etc/timezone:/etc/timezone:ro
         - /etc/localtime:/etc/localtime:ro
-        - ./:/var/www/html
-        - ${APP_DIR}:/var/www/html/app
+        - ./:/var/webtrees
         - ${HOME}/.ssh:/root/.ssh
         - ${SSH_AUTH_SOCK}:/tmp/ssh.sock
     networks:

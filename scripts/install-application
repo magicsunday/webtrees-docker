@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+#set -x # Prints out command arguments during execution.
+
+cp -R "${APP_DIR}"/../setup/* "${APP_DIR}"
+
+# Install the application
+#if [ ! -f "${APP_DIR}/public/index.php" ]; then
+#if [ ! -L "${APP_DIR}/html" ]; then
+    echo -e "\033[0;32m ✔\033[0m Install webtrees in version: ${WEBTREES_VERSION}"
+    composer install -d "${APP_DIR}" --no-dev --prefer-dist --no-ansi --no-interaction --quiet ${COMPOSER_PARAMS}
+
+    cd "${APP_DIR}"
+
+    ln -sf public html
+
+    echo -e "\033[0;32m ✔\033[0m Create configuration file"
+    cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php vendor/fisharebest/webtrees/data/config.ini.php
+
+    pattern="s/dbhost=.*/dbhost=\"${MARIADB_HOST}\";/"
+    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+
+    pattern="s/dbport=.*/dbport=\"${MARIADB_PORT}\";/"
+    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+
+    pattern="s/dbuser=.*/dbuser=\"${MARIADB_USER}\";/"
+    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+
+    pattern="s/dbpass=.*/dbpass=\"${MARIADB_PASSWORD}\";/"
+    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+
+    pattern="s/dbname=.*/dbname=\"${MARIADB_DATABASE}\";/"
+    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+
+    pattern="s/base_url=.*/base_url=\"https:\/\/${DEV_DOMAIN}\";/"
+    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+
+    cd - > /dev/null
+
+#tblpfx="wt_"
+#base_url="https://" . "${DEV_DOMAIN}";
+#rewrite_urls="0"
+
+WEBTREES_DIR=${APP_DIR}/vendor/fisharebest/webtrees
+
+DIRS="${WEBTREES_DIR}/data ${WEBTREES_DIR}/data/media ${WEBTREES_DIR}/data/cache"
+#DIRS="${APP_DIR} ./setup ${APP_DIR}/public ${APP_DIR}/vendor"
+
+mkdir -p ${DIRS}
+chown ${USER}:${GROUP} ${DIRS}
+chmod ug+rw -R ${DIRS}
+
+    echo -e "\033[0;32m ✔\033[0m Application installed."
+#fi

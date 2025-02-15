@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+#set -x # Prints out command arguments during execution.
+
+# Creates the required directories within the container
+# Creates the directories before the mounts from docker compose generates them
+
+#if [ -z "${APP_DIR}" ]; then
+#    APP_DIR=./app
+#fi
+
+echo -e "\033[0;32m ✔\033[0m Change permissions for APP_DIR: ${APP_DIR}"
+
+USER=${LOCAL_USER_ID}
+GROUP=${LOCAL_GROUP_ID}
+WEBTREES_DIR=${APP_DIR}/vendor/fisharebest/webtrees
+#DIRS="${APP_DIR} ./setup ${APP_DIR}/public ${APP_DIR}/vendor ${WEBTREES_DIR}/data ${WEBTREES_DIR}/data/media ${WEBTREES_DIR}/data/cache"
+DIRS="${APP_DIR} ./setup ${APP_DIR}/public ${APP_DIR}/vendor"
+
+mkdir -p ${DIRS}
+chown ${USER}:${GROUP} ${DIRS}
+chmod ug+rw -R ${DIRS}
+
+rm -rf  "${APP_DIR}/html"
+cd "${APP_DIR}"
+ln -s public html

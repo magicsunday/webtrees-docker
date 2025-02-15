@@ -31,6 +31,12 @@ In addition, some variables must be defined and prerequisites must be met for th
 Use `make bash` to open a bash inside the build box as the configured user.
 
 
+# PHP Container
+```shell
+docker compose exec phpfpm bash
+```
+
+
 # Sonstiges
 ## Docker
 Um Docker als nicht root-Benutzer ausführen zu können, ist es erforderlich den Benutzer zur "docker"-Gruppe hinzuzufügen.

@@ -1,7 +1,15 @@
+volumes:
+    media:
+        driver: local
+        driver_opts:
+            type: none
+            device: ${MEDIA_DIR}
+            o: bind
+
 # Add services to database network
-# Stop the local database
 services:
     db:
+        # Stop the local database
         entrypoint: /bin/bash
         command: -c "exit 0"
         restart: no
@@ -14,7 +22,7 @@ services:
         networks:
             - database
 
-    php-fpm:
+    phpfpm:
         networks:
             - database
 
