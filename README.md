@@ -58,7 +58,7 @@ groups
 ```
 
 ## Lokale Docker-Registry
-Beim Verwendung meiner lokalen Docker-Registry (192.168.178.25:5000) kam es zum Fehler:
+Bei der Verwendung meiner lokalen Docker-Registry (192.168.178.25:5000) kam es zum Fehler:
 
     Error response from daemon: Get https://192.168.178.25:5000/v2/: http: server gave HTTP response to HTTPS client
 

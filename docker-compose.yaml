@@ -27,8 +27,7 @@ services:
             - db
         build:
             context: .
-#            dockerfile: ./Dockerfiles/php/Dockerfile
-            dockerfile: ./Dockerfiles/Dockerfile
+            dockerfile: ./Dockerfile
             target: php-build
             args:
                 - PHP_VERSION

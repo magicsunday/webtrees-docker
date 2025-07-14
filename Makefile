@@ -1,7 +1,7 @@
 default:
 	@cat Make/help.txt
 
-COMPOSE_BIN := $(if $(shell docker compose version 2>/dev/null |  grep -E "v[2-9].*"), docker compose, docker-compose)
+COMPOSE_BIN := $(if $(shell docker compose version 2>/dev/null | grep -E "v[2-9].*"), docker compose, docker-compose)
 
 -include .env
 

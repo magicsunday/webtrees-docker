@@ -21,8 +21,7 @@ volumes:
 x-buildbox-base: &buildbox-base
     build:
         context: .
-        dockerfile: ./Dockerfiles/Dockerfile
-#        dockerfile: ./Dockerfiles/buildbox/Dockerfile
+        dockerfile: ./Dockerfile
         target: build-box
         args:
             - PHP_VERSION
