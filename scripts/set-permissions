@@ -1,25 +1,34 @@
 #!/usr/bin/env bash
 
-set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
-#set -x # Prints out command arguments during execution.
+# Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+set -e
 
-# Creates the required directories within the container
-# Creates the directories before the mounts from docker compose generates them
+## Prints out command arguments during execution.
+#set -x
 
-#if [ -z "${APP_DIR}" ]; then
-#    APP_DIR=./app
-#fi
+# Create directories before mounting
+DIRS=(
+    "${APP_DIR}"
+    "./setup"
+    "$APP_DIR/public"
+    "$APP_DIR/vendor"
+)
 
 echo -e "\033[0;32m ✔\033[0m Change permissions for APP_DIR: ${APP_DIR}"
 
+# Create directories with proper permissions
+for dir in "${DIRS[@]}"; do
+    mkdir -p $dir
+done
+
+# Set ownership and permissions for directories
 USER=${LOCAL_USER_ID}
 GROUP=${LOCAL_GROUP_ID}
-DIRS="${APP_DIR} ./setup ${APP_DIR}/public ${APP_DIR}/vendor"
 
-mkdir -p ${DIRS}
-chown ${USER}:${GROUP} ${DIRS}
-chmod ug+rw -R ${DIRS}
+chown -R ${USER}:${GROUP} ${DIRS[*]}
+chmod -R ug+rw ${DIRS[*]}
 
-rm -rf  "${APP_DIR}/html"
-cd "${APP_DIR}"
-ln -s public html
+rm -rf "$APP_DIR/html"
+
+# Copy public folder to webtrees directory
+ln -s public "$APP_DIR/html"

@@ -6,7 +6,7 @@ volumes:
             device: ${MEDIA_DIR}
             o: bind
 
-# Add services to database network
+# Add services to the database network
 services:
     db:
         # Stop the local database
