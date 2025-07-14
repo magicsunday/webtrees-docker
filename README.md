@@ -84,3 +84,54 @@ anschließend noch ein Neustart des Docker Dämons:
 sudo service docker restart
 ```
 
+
+# Development
+Eigene Module oder Module von Dritten zur composer.json im "app"-Verzeichnis hinzufügen:
+
+Um zum Beispiel meine Module für Pedigree-, Fan- und Descendants-Chart, jeweils in der Sourcecode-Version 
+zu installieren, muss die composer.json wie folgt angepasst werden:
+
+```json
+{
+    "name": "magicsunday/webtrees-base",
+    "description": "Webtrees base installation",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Rico Sonntag",
+            "email": "mail@ricosonntag.de",
+            "role": "Developer",
+            "homepage": "https://www.ricosonntag.de/"
+        }
+    ],
+    "config": {
+        "preferred-install": {
+            "*": "dist",
+            "magicsunday/*": "source"
+        },
+        "allow-plugins": {
+            "magicsunday/webtrees-module-installer-plugin": true
+        }
+    },
+    "repositories": {
+        "magicsunday/webtrees-statistics": {
+            "type": "github",
+            "url": "https://github.com/magicsunday/webtrees-statistics.git"
+        }
+    },
+    "require": {
+        "fisharebest/webtrees": "^2.2",
+        "magicsunday/webtrees-module-base": "*",
+        "magicsunday/webtrees-descendants-chart": "*",
+        "magicsunday/webtrees-pedigree-chart": "*",
+        "magicsunday/webtrees-fan-chart": "*"
+    },
+    "require-dev": {
+        "magicsunday/webtrees-module-installer-plugin": "dev-WIP"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
+```
+
+Danach ein "make composer-update" ausführen, um die neuen Pakete zu installieren oder zu aktualisieren.
