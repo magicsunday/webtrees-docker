@@ -1,55 +1,146 @@
 #!/usr/bin/env bash
 
-set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
-#set -x # Prints out command arguments during execution.
+# Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+set -e
 
-cp -R "${APP_DIR}"/../setup/* "${APP_DIR}"
+# Prints out command arguments during execution.
+#set -x
 
-# Install the application
-#if [ ! -f "${APP_DIR}/public/index.php" ]; then
-#if [ ! -L "${APP_DIR}/html" ]; then
-    echo -e "\033[0;32m ✔\033[0m Install webtrees in version: ${WEBTREES_VERSION}"
-    composer install -d "${APP_DIR}" --no-dev --prefer-dist --no-ansi --no-interaction --quiet ${COMPOSER_PARAMS}
+# Configuration
+readonly CONFIG_FILE="vendor/fisharebest/webtrees/data/config.ini.php"
+readonly WEBTREES_BASE="${APP_DIR}/vendor/fisharebest/webtrees"
+readonly SUCCESS_MARKER="\033[0;32m ✔\033[0m"
+readonly ERROR_MARKER="\033[0;31m ✘\033[0m"
+readonly WEBTREES_REPO="https://github.com/fisharebest/webtrees.git"
 
-    cd "${APP_DIR}"
+# Required directories array
+readonly REQUIRED_DIRS=(
+    "data/media"
+    "data/cache"
+    "resources/lang"
+)
 
+# Validate environment
+validateEnvironment() {
+    local required_vars=(
+        "APP_DIR"
+        "MARIADB_HOST"
+        "MARIADB_PORT"
+        "MARIADB_USER"
+        "MARIADB_PASSWORD"
+        "MARIADB_DATABASE"
+        "DEV_DOMAIN"
+    )
+
+    for var in "${required_vars[@]}"; do
+        if [[ -z "${!var}" ]]; then
+            logError "Required environment variable $var is not set"
+            exit 1
+        fi
+    done
+}
+
+# Logging utilities
+logSuccess() {
+    echo -e "${SUCCESS_MARKER} $1"
+}
+
+logError() {
+    echo -e "${ERROR_MARKER} $1" >&2
+}
+
+# File operations
+copyApplicationFiles() {
+    if [[ ! -d "${APP_DIR}" ]]; then
+        logError "Application directory does not exist"
+        exit 1
+    fi
+
+    cp -r "${APP_DIR}"/../setup/public/* "${APP_DIR}"/public
+    cp -r "${APP_DIR}"/../setup/composer.json "${APP_DIR}"
+}
+
+# Application installation
+installApplication() {
+    logSuccess "Installing webtrees"
+    composer install -d "${APP_DIR}" --no-ansi --no-interaction
+
+    cd "${APP_DIR}" || exit 1
     ln -sf public html
+    cd - > /dev/null || exit 1
+}
 
-    echo -e "\033[0;32m ✔\033[0m Create configuration file"
-    cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php vendor/fisharebest/webtrees/data/config.ini.php
+# Database configuration
+configureDatabase() {
+    logSuccess "Configuring database"
+    cd "${APP_DIR}" || exit 1
 
-    pattern="s/dbhost=.*/dbhost=\"${MARIADB_HOST}\";/"
-    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+    cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php "${CONFIG_FILE}"
 
-    pattern="s/dbport=.*/dbport=\"${MARIADB_PORT}\";/"
-    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+    local config_entries=(
+        "dbhost=${MARIADB_HOST}"
+        "dbport=${MARIADB_PORT}"
+        "dbuser=${MARIADB_USER}"
+        "dbpass=${MARIADB_PASSWORD}"
+        "dbname=${MARIADB_DATABASE}"
+        "base_url=https:\/\/${DEV_DOMAIN}"
+        "tblpfx=${WEBTREES_TABLE_PREFIX}"
+        "rewrite_urls=${WEBTREES_REWRITE_URLS}"
+    )
 
-    pattern="s/dbuser=.*/dbuser=\"${MARIADB_USER}\";/"
-    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+    for entry in "${config_entries[@]}"; do
+        local key="${entry%%=*}"
+        local value="${entry#*=}"
+        sed -i "s/${key}=.*/${key}=\"${value}\";/" "${CONFIG_FILE}"
+    done
 
-    pattern="s/dbpass=.*/dbpass=\"${MARIADB_PASSWORD}\";/"
-    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+    cd - > /dev/null || exit 1
+}
 
-    pattern="s/dbname=.*/dbname=\"${MARIADB_DATABASE}\";/"
-    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+# Directory management
+setupDirectories() {
+    logSuccess "Setting up directory structure"
+    rm -rf "${WEBTREES_BASE}/data/cache"
 
-    pattern="s/base_url=.*/base_url=\"https:\/\/${DEV_DOMAIN}\";/"
-    sed -i "${pattern}" vendor/fisharebest/webtrees/data/config.ini.php
+    for dir in "${REQUIRED_DIRS[@]}"; do
+        mkdir -p "${WEBTREES_BASE}/${dir}"
+    done
+}
 
-    cd - > /dev/null
+# Language files management
+installLanguages() {
+    logSuccess "Installing language files"
+    rm -rf webtrees-languages
 
-#tblpfx="wt_"
-#base_url="https://" . "${DEV_DOMAIN}";
-#rewrite_urls="0"
+    git clone --quiet --no-checkout --depth=1 --filter=tree:0 \
+        "${WEBTREES_REPO}" webtrees-languages
 
-WEBTREES_DIR=${APP_DIR}/vendor/fisharebest/webtrees
+    cd webtrees-languages || exit 1
+    git sparse-checkout set --no-cone /resources/lang
+    git checkout --quiet --no-progress > /dev/null 2>&1
+    cd - > /dev/null || exit 1
 
-DIRS="${WEBTREES_DIR}/data ${WEBTREES_DIR}/data/media ${WEBTREES_DIR}/data/cache"
-#DIRS="${APP_DIR} ./setup ${APP_DIR}/public ${APP_DIR}/vendor"
+    cp -rf webtrees-languages/resources/lang/* "${WEBTREES_BASE}"/resources/lang
+    rm -rf webtrees-languages
+}
 
-mkdir -p ${DIRS}
-chown ${USER}:${GROUP} ${DIRS}
-chmod ug+rw -R ${DIRS}
+# Permission management
+setDirectoryPermissions() {
+    local target_dirs="${WEBTREES_BASE}/data/media ${WEBTREES_BASE}/data/cache ${WEBTREES_BASE}/resources/lang"
+    chown "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" ${target_dirs}
+    chmod ug+rw -R ${target_dirs}
+}
 
-    echo -e "\033[0;32m ✔\033[0m Application installed."
-#fi
+# Main execution
+main() {
+    validateEnvironment
+    copyApplicationFiles
+    installApplication
+    configureDatabase
+    setupDirectories
+    installLanguages
+    setDirectoryPermissions
+    logSuccess "Installation completed successfully"
+}
+
+main

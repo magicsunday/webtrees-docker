@@ -10,20 +10,31 @@
             "homepage": "https://www.ricosonntag.de/"
         }
     ],
+    "config": {
+        "preferred-install": {
+            "*": "dist",
+            "magicsunday/*": "source"
+        },
+        "allow-plugins": {
+            "magicsunday/webtrees-module-installer-plugin": true
+        }
+    },
     "repositories": {
-        "fisharebest/webtrees": {
-            "type": "package",
-            "package": {
-                "name": "fisharebest/webtrees",
-                "version": "2.2.1",
-                "dist": {
-                    "url": "https://github.com/fisharebest/webtrees/releases/download/2.2.1/webtrees-2.2.1.zip",
-                    "type": "zip"
-                }
-            }
+        "magicsunday/webtrees-statistics": {
+            "type": "github",
+            "url": "https://github.com/magicsunday/webtrees-statistics.git"
         }
     },
     "require": {
-        "fisharebest/webtrees": "^2.2.1"
-    }
+        "fisharebest/webtrees": "^2.2",
+        "magicsunday/webtrees-module-base": "*",
+        "magicsunday/webtrees-descendants-chart": "*",
+        "magicsunday/webtrees-pedigree-chart": "*",
+        "magicsunday/webtrees-fan-chart": "*"
+    },
+    "require-dev": {
+        "magicsunday/webtrees-module-installer-plugin": "dev-WIP"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }

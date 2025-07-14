@@ -8,6 +8,10 @@
  */
 
 // Set up the application for the frontend
-call_user_func(static function () {
-    require dirname(__DIR__) . '/vendor/fisharebest/webtrees/index.php';
-});
+(static function () {
+    require dirname(__DIR__) . '/vendor/autoload.php';
+
+    return \Fisharebest\Webtrees\Webtrees::new()->run(PHP_SAPI);
+
+//    require dirname(__DIR__) . '/vendor/fisharebest/webtrees/index.php';
+})();
