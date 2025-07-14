@@ -12,29 +12,16 @@
     ],
     "config": {
         "preferred-install": {
-            "*": "dist",
-            "magicsunday/*": "source"
+            "*": "dist"
         },
         "allow-plugins": {
             "magicsunday/webtrees-module-installer-plugin": true
         }
     },
-    "repositories": {
-        "magicsunday/webtrees-statistics": {
-            "type": "github",
-            "url": "https://github.com/magicsunday/webtrees-statistics.git"
-        }
-    },
     "require": {
-        "fisharebest/webtrees": "^2.2",
-        "magicsunday/webtrees-module-base": "*",
-        "magicsunday/webtrees-descendants-chart": "*",
-        "magicsunday/webtrees-pedigree-chart": "*",
-        "magicsunday/webtrees-fan-chart": "*"
+        "fisharebest/webtrees": "^2.2"
     },
     "require-dev": {
         "magicsunday/webtrees-module-installer-plugin": "dev-WIP"
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+    }
 }
