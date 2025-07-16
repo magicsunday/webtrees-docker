@@ -11,18 +11,20 @@ RUN apk add --no-cache \
     bash \
     tzdata
 
+# Add PHP extension installer
 ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
 # Install additionally required php extensions
-RUN chmod +x /usr/local/bin/install-php-extensions
-RUN install-php-extensions exif
-RUN install-php-extensions gd
-RUN install-php-extensions imagick
-RUN install-php-extensions intl
-RUN install-php-extensions opcache
-RUN install-php-extensions pdo_mysql
-RUN install-php-extensions xdebug
-RUN install-php-extensions zip
+RUN chmod +x /usr/local/bin/install-php-extensions && \
+    install-php-extensions \
+        exif \
+        gd \
+        imagick \
+        intl \
+        opcache \
+        pdo_mysql \
+        xdebug \
+        zip
 
 LABEL org.opencontainers.image.title="Webtrees docker image" \
       org.opencontainers.image.description="Run webtrees with Alpine, Nginx and PHP FPM." \
@@ -38,6 +40,8 @@ LABEL org.opencontainers.image.title="Webtrees docker image" \
 COPY rootfs/usr/local/etc/php/conf.d $PHP_INI_DIR/conf.d
 
 COPY rootfs/docker-entrypoint.sh /docker-entrypoint.sh
+
+# Set proper permissions for entrypoint
 RUN chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
@@ -92,8 +96,9 @@ RUN set -ex && \
 
 COPY rootfs/ /
 
-RUN chmod +x /docker-entrypoint.sh
-RUN chmod +x /opt/root-entrypoint.sh
-RUN chmod +x /opt/entrypoint.sh
+# Set executable permissions for all entrypoint scripts
+RUN chmod +x /docker-entrypoint.sh && \
+    chmod +x /opt/root-entrypoint.sh && \
+    chmod +x /opt/entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/entrypoint.sh"]
