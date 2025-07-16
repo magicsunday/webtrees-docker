@@ -1,103 +1,186 @@
-This document describes the development environment for my webtrees project.
+# Webtrees Docker
 
+A Docker-based development and deployment environment for [Webtrees](https://www.webtrees.net/), the free and open source web genealogy application.
 
-# Requirements
+## Table of Contents
 
-This project requires the following software to be installed:
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Setup and Installation](#setup-and-installation)
+  - [Clone the Repository](#clone-the-repository)
+  - [Run the Setup Script](#run-the-setup-script)
+  - [Configure Environment Variables](#configure-environment-variables)
+  - [Start the Containers](#start-the-containers)
+- [Configuration](#configuration)
+  - [Environment Variables](#environment-variables)
+  - [Docker Compose Files](#docker-compose-files)
+  - [Container Structure](#container-structure)
+- [Usage](#usage)
+  - [Common Commands](#common-commands)
+  - [Accessing the Application](#accessing-the-application)
+  - [Working with the Buildbox](#working-with-the-buildbox)
+  - [PHP Container Access](#php-container-access)
+  - [Database Management](#database-management)
+- [Development](#development)
+  - [Adding Custom Modules](#adding-custom-modules)
+  - [Third-Party Module Integration](#third-party-module-integration)
+  - [Development Workflow](#development-workflow)
+- [Troubleshooting](#troubleshooting)
+  - [Docker Permissions](#docker-permissions)
+  - [Local Docker Registry](#local-docker-registry)
+  - [Common Issues](#common-issues)
+- [Security Considerations](#security-considerations)
+- [Performance Optimization](#performance-optimization)
 
-* docker
-* docker compose
-* git
-* bash
+## Overview
 
-In addition, some variables must be defined and prerequisites must be met for the project.
+This project provides a Docker-based environment for running and developing with Webtrees, a powerful web genealogy application. The containerized setup includes all necessary components (web server, PHP, database, and phpMyAdmin) configured to work together seamlessly.
 
+## Requirements
 
-# Setup
-* After cloning the repository from `git@github.com:magicsunday/webtrees-docker.git` simply run the setup script::
+Before you begin, ensure you have the following software installed:
+
+* Docker
+* Docker Compose
+* Git
+* Bash
+
+## Quick Start
+
+```shell
+# Clone the repository
+git clone git@github.com:magicsunday/webtrees-docker.git
+cd webtrees-docker
+
+# Run the setup script
+./scripts/setup.sh
+
+# Start the containers
+make up
+
+# Access Webtrees at http://localhost:50010
+```
+
+## Setup and Installation
+
+### Clone the Repository
+
+```shell
+git clone git@github.com:magicsunday/webtrees-docker.git
+cd webtrees-docker
+```
+
+### Run the Setup Script
+
+The setup script will create the necessary configuration files:
 
 ```shell
 ./scripts/setup.sh
 ```
 
-* This script will create the `.env` file for you and will ask you for the necessary variables.
-    * If you run this project on your own host or a local machine, you can define the credentials by yourself.
+This script creates the `.env` file and prompts you for the required configuration variables.
 
-* Adjust the settings in the `.env` file to your needs
+### Configure Environment Variables
 
-* Start the containers using `make up`
+Edit the `.env` file to customize your installation. Important settings include:
 
-# Buildbox
-Use `make bash` to open a bash inside the build box as the configured user.
+- Database credentials
+- PHP configuration
+- Web server settings
+- Application paths
 
+### Start the Containers
 
-# Restart
-* Wurde an der Konfigurationsdatei `.env` etwas geändert, so aktualisiere ggf. die Webtrees-Konfiguration mittels
-`make apply-config` und starte den Stack neu mittels `make up`.
+Launch the Docker containers:
 
-# Zugriff auf Seiten mittels IP
-* Ale Default-IP wird `50010` verwendet (siehe docker-compose.development.yaml).
- 
+```shell
+make up
+```
 
-# PHP Container
+## Configuration
+
+### Environment Variables
+
+The `.env` file contains all configurable options for the project. Key settings include:
+
+- `MYSQL_ROOT_PASSWORD`: Root password for MariaDB
+- `MYSQL_DATABASE`: Database name for Webtrees
+- `MYSQL_USER`: Database user for Webtrees
+- `MYSQL_PASSWORD`: Database password for Webtrees
+- `PHP_MAX_EXECUTION_TIME`: Maximum execution time for PHP scripts
+- `PHP_MEMORY_LIMIT`: Memory limit for PHP
+- `ENFORCE_HTTPS`: Enable/disable HTTPS enforcement
+
+### Docker Compose Files
+
+The project uses several Docker Compose files for different environments:
+
+- `docker-compose.yaml`: Base configuration
+- `docker-compose.development.yaml`: Development environment configuration
+- `docker-compose.local.yaml`: Local environment configuration
+- `docker-compose.traefik.yaml`: Configuration for use with Traefik
+
+### Container Structure
+
+The application consists of several containers:
+
+1. **db**: MariaDB database
+2. **phpfpm**: PHP-FPM service with all required extensions
+3. **nginx**: Nginx web server
+4. **pma**: phpMyAdmin for database management
+
+## Usage
+
+### Common Commands
+
+- `make up`: Start all containers
+- `make down`: Stop and remove all containers
+- `make status`: Show the status of running containers
+- `make logs`: Show container logs
+- `make build`: Build/update Docker images
+- `make apply-config`: Apply configuration changes
+- `make bash`: Open a bash shell in the buildbox as the configured user
+- `make bash-root`: Open a bash shell in the buildbox as root
+
+### Accessing the Application
+
+By default, the application is accessible at:
+
+- Webtrees: http://localhost:50010
+- phpMyAdmin: http://localhost:50011
+
+The default port can be configured in the `docker-compose.development.yaml` file.
+
+### Working with the Buildbox
+
+The buildbox provides a development environment with all necessary tools:
+
+```shell
+make bash
+```
+
+### PHP Container Access
+
+To access the PHP container directly:
+
 ```shell
 docker compose exec phpfpm bash
 ```
 
+### Database Management
 
-# Sonstiges
-## Docker
-Um Docker als nicht root-Benutzer ausführen zu können, ist es erforderlich den Benutzer zur "docker"-Gruppe hinzuzufügen.
-
-Hierzu bitte auch https://docs.docker.com/engine/security/#docker-daemon-attack-surface lesen, hinsichtlich möglicher sicherheitsrelevanter Auswirkungen.
-
-* Create the docker group if it does not exist
-```shell
-sudo groupadd docker
-```  
-* Add your user to the docker group
-```shell
-sudo usermod -aG docker $USER
-```
-* Benutzer abmelden und neu anmelden
-* Überprüfung ob Gruppe gesetzt ist
-```shell
-groups
-```
-
-## Lokale Docker-Registry
-Bei der Verwendung meiner lokalen Docker-Registry (192.168.178.25:5000) kam es zum Fehler:
-
-    Error response from daemon: Get https://192.168.178.25:5000/v2/: http: server gave HTTP response to HTTPS client
-
-Um den Zugriff auch über HTTP zu erlauben, muss die Datei
-
-    /etc/docker/daemon.json
-
-angepasst werden. Hier muss im JSON folgender Eintrag hinzugefügt werden:
-
-```json
-{
-    ...
-
-    "insecure-registries": [
-        "http://192.168.178.25:5000"
-    ]
-}
-```
-
-anschließend noch ein Neustart des Docker Dämons:
+The project includes phpMyAdmin for database management. You can also access the database directly:
 
 ```shell
-sudo service docker restart
+docker compose exec db mysql -u root -p
 ```
 
+## Development
 
-# Development
-Eigene Module oder Module von Dritten zur composer.json im "app"-Verzeichnis hinzufügen:
+### Adding Custom Modules
 
-Um zum Beispiel meine Module für Pedigree-, Fan- und Descendants-Chart, jeweils in der Sourcecode-Version 
-zu installieren, muss die composer.json wie folgt angepasst werden:
+To add custom modules, modify the `composer.json` in the "app" directory:
 
 ```json
 {
@@ -142,4 +225,79 @@ zu installieren, muss die composer.json wie folgt angepasst werden:
 }
 ```
 
-Danach ein "make composer-update" ausführen, um die neuen Pakete zu installieren oder zu aktualisieren.
+Then run `make composer-update` to install or update the packages.
+
+### Third-Party Module Integration
+
+Third-party modules can be integrated using Composer. Add the module to the `require` section of your `composer.json` file and specify the repository if needed.
+
+### Development Workflow
+
+1. Make changes to your code
+2. Test changes in the development environment
+3. If configuration changes are needed, update the `.env` file
+4. Apply configuration changes with `make apply-config`
+5. Restart the stack with `make up`
+
+## Troubleshooting
+
+### Docker Permissions
+
+To run Docker as a non-root user, add your user to the "docker" group:
+
+```shell
+# Create the docker group if it doesn't exist
+sudo groupadd docker
+
+# Add your user to the docker group
+sudo usermod -aG docker $USER
+
+# Log out and log back in
+# Verify that the group is set
+groups
+```
+
+Please read the [Docker security documentation](https://docs.docker.com/engine/security/#docker-daemon-attack-surface) regarding possible security implications.
+
+### Local Docker Registry
+
+When using a local Docker Registry, you might encounter HTTPS-related errors. To allow HTTP access:
+
+1. Modify `/etc/docker/daemon.json`:
+
+```json
+{
+    "insecure-registries": [
+        "http://your-registry-ip:5000"
+    ]
+}
+```
+
+2. Restart the Docker daemon:
+
+```shell
+sudo service docker restart
+```
+
+### Common Issues
+
+- **Database connection errors**: Check your database credentials in the `.env` file
+- **Permission issues**: Ensure proper file permissions in mounted volumes
+- **Port conflicts**: Change the port mappings in the Docker Compose files if ports are already in use
+
+## Security Considerations
+
+- HTTPS enforcement can be enabled by setting `ENFORCE_HTTPS=TRUE` in the `.env` file
+- Security headers are configured in `rootfs/etc/nginx/includes/security-headers.conf`
+- Keep all containers updated with `make build` regularly
+- Use strong passwords for database and admin accounts
+
+## Performance Optimization
+
+- PHP opcache is enabled by default for better performance
+- Adjust PHP settings in the `.env` file:
+  - `PHP_MAX_EXECUTION_TIME`
+  - `PHP_MAX_INPUT_VARS`
+  - `PHP_MEMORY_LIMIT`
+  - `PHP_POST_MAX_SIZE`
+  - `PHP_UPLOAD_MAX_FILESIZE`
