@@ -3,6 +3,14 @@
 set -e # Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
 set -u # Treats unset or undefined variables as an error when substituting (during parameter expansion).
 
+# Check if we have write permissions to PHP configuration directories
+# If not, we need to exit gracefully as we're running as non-root
+if [ ! -w "$PHP_INI_DIR/conf.d" ]; then
+    echo "Warning: No write permission to PHP configuration directory. Skipping PHP configuration."
+    exec "$@"
+    exit 0
+fi
+
 ###############
 # Environment #
 ###############
