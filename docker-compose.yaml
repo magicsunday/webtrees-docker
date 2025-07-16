@@ -30,12 +30,6 @@ services:
             - /etc/localtime:/etc/localtime:ro
         networks:
             - default
-        healthcheck:
-            test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 60s
 
     # PHP-FPM service
     # This container runs the PHP interpreter with all required extensions for Webtrees
@@ -103,12 +97,6 @@ services:
             - ./rootfs/etc/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
         networks:
             - default
-        healthcheck:
-            test: ["CMD", "curl", "-f", "http://localhost/"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 10s
 
     # phpMyAdmin service
     # This container provides a web interface for database management
@@ -130,12 +118,6 @@ services:
             - /etc/localtime:/etc/localtime:ro
         networks:
             - default
-        healthcheck:
-            test: ["CMD", "curl", "-f", "http://localhost/"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 30s
 
 # Network configuration
 networks:
