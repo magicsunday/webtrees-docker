@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
+set -e
+
+## Prints out command arguments during execution.
+#set -x
+
+# Configuration
+readonly CONFIG_FILE="vendor/fisharebest/webtrees/data/config.ini.php"
+readonly SUCCESS_MARKER="\033[0;32m ✔\033[0m"
+readonly ERROR_MARKER="\033[0;31m ✘\033[0m"
+
+# Logging utilities
+logSuccess() {
+    echo -e "${SUCCESS_MARKER} $1"
+}
+
+logError() {
+    echo -e "${ERROR_MARKER} $1" >&2
+}
+
+# Validate environment
+validateEnvironment() {
+    local required_vars=(
+        "APP_DIR"
+        "MARIADB_HOST"
+        "MARIADB_PORT"
+        "MARIADB_USER"
+        "MARIADB_PASSWORD"
+        "MARIADB_DATABASE"
+        "DEV_DOMAIN"
+        "ENFORCE_HTTPS"
+    )
+
+    for var in "${required_vars[@]}"; do
+        if [[ -z "${!var}" ]]; then
+            logError "Required environment variable $var is not set"
+            exit 1
+        fi
+    done
+}
+
+# Webtrees configuration
+setupConfiguration() {
+    logSuccess "Setting up webtrees configuring file"
+    cd "${APP_DIR}" || exit 1
+
+    cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php "${CONFIG_FILE}"
+
+    # Build project URL
+    if [ "${ENFORCE_HTTPS}" == "TRUE" ]; then
+        URL_SCHEME="https"
+    else
+        URL_SCHEME="http"
+    fi
+
+    local config_entries=(
+        "dbhost=${MARIADB_HOST}"
+        "dbport=${MARIADB_PORT}"
+        "dbuser=${MARIADB_USER}"
+        "dbpass=${MARIADB_PASSWORD}"
+        "dbname=${MARIADB_DATABASE}"
+        "base_url=${URL_SCHEME}:\/\/${DEV_DOMAIN}"
+        "tblpfx=${WEBTREES_TABLE_PREFIX}"
+        "rewrite_urls=${WEBTREES_REWRITE_URLS}"
+    )
+
+    for entry in "${config_entries[@]}"; do
+        local key="${entry%%=*}"
+        local value="${entry#*=}"
+        sed -i "s/${key}=.*/${key}=\"${value}\";/" "${CONFIG_FILE}"
+    done
+
+    cd - > /dev/null || exit 1
+}
+
+# Main execution
+main() {
+    validateEnvironment
+    setupConfiguration
+    logSuccess "Configuration successfully applied"
+}
+
+main

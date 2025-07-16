@@ -20,6 +20,15 @@ readonly REQUIRED_DIRS=(
     "resources/lang"
 )
 
+# Logging utilities
+logSuccess() {
+    echo -e "${SUCCESS_MARKER} $1"
+}
+
+logError() {
+    echo -e "${ERROR_MARKER} $1" >&2
+}
+
 # Validate environment
 validateEnvironment() {
     local required_vars=(
@@ -30,6 +39,7 @@ validateEnvironment() {
         "MARIADB_PASSWORD"
         "MARIADB_DATABASE"
         "DEV_DOMAIN"
+        "ENFORCE_HTTPS"
     )
 
     for var in "${required_vars[@]}"; do
@@ -38,15 +48,6 @@ validateEnvironment() {
             exit 1
         fi
     done
-}
-
-# Logging utilities
-logSuccess() {
-    echo -e "${SUCCESS_MARKER} $1"
-}
-
-logError() {
-    echo -e "${ERROR_MARKER} $1" >&2
 }
 
 # File operations
@@ -73,12 +74,19 @@ installApplication() {
     cd - > /dev/null || exit 1
 }
 
-# Database configuration
-configureDatabase() {
-    logSuccess "Configuring database"
+# Webtrees configuration
+setupConfiguration() {
+    logSuccess "Setting up webtrees configuring file"
     cd "${APP_DIR}" || exit 1
 
     cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php "${CONFIG_FILE}"
+
+    # Build project URL
+    if [ "${ENFORCE_HTTPS}" == "TRUE" ]; then
+        URL_SCHEME="https"
+    else
+        URL_SCHEME="http"
+    fi
 
     local config_entries=(
         "dbhost=${MARIADB_HOST}"
@@ -86,7 +94,7 @@ configureDatabase() {
         "dbuser=${MARIADB_USER}"
         "dbpass=${MARIADB_PASSWORD}"
         "dbname=${MARIADB_DATABASE}"
-        "base_url=https:\/\/${DEV_DOMAIN}"
+        "base_url=${URL_SCHEME}:\/\/${DEV_DOMAIN}"
         "tblpfx=${WEBTREES_TABLE_PREFIX}"
         "rewrite_urls=${WEBTREES_REWRITE_URLS}"
     )
@@ -139,7 +147,7 @@ main() {
     validateEnvironment
     copyApplicationFiles
     installApplication
-    configureDatabase
+    setupConfiguration
     setupDirectories
     installLanguages
     setDirectoryPermissions

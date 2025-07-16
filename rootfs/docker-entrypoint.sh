@@ -12,18 +12,20 @@ if [ -z "$ENVIRONMENT" ]; then
     ENVIRONMENT="production"
 fi
 
-# Disable https enforcement
-if [[ "${ENFORCE_HTTPS}" != "true" ]]; then
-    echo "Disable HTTPS enforcement"
-    echo " " >/etc/nginx/includes/enforce-https.conf
-fi
+## Disable https enforcement
+#if [[ "${ENFORCE_HTTPS}" != "TRUE" ]]; then
+#    if [ -f "/etc/nginx/includes/enforce-https.conf" ]; then
+#        echo "Disable HTTPS enforcement"
+#        echo -n "" > /etc/nginx/includes/enforce-https.conf
+#    fi
+#fi
 
 ################
 # PHP settings #
 ################
 
 # Setup config for selected environment
-if [ "production" == "$ENVIRONMENT" ]; then
+if [ "$ENVIRONMENT" == "production" ]; then
     mv "$PHP_INI_DIR/conf.d/webtrees-xdebug.ini" "$PHP_INI_DIR/conf.d/webtrees-xdebug.disabled"
 fi
 

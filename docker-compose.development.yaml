@@ -59,10 +59,11 @@ services:
     buildbox:
         <<: *buildbox-base
 
-#    nginx:
-#        # Add a port to access the website via IP. 50010 is an available port mapped to port 80
-#        ports:
-#            - "50010:80"
+    nginx:
+        # Add a port to access the website via IP. For example, 50010 is an available external port
+        # mapped to internal docker container port 80.
+        ports:
+            - "50010:80"
 
     pma:
         environment:

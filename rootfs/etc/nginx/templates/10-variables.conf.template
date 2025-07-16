@@ -1,0 +1,5 @@
+# Maps external environment variable $ENFORCE_HTTPS to nginx variable $enforce_https
+map $host $enforce_https {
+    default "$ENFORCE_HTTPS";
+}
+

@@ -31,6 +31,14 @@ In addition, some variables must be defined and prerequisites must be met for th
 Use `make bash` to open a bash inside the build box as the configured user.
 
 
+# Restart
+* Wurde an der Konfigurationsdatei `.env` etwas geändert, so aktualisiere ggf. die Webtrees-Konfiguration mittels
+`make apply-config` und starte den Stack neu mittels `make up`.
+
+# Zugriff auf Seiten mittels IP
+* Ale Default-IP wird `50010` verwendet (siehe docker-compose.development.yaml).
+ 
+
 # PHP Container
 ```shell
 docker compose exec phpfpm bash
@@ -120,7 +128,7 @@ zu installieren, muss die composer.json wie folgt angepasst werden:
         }
     },
     "require": {
-        "fisharebest/webtrees": "^2.2",
+        "fisharebest/webtrees": "~2.2.0",
         "magicsunday/webtrees-module-base": "*",
         "magicsunday/webtrees-descendants-chart": "*",
         "magicsunday/webtrees-pedigree-chart": "*",

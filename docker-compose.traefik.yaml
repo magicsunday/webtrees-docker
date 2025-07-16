@@ -1,3 +1,7 @@
+# The reverse proxy configuration
+#
+# This configuration ensures that services are delivered with proper routing and load balancing using Traefik.
+
 services:
     nginx:
         labels:
