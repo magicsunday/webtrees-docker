@@ -1,16 +1,21 @@
+# Development-specific volume configuration
+# These settings override the base configuration to use local directories for development
 volumes:
+    # Application files volume - maps to local ./app directory
     app:
         driver: local
         driver_opts:
             type: none
             device: ${PWD}/app
             o: bind
+    # Media files volume - maps to local ./persistent/media directory
     media:
         driver: local
         driver_opts:
             type: none
             device: ${PWD}/persistent/media
             o: bind
+    # Database files volume - maps to local ./persistent/database directory
     database:
         driver: local
         driver_opts:
@@ -18,10 +23,14 @@ volumes:
             device: ${PWD}/persistent/database
             o: bind
 
+# Base configuration for buildbox services
+# This is a template used by both buildbox and buildbox-root services
 x-buildbox-base: &buildbox-base
     build:
+        # Build configuration for the buildbox container
         context: .
         dockerfile: ./Dockerfile
+        # Use the build-box target in the Dockerfile
         target: build-box
         args:
             - PHP_VERSION
@@ -30,42 +39,58 @@ x-buildbox-base: &buildbox-base
     depends_on:
         - db
         - phpfpm
+    # Set the working directory to the project root
     working_dir: /var/webtrees
+    # Load environment variables from .env file
     env_file:
         - .env
     environment:
+        # Forward SSH agent for Git operations
         - SSH_AUTH_SOCK=/tmp/ssh.sock
+        # Set terminal type for better CLI experience
         - TERM=xterm-256color
     volumes:
+        # System timezone configuration
         - /etc/timezone:/etc/timezone:ro
         - /etc/localtime:/etc/localtime:ro
+        # Mount the project directory
         - ./:/var/webtrees
+        # Mount SSH configuration for Git operations
         - ${HOME}/.ssh:/root/.ssh
         - ${SSH_AUTH_SOCK}:/tmp/ssh.sock
     networks:
         - default
 
 services:
+    # Override database service to use the local volume
     db:
         volumes:
             - database:/var/lib/mysql
 
+    # Buildbox service running as root
+    # Used for operations that require elevated privileges
     buildbox-root:
         <<: *buildbox-base
         entrypoint: "/opt/root-entrypoint.sh"
         environment:
+            # Composer authentication for private repositories
             - COMPOSER_AUTH
 
+    # Buildbox service running as a regular user
+    # Used for day-to-day development tasks
     buildbox:
         <<: *buildbox-base
 
+    # Override nginx service to add port mapping for development
     nginx:
-        # Add a port to access the website via IP. For example, 50010 is an available external port
-        # mapped to internal docker container port 80.
+        # Add a port to access the website via IP
+        # 50010 is the external port mapped to container port 80
         ports:
             - "50010:80"
 
+    # Override phpMyAdmin service to add default credentials
     pma:
         environment:
+            # Autofill phpMyAdmin login with database credentials
             PMA_USER: ${MARIADB_USER}
             PMA_PASSWORD: ${MARIADB_PASSWORD}

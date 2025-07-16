@@ -1,26 +1,50 @@
-# The reverse proxy configuration
+# Traefik Reverse Proxy Configuration
 #
-# This configuration ensures that services are delivered with proper routing and load balancing using Traefik.
+# This configuration integrates the Webtrees services with Traefik, a modern HTTP reverse proxy and load balancer.
+# Benefits of using Traefik include:
+# - Automatic SSL/TLS certificate management
+# - Domain-based routing
+# - Load balancing
+# - Service discovery
+# - Middleware support for security features
+#
+# This setup allows accessing Webtrees and phpMyAdmin through custom domain names
+# instead of IP addresses and ports.
 
 services:
+    # Configure the Nginx web server for Traefik integration
     nginx:
         labels:
+            # Enable Traefik for this container
             - traefik.enable=true
+            # Define the router name using the project name (from .env)
             - traefik.http.routers.${COMPOSE_PROJECT_NAME}.service=${COMPOSE_PROJECT_NAME}-service
+            # Route requests based on the domain name (from .env)
             - traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`${DEV_DOMAIN}`)
+            # Specify the internal port that Traefik should forward traffic to
             - traefik.http.services.${COMPOSE_PROJECT_NAME}-service.loadbalancer.server.port=80
         networks:
+            # Connect to the external Traefik network
             - traefik
 
+    # Configure phpMyAdmin for Traefik integration
     pma:
         labels:
+            # Enable Traefik for this container
             - traefik.enable=true
+            # Define the router name for phpMyAdmin
             - traefik.http.routers.${COMPOSE_PROJECT_NAME}-pma.service=${COMPOSE_PROJECT_NAME}-pma-service
+            # Route requests to a subdomain (pma-yourdomain.com)
             - traefik.http.routers.${COMPOSE_PROJECT_NAME}-pma.rule=Host(`pma-${DEV_DOMAIN}`)
+            # Specify the internal port for phpMyAdmin
             - traefik.http.services.${COMPOSE_PROJECT_NAME}-pma-service.loadbalancer.server.port=80
         networks:
+            # Connect to the external Traefik network
             - traefik
 
+# Network configuration
 networks:
+    # External Traefik network
+    # This must already exist and have Traefik running on it
     traefik:
         external: true

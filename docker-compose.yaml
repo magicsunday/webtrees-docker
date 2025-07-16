@@ -1,15 +1,23 @@
 name: webtrees
 
+# Persistent volumes for data storage
 volumes:
+    # Stores the Webtrees application files
     app:
+    # Stores media files uploaded to Webtrees (photos, documents, etc.)
     media:
+    # Stores the MariaDB database files
     database:
 
 services:
+    # MariaDB database service
+    # This container runs the database that stores all Webtrees data
     db:
         image: mariadb:latest
         restart: always
         environment:
+            # Database credentials and configuration
+            # These values are loaded from the .env file
             - MARIADB_ROOT_PASSWORD
             - MARIADB_HOST
             - MARIADB_PORT
@@ -17,6 +25,7 @@ services:
             - MARIADB_USER
             - MARIADB_PASSWORD
         volumes:
+            # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
         networks:
@@ -28,48 +37,64 @@ services:
             retries: 3
             start_period: 60s
 
+    # PHP-FPM service
+    # This container runs the PHP interpreter with all required extensions for Webtrees
     phpfpm:
         depends_on:
             - db
         build:
+            # Build configuration for the PHP container
             context: .
             dockerfile: ./Dockerfile
             target: php-build
             args:
+                # PHP version to use, defined in .env
                 - PHP_VERSION
         image: ${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}
         environment:
+            # Application environment (production, development)
             - ENVIRONMENT
+            # Whether to enforce HTTPS (TRUE/FALSE)
             - ENFORCE_HTTPS
+            # PHP configuration settings
             - PHP_MAX_EXECUTION_TIME
             - PHP_MAX_INPUT_VARS
             - PHP_MEMORY_LIMIT
             - PHP_POST_MAX_SIZE
             - PHP_UPLOAD_MAX_FILESIZE
+            # Mail server configuration
             - MAIL_SMTP
             - MAIL_DOMAIN
             - MAIL_HOST
         restart: unless-stopped
         volumes:
+            # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
+            # Application and media storage
             - app:/var/www
             - media:/var/www/public/data/media
         networks:
             - default
 
+    # Nginx web server
+    # This container serves the Webtrees web application and handles HTTP requests
     nginx:
         depends_on:
             - phpfpm
         image: nginx:stable-alpine
         environment:
+            # Whether to enforce HTTPS (TRUE/FALSE)
             - ENFORCE_HTTPS
         restart: unless-stopped
         volumes:
+            # Application and media storage (read-only for web server)
             - app:/var/www:ro
             - media:/var/www/public/data/media:ro
+            # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
+            # Nginx configuration files
             - ./rootfs/etc/nginx/templates:/etc/nginx/templates:ro
             - ./rootfs/etc/nginx/includes/enforce-https.conf:/etc/nginx/includes/enforce-https.conf:ro
             - ./rootfs/etc/nginx/includes/php-proxy.conf:/etc/nginx/includes/php-proxy.conf:ro
@@ -85,17 +110,22 @@ services:
             retries: 3
             start_period: 10s
 
+    # phpMyAdmin service
+    # This container provides a web interface for database management
     pma:
         depends_on:
             - db
         image: phpmyadmin:latest
         restart: unless-stopped
         environment:
+            # Database connection settings
             PMA_HOST: ${MARIADB_HOST}
             PMA_PORT: ${MARIADB_PORT}
+            # Upload and memory limits for phpMyAdmin
             UPLOAD_LIMIT: ${UPLOAD_LIMIT}
             MEMORY_LIMIT: 512M
         volumes:
+            # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
         networks:
@@ -107,5 +137,7 @@ services:
             retries: 3
             start_period: 30s
 
+# Network configuration
 networks:
+    # Default network for container communication
     default:

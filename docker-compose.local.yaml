@@ -1,9 +1,18 @@
 # The local configuration
 #
-# This configuration binds the disk's file system to the directory ${MEDIA_DIR} specified
-# in the environment files (.env).
+# This configuration is designed for connecting to an external database server
+# instead of using the built-in database container. It's useful for:
+# - Sharing a database server across multiple projects
+# - Using an existing database server in your environment
+# - Testing with a production-like database setup
+#
+# This configuration also binds the media directory to a custom location
+# specified by the ${MEDIA_DIR} environment variable in the .env file.
 
 volumes:
+    # Override the media volume to use a custom directory
+    # This allows sharing media files with other applications or
+    # mounting an existing media directory
     media:
         driver: local
         driver_opts:
@@ -11,36 +20,55 @@ volumes:
             device: ${MEDIA_DIR}
             o: bind
 
-# Add services to the database network
 services:
+    # Disable the built-in database container
+    # Since we're connecting to an external database, we don't need the local one
     db:
-        # Stop the local database
+        # Override the entrypoint to make the container exit immediately
         entrypoint: /bin/bash
         command: -c "exit 0"
+        # Prevent the container from restarting
         restart: no
 
+    # Connect all services to the external database network
+    # This allows them to communicate with the external database server
+
+    # Development build-box (regular user)
     buildbox:
         networks:
+            # Add connection to the external database network
             - database
 
+    # Development build-box (root user)
     buildbox-root:
         networks:
+            # Add connection to the external database network
             - database
 
+    # PHP-FPM service
     phpfpm:
         networks:
+            # Add connection to the external database network
             - database
 
+    # Nginx web server
     nginx:
         networks:
+            # Add connection to the external database network
             - database
 
+    # phpMyAdmin service
     pma:
         networks:
+            # Add connection to the external database network
             - database
 
 networks:
-    # Database network
+    # External database network configuration
+    # This connects to an existing Docker network where the database server is running
     database:
+        # Specify that this is an external network (not created by this compose file)
         external: true
+        # Use the database hostname as the network name
+        # This should match the network name where your external database is running
         name: ${MARIADB_HOST}
