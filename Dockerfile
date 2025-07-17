@@ -17,6 +17,7 @@ ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/do
 # Install additionally required php extensions
 RUN chmod +x /usr/local/bin/install-php-extensions && \
     install-php-extensions \
+        apcu \
         exif \
         gd \
         imagick \
@@ -47,6 +48,7 @@ RUN chmod +x /docker-entrypoint.sh
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
 CMD ["php-fpm"]
+
 
 ############
 # BUILDBOX #
