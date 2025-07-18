@@ -7,11 +7,11 @@
  * LICENSE file that was distributed with this source code.
  */
 
+use Fisharebest\Webtrees\Webtrees;
+
 // Set up the application for the frontend
 (static function () {
     require dirname(__DIR__) . '/vendor/autoload.php';
 
-    return \Fisharebest\Webtrees\Webtrees::new()->run(PHP_SAPI);
-
-//    require dirname(__DIR__) . '/vendor/fisharebest/webtrees/index.php';
+    return Webtrees::new()->run(PHP_SAPI);
 })();
