@@ -101,6 +101,6 @@ COPY rootfs/ /
 # Set executable permissions for all entrypoint scripts
 RUN chmod +x /docker-entrypoint.sh && \
     chmod +x /opt/root-entrypoint.sh && \
-    chmod +x /opt/entrypoint.sh
+    chmod +x /opt/user-entrypoint.sh
 
-ENTRYPOINT ["/docker-entrypoint.sh", "/opt/entrypoint.sh"]
+ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]

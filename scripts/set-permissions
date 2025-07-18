@@ -6,6 +6,8 @@ set -e
 ## Prints out command arguments during execution.
 #set -x
 
+source scripts/configuration
+
 # Create directories before mounting
 DIRS=(
     "${APP_DIR}"
@@ -14,7 +16,7 @@ DIRS=(
     "$APP_DIR/vendor"
 )
 
-echo -e "\033[0;32m ✔\033[0m Change permissions for APP_DIR: ${APP_DIR}"
+echo -e "\033[0;34m[+] Change permissions for APP_DIR: ${APP_DIR}\033[0m"
 
 # Create directories with proper permissions
 for dir in "${DIRS[@]}"; do
@@ -32,3 +34,5 @@ rm -rf "$APP_DIR/html"
 
 # Copy public folder to webtrees directory
 ln -s public "$APP_DIR/html"
+
+logSuccess "Permissions changed successfully"
