@@ -8,6 +8,10 @@ logSuccess() {
     echo -e "\033[0;32m ✔\033[0m $1"
 }
 
+logWarning() {
+    echo -e "\033[0;33m ⚠\033[0m $1" >&2
+}
+
 logError() {
     echo -e "\033[0;31m ✘\033[0m $1" >&2
 }
@@ -33,9 +37,28 @@ validateEnvironment() {
     done
 }
 
+# Validate user and group IDs
+validateIds() {
+    local user_id="$1"
+    local group_id="$2"
+
+    # Check if IDs are numeric
+    if ! [[ "$user_id" =~ ^[0-9]+$ ]] || ! [[ "$group_id" =~ ^[0-9]+$ ]]; then
+        logError "User ID and Group ID must be numeric"
+        return 1
+    fi
+
+    # Check if IDs are in valid range (avoid system users)
+    if [[ "$user_id" -lt 1000 ]] || [[ "$group_id" -lt 82 ]]; then
+        logWarning "Using system-level User/Group IDs"
+    fi
+
+    return 0
+}
+
 # Webtrees configuration
 setupConfiguration() {
-    logSuccess "Setting up webtrees configuring file"
+    logSuccess "Setting up webtrees configuration file"
     cd "${APP_DIR}" || exit 1
 
     cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php "${CONFIG_FILE}"

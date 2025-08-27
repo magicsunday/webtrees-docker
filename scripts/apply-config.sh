@@ -10,6 +10,8 @@ source scripts/configuration
 
 # Main execution
 main() {
+    echo -e "\033[0;34m[+] Re-apply webtrees configuration\033[0m"
+
     validateEnvironment
     setupConfiguration
     logSuccess "Configuration successfully applied"
