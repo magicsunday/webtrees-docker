@@ -10,13 +10,11 @@ source scripts/configuration
 
 # Configuration
 readonly WEBTREES_BASE="${APP_DIR}/vendor/fisharebest/webtrees"
-readonly WEBTREES_REPO="https://github.com/fisharebest/webtrees.git"
 
 # Required directories array
 readonly REQUIRED_DIRS=(
     "data/media"
     "data/cache"
-    "resources/lang"
 )
 
 # File operations
@@ -33,6 +31,7 @@ copyApplicationFiles() {
 # Application installation
 installApplication() {
     logSuccess "Installing webtrees"
+
     composer install -d "${APP_DIR}" --no-ansi --no-interaction
 
     cd "${APP_DIR}" || exit 1
@@ -46,6 +45,7 @@ installApplication() {
 # Directory management
 setupDirectories() {
     logSuccess "Setting up directory structure"
+
     rm -rf "${WEBTREES_BASE}/data/cache"
 
     for dir in "${REQUIRED_DIRS[@]}"; do
@@ -53,28 +53,12 @@ setupDirectories() {
     done
 }
 
-# Language files management
-setupLanguages() {
-    logSuccess "Setting up language files"
-    rm -rf webtrees-languages
-
-    git clone --quiet --no-checkout --depth=1 --filter=tree:0 \
-        "${WEBTREES_REPO}" webtrees-languages
-
-    cd webtrees-languages || exit 1
-    git sparse-checkout set --no-cone /resources/lang
-    git checkout --quiet --no-progress > /dev/null 2>&1
-    cd - > /dev/null || exit 1
-
-    cp -rf webtrees-languages/resources/lang/* "${WEBTREES_BASE}"/resources/lang
-    rm -rf webtrees-languages
-}
-
 # Permission management
 setupDirectoryPermissions() {
-    local target_dirs="${WEBTREES_BASE}/data/media ${WEBTREES_BASE}/data/cache ${WEBTREES_BASE}/resources/lang"
+    local target_dirs="${WEBTREES_BASE}/data/media ${WEBTREES_BASE}/data/cache"
+
     chown "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" ${target_dirs}
-    chmod ug+rw -R ${target_dirs}
+    chmod -R ug+rw ${target_dirs}
 }
 
 # Main execution
@@ -84,9 +68,8 @@ main() {
     installApplication
     setupConfiguration
     setupDirectories
-    setupLanguages
     setupDirectoryPermissions
-    logSuccess "Installation completed successfully"
+    logSuccess "Application installed successfully"
 }
 
 main

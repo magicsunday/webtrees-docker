@@ -22,6 +22,12 @@
         "fisharebest/webtrees": "~2.2.0"
     },
     "require-dev": {
-        "magicsunday/webtrees-module-installer-plugin": "dev-WIP"
+        "magicsunday/webtrees-module-installer-plugin": "^1.8"
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "../scripts/update-application.sh",
+            "../scripts/update-languages.sh"
+        ]
     }
 }

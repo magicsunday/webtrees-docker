@@ -25,7 +25,8 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
         opcache \
         pdo_mysql \
         xdebug \
-        zip
+        zip && \
+        rm -f /usr/local/bin/install-php-extensions
 
 LABEL org.opencontainers.image.title="Webtrees docker image" \
       org.opencontainers.image.description="Run webtrees with Alpine, Nginx and PHP FPM." \
@@ -60,11 +61,10 @@ ARG DOCKER_SERVER
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-RUN apk --no-cache --update upgrade
-
 # Installing required extensions
-RUN set -e && \
+RUN apk --no-cache --update upgrade && \
     apk add --no-cache \
+        acl \
         bash \
         build-base \
         ca-certificates \
@@ -87,14 +87,9 @@ RUN set -e && \
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 
 # Clean up
-RUN set -ex && \
-    rm -rf /usr/src/* && \
-    rm -rf /tmp/* && \
-    rm -rf /var/tmp/* && \
-    for logs in `find /var/log -type f`; do > $logs; done && \
-    rm -rf /usr/share/locale/* && \
-    rm -rf /usr/share/man/* && \
-    rm -rf /usr/share/doc/*
+RUN rm -rf /tmp/* /var/tmp/* && \
+    rm -rf /usr/src/* /usr/include/* /usr/lib/*.a && \
+    rm -rf /usr/share/doc /usr/share/man /usr/share/info
 
 COPY rootfs/ /
 
