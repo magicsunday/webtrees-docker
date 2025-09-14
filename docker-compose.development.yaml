@@ -46,7 +46,7 @@ x-buildbox-base: &buildbox-base
         - .env
     environment:
         # Forward SSH agent for Git operations
-        - SSH_AUTH_SOCK=/tmp/ssh.sock
+        - SSH_AUTH_SOCK=/ssh-agent
         # Set terminal type for better CLI experience
         - TERM=xterm-256color
     volumes:
@@ -57,7 +57,7 @@ x-buildbox-base: &buildbox-base
         - ./:/var/webtrees
         # Mount SSH configuration for Git operations
         - ${HOME}/.ssh:/root/.ssh
-        - ${SSH_AUTH_SOCK}:/tmp/ssh.sock
+        - ${SSH_AUTH_SOCK}:/ssh-agent
     networks:
         - default
 

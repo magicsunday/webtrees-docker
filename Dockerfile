@@ -78,6 +78,7 @@ RUN apk --no-cache --update upgrade && \
         nodejs \
         npm \
         openssl \
+        openssh \
         shadow \
         ssmtp \
         sudo \
