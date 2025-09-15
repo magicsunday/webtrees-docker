@@ -5,6 +5,7 @@
 /.env.*
 !/.env.dist
 /app/*
+!.gitkeep
 
 /docker-compose.override.yml
 
