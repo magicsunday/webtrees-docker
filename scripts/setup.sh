@@ -1,7 +1,85 @@
 #!/usr/bin/env bash
 
-SCRIPT_DIR="$( realpath "$( dirname "${BASH_SOURCE[0]}" )" )"
+# Portable script dir detection (no dependency on realpath)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOSTNAME=$(hostname)
+
+# Prerequisite checks and helpers
+set -euo pipefail
+
+# Logging utilities
+logSuccess() {
+    echo -e "\033[0;32m ✔\033[0m $1"
+}
+
+logWarning() {
+    echo -e "\033[0;33m ⚠\033[0m $1" >&2
+}
+
+logError() {
+    echo -e "\033[0;31m ✘\033[0m $1" >&2
+}
+
+MISSING=0
+requireCommand() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        logError "Required command '$1' not found in PATH."
+        MISSING=1
+    fi
+}
+
+# Detect Docker Compose binary (v2 plugin or v1)
+resolveComposeBinary() {
+    if command -v docker >/dev/null 2>&1; then
+        if docker compose version >/dev/null 2>&1; then
+            echo "docker compose"
+            return 0
+        fi
+    fi
+    if command -v docker-compose >/dev/null 2>&1; then
+        echo "docker-compose"
+        return 0
+    fi
+    echo ""; return 1
+}
+
+# sed wrapper that applies sed -i edits portably on GNU and BSD/macOS systems.
+updateEnvironmentFile() {
+    local expr="$1" file="$2"
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$expr" "$file"
+    else
+        sed -i '' "$expr" "$file"
+    fi
+}
+
+echo -e "Setting up webtrees docker environment"
+echo -e ""
+
+# Basic prerequisites
+requireCommand bash
+requireCommand sed
+requireCommand git
+requireCommand make
+requireCommand docker || true
+
+COMPOSE_BIN="$(resolveComposeBinary || true)"
+if [ -z "$COMPOSE_BIN" ]; then
+    logError "Docker Compose is not available. Please install Docker Desktop (includes docker compose) or docker-compose."
+    MISSING=1
+fi
+
+if [ "$MISSING" -ne 0 ]; then
+    logError "One or more required tools are missing. Please install the missing prerequisites and re-run scripts/setup.sh."
+    exit 1
+fi
+
+# Verify Docker daemon is reachable (non-fatal but informative)
+if command -v docker >/dev/null 2>&1; then
+    if ! docker info >/dev/null 2>&1; then
+        logWarning "Docker daemon not reachable. Ensure Docker Desktop/daemon is running and you have permission to access it."
+    fi
+fi
 
 echo "Setting up development environment"
 
@@ -31,64 +109,91 @@ if [ ! -d "persistent/media" ]; then
 fi
 
 echo "Setup local development docker stack in COMPOSE_FILE"
-pattern="s/COMPOSE_FILE=.*/COMPOSE_FILE=docker-compose.yaml\:docker-compose.development.yaml\:docker-compose.traefik.yaml\:docker-compose.local.yaml/"
-sed -i "${pattern}" .env
+pattern='/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yaml:docker-compose.development.yaml:docker-compose.traefik.yaml:docker-compose.local.yaml|'
+updateEnvironmentFile "${pattern}" .env
 
-#read -rp "Enter the directory where your Webtrees installation is located: " APP_DIR
-#pattern="s#APP_DIR=.*#APP_DIR=${APP_DIR}#"
-#sed -i "${pattern}" .env
+# Interactive detection
+INTERACTIVE=0
+if [ -t 0 ]; then
+    INTERACTIVE=1;
+fi
 
-read -rp "Enter the domain under which the DEV system should be accessible [webtrees.nas.lan]: " DEV_DOMAIN
-: ${DEV_DOMAIN:=webtrees.nas.lan}
-pattern="s/DEV_DOMAIN=.*/DEV_DOMAIN=${DEV_DOMAIN}/"
-sed -i "${pattern}" .env
+# Defaults
+DEV_DOMAIN=${DEV_DOMAIN:-webtrees.nas.lan}
+MARIADB_DATABASE=${MARIADB_DATABASE:-webtrees}
+MARIADB_USER=${MARIADB_USER:-webtrees}
+MARIADB_PASSWORD=${MARIADB_PASSWORD:-webtrees}
+MARIADB_HOST=${MARIADB_HOST:-db}
+MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-}
 
-read -rp "Enter your MySQL/MariaDB root password: " MARIADB_ROOT_PASSWORD
-pattern="s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}/"
-sed -i "${pattern}" .env
+if [ "$INTERACTIVE" -eq 1 ]; then
+    read -rp "Enter the domain under which the DEV system should be accessible [${DEV_DOMAIN}]: " _in || true
+    DEV_DOMAIN=${_in:-$DEV_DOMAIN}
 
-read -rp "Enter your MySQL/MariaDB hostname: " MARIADB_HOST
-pattern="s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/"
-sed -i "${pattern}" .env
+    read -rp "Enter your MySQL/MariaDB root password: " _in || true
+    MARIADB_ROOT_PASSWORD=${_in:-$MARIADB_ROOT_PASSWORD}
 
-read -rp "Enter your MySQL/MariaDB database name [webtrees]: " MARIADB_DATABASE
-: ${MARIADB_DATABASE:=webtrees}
-pattern="s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/"
-sed -i "${pattern}" .env
+    read -rp "Enter your MySQL/MariaDB hostname: " _in || true
+    MARIADB_HOST=${_in:-$MARIADB_HOST}
 
-read -rp "Enter your MySQL/MariaDB username [webtrees]: " MARIADB_USER
-: ${MARIADB_USER:=webtrees}
-pattern="s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/"
-sed -i "${pattern}" .env
+    read -rp "Enter your MySQL/MariaDB database name [${MARIADB_DATABASE}]: " _in || true
+    MARIADB_DATABASE=${_in:-$MARIADB_DATABASE}
 
-read -rp "Enter your MySQL/MariaDB password [webtrees]: " MARIADB_PASSWORD
-: ${MARIADB_PASSWORD:=webtrees}
-pattern="s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/"
-sed -i "${pattern}" .env
+    read -rp "Enter your MySQL/MariaDB username [${MARIADB_USER}]: " _in || true
+    MARIADB_USER=${_in:-$MARIADB_USER}
+
+    read -rp "Enter your MySQL/MariaDB password [${MARIADB_PASSWORD}]: " _in || true
+    MARIADB_PASSWORD=${_in:-$MARIADB_PASSWORD}
+fi
+
+updateEnvironmentFile "s/DEV_DOMAIN=.*/DEV_DOMAIN=${DEV_DOMAIN}/" .env
+updateEnvironmentFile "s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}/" .env
+updateEnvironmentFile "s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/" .env
+updateEnvironmentFile "s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/" .env
+updateEnvironmentFile "s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/" .env
+updateEnvironmentFile "s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/" .env
 
 echo "Set local user ID"
-pattern="s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/"
-sed -i "${pattern}" .env
+updateEnvironmentFile "s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/" .env
 
 echo "Set local group ID"
-pattern="s/LOCAL_GROUP_ID=.*/LOCAL_GROUP_ID=$(id -g)/"
-sed -i "${pattern}" .env
+updateEnvironmentFile "s/LOCAL_GROUP_ID=.*/LOCAL_GROUP_ID=$(id -g)/" .env
 
 echo "Set local username"
-pattern="s/LOCAL_USER_NAME=.*/LOCAL_USER_NAME=$(whoami | sed 's/\./-/')/"
-sed -i "${pattern}" .env
+# Ensure username contains only allowed chars (replace dots with dashes)
+updateEnvironmentFile "s/LOCAL_USER_NAME=.*/LOCAL_USER_NAME=$(whoami | sed 's/\./-/')/" .env
+
+# Git identity
+GIT_NAME=$(git config user.name || true)
+GIT_EMAIL=$(git config user.email || true)
+if [ -z "${GIT_NAME}" ]; then GIT_NAME="webtrees-developer"; fi
+if [ -z "${GIT_EMAIL}" ]; then GIT_EMAIL="developer@example.com"; fi
 
 echo "Set GIT username"
-pattern="s/GIT_AUTHOR_NAME=.*/GIT_AUTHOR_NAME=$(git config user.name)/"
-sed -i "${pattern}" .env
+updateEnvironmentFile "s/GIT_AUTHOR_NAME=.*/GIT_AUTHOR_NAME=${GIT_NAME}/" .env
 
 echo "Set GIT email address"
-pattern="s/GIT_AUTHOR_EMAIL=.*/GIT_AUTHOR_EMAIL=$(git config user.email)/"
-sed -i "${pattern}" .env
+updateEnvironmentFile "s/GIT_AUTHOR_EMAIL=.*/GIT_AUTHOR_EMAIL=${GIT_EMAIL}/" .env
 
 echo "Run install"
-bash -c "docker compose pull"
+
+# Pull images using detected compose binary (v2 or v1)
+$COMPOSE_BIN pull
+
+# Ensure APP_DIR exists before installation
+# Read APP_DIR from .env; default to ./app if unset
+APP_DIR_VALUE=$(grep -E '^APP_DIR=' .env | sed 's/^APP_DIR=//')
+if [ -z "${APP_DIR_VALUE:-}" ]; then
+    APP_DIR_VALUE="./app"
+fi
+
+# Create directory if it does not exist (relative to project root)
+if [ ! -d "$APP_DIR_VALUE" ]; then
+    echo "Create application directory: $APP_DIR_VALUE"
+    mkdir -p "$APP_DIR_VALUE"
+fi
+
 make install
 
-echo "Development environment setup complete."
-echo "You can now start the development environment with 'make up'"
+logSuccess "Development environment setup complete."
+logSuccess "You can now start the development environment with 'make up'"
