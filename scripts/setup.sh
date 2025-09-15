@@ -8,28 +8,28 @@ HOSTNAME=$(hostname)
 set -euo pipefail
 
 # Logging utilities
-logSuccess() {
-    echo -e "\033[0;32m ✔\033[0m $1"
+log_success() {
+    printf "\033[0;32m ✔\033[0m %s\n" "$1"
 }
 
-logWarning() {
-    echo -e "\033[0;33m ⚠\033[0m $1" >&2
+log_warning() {
+    printf "\033[0;33m ⚠\033[0m %s\n" "$1" >&2
 }
 
-logError() {
-    echo -e "\033[0;31m ✘\033[0m $1" >&2
+log_error() {
+    printf "\033[0;31m ✘\033[0m %s\n" "$1" >&2
 }
 
 MISSING=0
-requireCommand() {
+require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
-        logError "Required command '$1' not found in PATH."
+        log_error "Required command '$1' not found in PATH."
         MISSING=1
     fi
 }
 
 # Detect Docker Compose binary (v2 plugin or v1)
-resolveComposeBinary() {
+resolve_compose_binary() {
     if command -v docker >/dev/null 2>&1; then
         if docker compose version >/dev/null 2>&1; then
             echo "docker compose"
@@ -44,7 +44,7 @@ resolveComposeBinary() {
 }
 
 # sed wrapper that applies sed -i edits portably on GNU and BSD/macOS systems.
-updateEnvironmentFile() {
+update_environment_file() {
     local expr="$1" file="$2"
     if sed --version >/dev/null 2>&1; then
         sed -i "$expr" "$file"
@@ -53,31 +53,31 @@ updateEnvironmentFile() {
     fi
 }
 
-echo -e "Setting up webtrees docker environment"
-echo -e ""
+printf "Setting up webtrees docker environment\n"
+printf "\n"
 
 # Basic prerequisites
-requireCommand bash
-requireCommand sed
-requireCommand git
-requireCommand make
-requireCommand docker || true
+require_command bash
+require_command sed
+require_command git
+require_command make
+require_command docker || true
 
-COMPOSE_BIN="$(resolveComposeBinary || true)"
-if [ -z "$COMPOSE_BIN" ]; then
-    logError "Docker Compose is not available. Please install Docker Desktop (includes docker compose) or docker-compose."
+COMPOSE_BIN="$(resolve_compose_binary || true)"
+if [[ -z "${COMPOSE_BIN}" ]]; then
+    log_error "Docker Compose is not available. Please install Docker Desktop (includes docker compose) or docker-compose."
     MISSING=1
 fi
 
 if [ "$MISSING" -ne 0 ]; then
-    logError "One or more required tools are missing. Please install the missing prerequisites and re-run scripts/setup.sh."
+    log_error "One or more required tools are missing. Please install the missing prerequisites and re-run scripts/setup.sh."
     exit 1
 fi
 
 # Verify Docker daemon is reachable (non-fatal but informative)
 if command -v docker >/dev/null 2>&1; then
     if ! docker info >/dev/null 2>&1; then
-        logWarning "Docker daemon not reachable. Ensure Docker Desktop/daemon is running and you have permission to access it."
+        log_warning "Docker daemon not reachable. Ensure Docker Desktop/daemon is running and you have permission to access it."
     fi
 fi
 
@@ -110,7 +110,7 @@ fi
 
 echo "Setup local development docker stack in COMPOSE_FILE"
 pattern='/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yaml:docker-compose.development.yaml:docker-compose.traefik.yaml:docker-compose.local.yaml|'
-updateEnvironmentFile "${pattern}" .env
+update_environment_file "${pattern}" .env
 
 # Interactive detection
 INTERACTIVE=0
@@ -133,7 +133,7 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     read -rp "Enter your MySQL/MariaDB root password: " _in || true
     MARIADB_ROOT_PASSWORD=${_in:-$MARIADB_ROOT_PASSWORD}
 
-    read -rp "Enter your MySQL/MariaDB hostname: " _in || true
+    read -rp "Enter your MySQL/MariaDB hostname [${MARIADB_HOST}]: " _in || true
     MARIADB_HOST=${_in:-$MARIADB_HOST}
 
     read -rp "Enter your MySQL/MariaDB database name [${MARIADB_DATABASE}]: " _in || true
@@ -146,22 +146,22 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     MARIADB_PASSWORD=${_in:-$MARIADB_PASSWORD}
 fi
 
-updateEnvironmentFile "s/DEV_DOMAIN=.*/DEV_DOMAIN=${DEV_DOMAIN}/" .env
-updateEnvironmentFile "s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}/" .env
-updateEnvironmentFile "s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/" .env
-updateEnvironmentFile "s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/" .env
-updateEnvironmentFile "s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/" .env
-updateEnvironmentFile "s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/" .env
+update_environment_file "s/DEV_DOMAIN=.*/DEV_DOMAIN=${DEV_DOMAIN}/" .env
+update_environment_file "s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}/" .env
+update_environment_file "s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/" .env
+update_environment_file "s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/" .env
+update_environment_file "s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/" .env
+update_environment_file "s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/" .env
 
 echo "Set local user ID"
-updateEnvironmentFile "s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/" .env
+update_environment_file "s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/" .env
 
 echo "Set local group ID"
-updateEnvironmentFile "s/LOCAL_GROUP_ID=.*/LOCAL_GROUP_ID=$(id -g)/" .env
+update_environment_file "s/LOCAL_GROUP_ID=.*/LOCAL_GROUP_ID=$(id -g)/" .env
 
 echo "Set local username"
 # Ensure username contains only allowed chars (replace dots with dashes)
-updateEnvironmentFile "s/LOCAL_USER_NAME=.*/LOCAL_USER_NAME=$(whoami | sed 's/\./-/')/" .env
+update_environment_file "s/LOCAL_USER_NAME=.*/LOCAL_USER_NAME=$(whoami | sed 's/\./-/')/" .env
 
 # Git identity
 GIT_NAME=$(git config user.name || true)
@@ -170,10 +170,10 @@ if [ -z "${GIT_NAME}" ]; then GIT_NAME="webtrees-developer"; fi
 if [ -z "${GIT_EMAIL}" ]; then GIT_EMAIL="developer@example.com"; fi
 
 echo "Set GIT username"
-updateEnvironmentFile "s/GIT_AUTHOR_NAME=.*/GIT_AUTHOR_NAME=${GIT_NAME}/" .env
+update_environment_file "s/GIT_AUTHOR_NAME=.*/GIT_AUTHOR_NAME=${GIT_NAME}/" .env
 
 echo "Set GIT email address"
-updateEnvironmentFile "s/GIT_AUTHOR_EMAIL=.*/GIT_AUTHOR_EMAIL=${GIT_EMAIL}/" .env
+update_environment_file "s/GIT_AUTHOR_EMAIL=.*/GIT_AUTHOR_EMAIL=${GIT_EMAIL}/" .env
 
 echo "Run install"
 
@@ -195,5 +195,5 @@ fi
 
 make install
 
-logSuccess "Development environment setup complete."
-logSuccess "You can now start the development environment with 'make up'"
+log_success "Development environment setup complete."
+log_success "You can now start the development environment with 'make up'"

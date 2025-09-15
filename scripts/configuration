@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
 
+# Google Shell Style Guide baseline
+set -o errexit -o nounset -o pipefail
+
+IFS=$'\n\t'
+
 # Configuration
 readonly CONFIG_FILE="vendor/fisharebest/webtrees/data/config.ini.php"
 
 # Logging utilities
-logSuccess() {
-    echo -e "\033[0;32m ✔\033[0m $1"
+log_success() {
+    printf "\033[0;32m ✔\033[0m %s\n" "$1"
 }
 
-logWarning() {
-    echo -e "\033[0;33m ⚠\033[0m $1" >&2
+log_warning() {
+    printf "\033[0;33m ⚠\033[0m %s\n" "$1" >&2
 }
 
-logError() {
-    echo -e "\033[0;31m ✘\033[0m $1" >&2
+log_error() {
+    printf "\033[0;31m ✘\033[0m %s\n" "$1" >&2
 }
 
 # Validate environment
-validateEnvironment() {
-    local required_vars=(
+validate_environment() {
+    local -a required_vars=(
         "APP_DIR"
         "MARIADB_HOST"
         "MARIADB_PORT"
@@ -29,61 +34,64 @@ validateEnvironment() {
         "ENFORCE_HTTPS"
     )
 
+    local var
     for var in "${required_vars[@]}"; do
-        if [[ -z "${!var}" ]]; then
-            logError "Required environment variable $var is not set"
+        if [[ -z "${!var:-}" ]]; then
+            log_error "Required environment variable ${var} is not set"
             exit 1
         fi
     done
 }
 
 # Validate user and group IDs
-validateIds() {
+validate_ids() {
     local user_id="$1"
     local group_id="$2"
 
     # Check if IDs are numeric
-    if ! [[ "$user_id" =~ ^[0-9]+$ ]] || ! [[ "$group_id" =~ ^[0-9]+$ ]]; then
-        logError "User ID and Group ID must be numeric"
+    if ! [[ "${user_id}" =~ ^[0-9]+$ ]] || ! [[ "${group_id}" =~ ^[0-9]+$ ]]; then
+        log_error "User ID and Group ID must be numeric"
         return 1
     fi
 
     # Check if IDs are in valid range (avoid system users)
-    if [[ "$user_id" -lt 1000 ]] || [[ "$group_id" -lt 82 ]]; then
-        logWarning "Using system-level User/Group IDs"
+    if [[ "${user_id}" -lt 1000 ]] || [[ "${group_id}" -lt 82 ]]; then
+        log_warning "Using system-level User/Group IDs"
     fi
 
     return 0
 }
 
 # Webtrees configuration
-setupConfiguration() {
-    logSuccess "Setting up webtrees configuration file"
+setup_configuration() {
+    log_success "Setting up webtrees configuration file"
     cd "${APP_DIR}" || exit 1
 
     cp ../setup/vendor/fisharebest/webtrees/data/config.ini.php "${CONFIG_FILE}"
 
     # Build project URL
-    if [ "${ENFORCE_HTTPS}" == "TRUE" ]; then
-        URL_SCHEME="https"
+    local url_scheme
+    if [[ "${ENFORCE_HTTPS}" == "TRUE" ]]; then
+        url_scheme="https"
     else
-        URL_SCHEME="http"
+        url_scheme="http"
     fi
 
-    local config_entries=(
+    local -a config_entries=(
         "dbhost=${MARIADB_HOST}"
         "dbport=${MARIADB_PORT}"
         "dbuser=${MARIADB_USER}"
         "dbpass=${MARIADB_PASSWORD}"
         "dbname=${MARIADB_DATABASE}"
-        "base_url=${URL_SCHEME}:\/\/${DEV_DOMAIN}"
+        "base_url=${url_scheme}:\\/\\/${DEV_DOMAIN}"
         "tblpfx=${WEBTREES_TABLE_PREFIX}"
         "rewrite_urls=${WEBTREES_REWRITE_URLS}"
     )
 
+    local entry key value
     for entry in "${config_entries[@]}"; do
-        local key="${entry%%=*}"
-        local value="${entry#*=}"
+        key="${entry%%=*}"
+        value="${entry#*=}"
         sed -i "s/${key}=.*/${key}=\"${value}\";/" "${CONFIG_FILE}"
     done
 

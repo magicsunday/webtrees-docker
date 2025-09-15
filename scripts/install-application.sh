@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-# Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
-set -e
+# Google Shell Style Guide baseline
+set -o errexit -o nounset -o pipefail
 
-## Prints out command arguments during execution.
-#set -x
+IFS=$'\n\t'
 
+# shellcheck source=scripts/configuration
 source scripts/configuration
 
 # Configuration
@@ -18,9 +18,9 @@ readonly REQUIRED_DIRS=(
 )
 
 # File operations
-copyApplicationFiles() {
+copy_application_files() {
     if [[ ! -d "${APP_DIR}" ]]; then
-        logError "Application directory does not exist"
+        log_error "Application directory does not exist"
         exit 1
     fi
 
@@ -29,8 +29,8 @@ copyApplicationFiles() {
 }
 
 # Application installation
-installApplication() {
-    logSuccess "Installing webtrees"
+install_application() {
+    log_success "Installing webtrees"
 
     composer install -d "${APP_DIR}" --no-ansi --no-interaction
 
@@ -43,33 +43,35 @@ installApplication() {
 }
 
 # Directory management
-setupDirectories() {
-    logSuccess "Setting up directory structure"
+setup_directories() {
+    log_success "Setting up directory structure"
 
     rm -rf "${WEBTREES_BASE}/data/cache"
 
+    local dir
     for dir in "${REQUIRED_DIRS[@]}"; do
         mkdir -p "${WEBTREES_BASE}/${dir}"
     done
 }
 
 # Permission management
-setupDirectoryPermissions() {
-    local target_dirs="${WEBTREES_BASE}/data/media ${WEBTREES_BASE}/data/cache"
+setup_directory_permissions() {
+    local target_dirs=("${WEBTREES_BASE}/data/media" "${WEBTREES_BASE}/data/cache")
 
-    chown "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" ${target_dirs}
-    chmod -R ug+rw ${target_dirs}
+    chown "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" "${target_dirs[@]}"
+    chmod -R ug+rw "${target_dirs[@]}"
 }
 
 # Main execution
 main() {
-    validateEnvironment
-    copyApplicationFiles
-    installApplication
-    setupConfiguration
-    setupDirectories
-    setupDirectoryPermissions
-    logSuccess "Application installed successfully"
+    validate_environment
+    copy_application_files
+    install_application
+    setup_configuration
+    setup_directories
+    setup_directory_permissions
+
+    log_success "Application installed successfully"
 }
 
 main

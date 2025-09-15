@@ -1,38 +1,37 @@
 #!/usr/bin/env bash
 
-# Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
-set -e
+# Google Shell Style Guide baseline
+set -o errexit -o nounset -o pipefail
 
-## Prints out command arguments during execution.
-#set -x
+IFS=$'\n\t'
 
 # Configuration
 readonly WEBTREES_BASE="${APP_DIR}/vendor/fisharebest/webtrees"
 readonly WEBTREES_REPO="https://github.com/fisharebest/webtrees.git"
 
 # Change working directory
-changeWorkingDirectory() {
-    CURRENT_DIR=$(pwd)
+change_working_directory() {
+    local current_dir app_basename base_dir
+    current_dir=$(pwd)
 
     # Extract only the last part of APP_DIR, e.g. "app" from "./app"
-    APP_BASENAME=$(basename "$APP_DIR")
+    app_basename=$(basename "${APP_DIR}")
 
     # Check if the current directory ends with this part
-    if [[ "$CURRENT_DIR" == */$APP_BASENAME ]]; then
-        BASE_DIR=$(dirname "$CURRENT_DIR")
-
-        cd "$BASE_DIR"
+    if [[ "${current_dir}" == */${app_basename} ]]; then
+        base_dir=$(dirname "${current_dir}")
+        cd "${base_dir}"
     fi
 }
 
 # Directory management
-setupLanguageDirectory() {
+setup_language_directory() {
     mkdir -p "${WEBTREES_BASE}/resources/lang"
 }
 
 # Language files management
-downloadLanguages() {
-    logSuccess "Downloading language files"
+download_languages() {
+    log_success "Downloading language files"
 
     rm -rf webtrees-languages
 
@@ -49,8 +48,8 @@ downloadLanguages() {
 }
 
 # Permission management
-setupLanguageDirectoryPermissions() {
-    setfacl -R -m g:${LOCAL_GROUP_NAME}:rwx,d:g:${LOCAL_GROUP_NAME}:rwx "${WEBTREES_BASE}/resources/lang"
+setup_language_directory_permissions() {
+    setfacl -R -m g:"${LOCAL_GROUP_NAME}":rwx,d:g:"${LOCAL_GROUP_NAME}":rwx "${WEBTREES_BASE}/resources/lang"
 
     chown -R "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" "${WEBTREES_BASE}/resources/lang"
     chmod -R ug+rw "${WEBTREES_BASE}/resources/lang"
@@ -58,18 +57,19 @@ setupLanguageDirectoryPermissions() {
 
 # Main execution
 main() {
-    echo -e "\033[0;34m[+] Updating language files\033[0m"
+    printf "\033[0;34m[+] Updating language files\033[0m\n"
 
-    changeWorkingDirectory
+    change_working_directory
 
+    # shellcheck source=scripts/configuration
     source scripts/configuration
 
-    validateEnvironment
-    setupLanguageDirectory
-    downloadLanguages
-    setupLanguageDirectoryPermissions
+    validate_environment
+    setup_language_directory
+    download_languages
+    setup_language_directory_permissions
 
-    logSuccess "The language files were successfully updated"
+    log_success "The language files were successfully updated"
 }
 
 main

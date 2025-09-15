@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
 
-export COMPOSER_AUTH=${COMPOSER_AUTH}
+# Google Shell Style Guide baseline
+set -o errexit -o nounset -o pipefail
+
+IFS=$'\n\t'
+
+# Preserve COMPOSER_AUTH if provided
+export COMPOSER_AUTH="${COMPOSER_AUTH:-}"
+
 composer install -d "${APP_DIR}"

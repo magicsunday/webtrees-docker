@@ -3,32 +3,28 @@
 # Root entrypoint script for Webtrees
 # This script executes commands as root user
 
-# Instructs a shell to exit if a command fails, i.e., if it outputs a non-zero exit status.
-set -e
+# Google Shell Style Guide baseline
+set -o errexit -o nounset -o pipefail
 
-# Treats unset or undefined variables as an error when substituting (during parameter expansion).
-set -u
-
-# Prevent masking an error in a pipeline
-set -o pipefail
+IFS=$'\n\t'
 
 # Logging utilities
-logSuccess() {
-    echo -e "\033[0;32m ✔\033[0m $1"
+log_success() {
+    printf "\033[0;32m ✔\033[0m %s\n" "$1"
 }
 
-logError() {
-    echo -e "\033[0;31m ✘\033[0m $1" >&2
+log_error() {
+    printf "\033[0;31m ✘\033[0m %s\n" "$1" >&2
 }
 
 # Main function
 main() {
-    if [ $# -eq 0 ]; then
-        logError "No command specified"
+    if [[ $# -eq 0 ]]; then
+        log_error "No command specified"
         return 1
     fi
 
-    logSuccess "Executing command as root: $*"
+    log_success "Executing command as root: $*"
     exec "$@"
 }
 
