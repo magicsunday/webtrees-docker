@@ -61,7 +61,13 @@ setDefaults() {
     fi
 
     # Set home directory and profile file
-    HOME_DIR="/home/${LOCAL_USER_NAME}"
+    if [ "$LOCAL_USER_ID" -eq 0 ]; then
+        LOCAL_USER_NAME="root"
+        HOME_DIR="/root"
+    else
+        HOME_DIR="/home/${LOCAL_USER_NAME}"
+    fi
+
     FILE_PROFILE="${HOME_DIR}/.bashrc"
 }
 
@@ -87,14 +93,16 @@ setupUserEnvironment() {
 
     # Copy mounted SSH files if they exist
     if [ -d /root/.ssh ]; then
-        if ! cp -r /root/.ssh "${HOME_DIR}"; then
-            logError "Failed to copy SSH files"
-            return 1
-        fi
+        if [ "$HOME_DIR" != "/root" ]; then
+            if ! cp -r /root/.ssh "${HOME_DIR}"; then
+                logError "Failed to copy SSH files"
+                return 1
+            fi
 
-        if ! chown "${LOCAL_USER_NAME}" -R "${HOME_DIR}"/.ssh; then
-            logError "Failed to set ownership of SSH files"
-            return 1
+            if ! chown "${LOCAL_USER_NAME}" -R "${HOME_DIR}"/.ssh; then
+                logError "Failed to set ownership of SSH files"
+                return 1
+            fi
         fi
     fi
 
@@ -148,7 +156,9 @@ main() {
     setDefaults
 
     # Setup user and group
-    setupUserAndGroup
+    if [ "$LOCAL_USER_ID" -ne 0 ]; then
+        setupUserAndGroup
+    fi
 
     # Setup user environment
     setupUserEnvironment || {
