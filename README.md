@@ -42,9 +42,14 @@ This project provides a Docker-based environment for running and developing with
 Before you begin, ensure you have the following software installed:
 
 * Docker
-* Docker Compose
+* Docker Compose (v2 "docker compose" or v1 "docker-compose")
 * Git
 * Bash
+
+Notes:
+- The setup script now checks for required tools (Docker, Docker Compose, Git, Make, sed) and aborts with actionable messages if something is missing.
+- Both Docker Compose v2 (plugin) and v1 (standalone) are supported.
+- The script works on GNU/Linux and macOS (BSD sed is handled).
 
 ## 🏁 Quick Start
 
