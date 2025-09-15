@@ -1,8 +1,8 @@
-# Webtrees Docker
+# 🚀 Webtrees Docker
 
 A Docker-based development and deployment environment for [Webtrees](https://www.webtrees.net/), the free and open source web genealogy application.
 
-## Table of Contents
+## 📚 Table of Contents
 
 - [Overview](#overview)
 - [Requirements](#requirements)
@@ -33,11 +33,11 @@ A Docker-based development and deployment environment for [Webtrees](https://www
 - [Security Considerations](#security-considerations)
 - [Performance Optimization](#performance-optimization)
 
-## Overview
+## 🧩 Overview
 
 This project provides a Docker-based environment for running and developing with Webtrees, a powerful web genealogy application. The containerized setup includes all necessary components (web server, PHP, database, and phpMyAdmin) configured to work together seamlessly.
 
-## Requirements
+## 🧰 Requirements
 
 Before you begin, ensure you have the following software installed:
 
@@ -46,7 +46,7 @@ Before you begin, ensure you have the following software installed:
 * Git
 * Bash
 
-## Quick Start
+## 🏁 Quick Start
 
 ```shell
 # Clone the repository
@@ -62,16 +62,16 @@ make up
 # Access Webtrees at http://localhost:50010
 ```
 
-## Setup and Installation
+## 🛠️ Setup and Installation
 
-### Clone the Repository
+### 📥 Clone the Repository
 
 ```shell
 git clone git@github.com:magicsunday/webtrees-docker.git
 cd webtrees-docker
 ```
 
-### Run the Setup Script
+### ▶️ Run the Setup Script
 
 The setup script will create the necessary configuration files:
 
@@ -81,7 +81,7 @@ The setup script will create the necessary configuration files:
 
 This script creates the `.env` file and prompts you for the required configuration variables.
 
-### Configure Environment Variables
+### ⚙️ Configure Environment Variables
 
 Edit the `.env` file to customize your installation. Important settings include:
 
@@ -90,7 +90,7 @@ Edit the `.env` file to customize your installation. Important settings include:
 - Web server settings
 - Application paths
 
-### Start the Containers
+### 🐳 Start the Containers
 
 Launch the Docker containers:
 
@@ -98,9 +98,9 @@ Launch the Docker containers:
 make up
 ```
 
-## Configuration
+## ⚙️ Configuration
 
-### Environment Variables
+### 🔧 Environment Variables
 
 The `.env` file contains all configurable options for the project. Key settings include:
 
@@ -112,7 +112,7 @@ The `.env` file contains all configurable options for the project. Key settings 
 - `PHP_MEMORY_LIMIT`: Memory limit for PHP
 - `ENFORCE_HTTPS`: Enable/disable HTTPS enforcement
 
-### Docker Compose Files
+### 🧩 Docker Compose Files
 
 The project uses several Docker Compose files for different environments:
 
@@ -121,7 +121,7 @@ The project uses several Docker Compose files for different environments:
 - `docker-compose.local.yaml`: Local environment configuration
 - `docker-compose.traefik.yaml`: Configuration for use with Traefik
 
-### Container Structure
+### 🧱 Container Structure
 
 The application consists of several containers:
 
@@ -130,9 +130,9 @@ The application consists of several containers:
 3. **nginx**: Nginx web server
 4. **pma**: phpMyAdmin for database management
 
-## Usage
+## 📖 Usage
 
-### Common Commands
+### ⌨️ Common Commands
 
 - `make up`: Start all containers
 - `make down`: Stop and remove all containers
@@ -143,7 +143,7 @@ The application consists of several containers:
 - `make bash`: Open a bash shell in the buildbox as the configured user
 - `make bash-root`: Open a bash shell in the buildbox as root
 
-### Accessing the Application
+### 🌐 Accessing the Application
 
 By default, the application is accessible at:
 
@@ -152,7 +152,7 @@ By default, the application is accessible at:
 
 The default port can be configured in the `docker-compose.development.yaml` file.
 
-### Working with the Buildbox
+### 👩‍💻 Working with the Buildbox
 
 The buildbox provides a development environment with all necessary tools:
 
@@ -160,7 +160,7 @@ The buildbox provides a development environment with all necessary tools:
 make bash
 ```
 
-### PHP Container Access
+### 🐘 PHP Container Access
 
 To access the PHP container directly:
 
@@ -168,7 +168,7 @@ To access the PHP container directly:
 docker compose exec phpfpm bash
 ```
 
-### Database Management
+### 🗄️ Database Management
 
 The project includes phpMyAdmin for database management. You can also access the database directly:
 
@@ -176,9 +176,9 @@ The project includes phpMyAdmin for database management. You can also access the
 docker compose exec db mysql -u root -p
 ```
 
-## Development
+## 👩‍💻 Development
 
-### Adding Custom Modules
+### 📦 Adding Custom Modules
 
 To add custom modules, modify the `composer.json` in the "app" directory:
 
@@ -227,11 +227,11 @@ To add custom modules, modify the `composer.json` in the "app" directory:
 
 Then run `make composer-update` to install or update the packages.
 
-### Third-Party Module Integration
+### 🔌 Third-Party Module Integration
 
 Third-party modules can be integrated using Composer. Add the module to the `require` section of your `composer.json` file and specify the repository if needed.
 
-### Development Workflow
+### 🔄 Development Workflow
 
 1. Make changes to your code
 2. Test changes in the development environment
@@ -239,9 +239,9 @@ Third-party modules can be integrated using Composer. Add the module to the `req
 4. Apply configuration changes with `make apply-config`
 5. Restart the stack with `make up`
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
-### Docker Permissions
+### 🔐 Docker Permissions
 
 To run Docker as a non-root user, add your user to the "docker" group:
 
@@ -259,7 +259,7 @@ groups
 
 Please read the [Docker security documentation](https://docs.docker.com/engine/security/#docker-daemon-attack-surface) regarding possible security implications.
 
-### Local Docker Registry
+### 📦 Local Docker Registry
 
 When using a local Docker Registry, you might encounter HTTPS-related errors. To allow HTTP access:
 
@@ -279,20 +279,20 @@ When using a local Docker Registry, you might encounter HTTPS-related errors. To
 sudo service docker restart
 ```
 
-### Common Issues
+### ❗ Common Issues
 
 - **Database connection errors**: Check your database credentials in the `.env` file
 - **Permission issues**: Ensure proper file permissions in mounted volumes
 - **Port conflicts**: Change the port mappings in the Docker Compose files if ports are already in use
 
-## Security Considerations
+## 🛡️ Security Considerations
 
 - HTTPS enforcement can be enabled by setting `ENFORCE_HTTPS=TRUE` in the `.env` file
 - Security headers are configured in `rootfs/etc/nginx/includes/security-headers.conf`
 - Keep all containers updated with `make build` regularly
 - Use strong passwords for database and admin accounts
 
-## Performance Optimization
+## ⚡ Performance Optimization
 
 - PHP opcache is enabled by default for better performance
 - Adjust PHP settings in the `.env` file:
