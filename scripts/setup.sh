@@ -109,7 +109,7 @@ if [ ! -d "persistent/media" ]; then
 fi
 
 echo "Setup local development docker stack in COMPOSE_FILE"
-pattern='/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yaml:docker-compose.development.yaml:docker-compose.traefik.yaml:docker-compose.local.yaml|'
+pattern='/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=compose.yaml:compose.development.yaml:compose.traefik.yaml:compose.external-db.yaml|'
 update_environment_file "${pattern}" .env
 
 # Interactive detection

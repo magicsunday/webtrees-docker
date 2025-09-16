@@ -121,10 +121,10 @@ The `.env` file contains all configurable options for the project. Key settings 
 
 The project uses several Docker Compose files for different environments:
 
-- `docker-compose.yaml`: Base configuration
-- `docker-compose.development.yaml`: Development environment configuration
-- `docker-compose.local.yaml`: Local environment configuration
-- `docker-compose.traefik.yaml`: Configuration for use with Traefik
+- `compose.yaml`: Base configuration
+- `compose.development.yaml`: Development environment configuration
+- `compose.external-db.yaml`: External database configuration
+- `compose.traefik.yaml`: Configuration for use with Traefik
 
 ### 🧱 Container Structure
 
@@ -155,7 +155,7 @@ By default, the application is accessible at:
 - Webtrees: http://localhost:50010
 - phpMyAdmin: http://localhost:50011
 
-The default port can be configured in the `docker-compose.development.yaml` file.
+The default port can be configured in the `compose.development.yaml` file.
 
 ### 👩‍💻 Working with the Buildbox
 

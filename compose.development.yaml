@@ -1,7 +1,7 @@
 # Development-specific volume configuration
 # These settings override the base configuration to use local directories for development
 volumes:
-    # Application files volume - maps to local ./app directory
+    # Application files volume - maps to the local ./app directory
     app:
         driver: local
         driver_opts:
