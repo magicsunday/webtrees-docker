@@ -5,24 +5,89 @@ set -o errexit -o nounset -o pipefail
 
 IFS=$'\n\t'
 
-# Portable script dir detection (no dependency on realpath)
+# Global Variables
+#
+# SCRIPT_DIR: Directory where this script resides
+# HOSTNAME: Current host name
+# INTERACTIVE: Flag indicating whether the script runs interactively
+# MISSING: Flag to track missing dependencies
+# COMPOSE_BIN: Array holding Docker Compose command (v1 or v2)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOSTNAME=$(hostname)
+INTERACTIVE=0
+MISSING=0
+COMPOSE_BIN=()
 
-# Logging utilities
+# Default values for development environment
+DEV_DOMAIN=${DEV_DOMAIN:-webtrees.nas.lan}
+MARIADB_DATABASE=${MARIADB_DATABASE:-webtrees}
+MARIADB_USER=${MARIADB_USER:-webtrees}
+MARIADB_PASSWORD=${MARIADB_PASSWORD:-webtrees}
+MARIADB_HOST=${MARIADB_HOST:-db}
+MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-}
+USE_TRAEFIK=0
+USE_EXTERNAL_DB=0
+USE_EXISTING_DB=0
+
+# Print a success message in green with a check mark
 log_success() {
     printf "\033[0;32m ✔\033[0m %s\n" "$1"
 }
 
+# Print a warning message in yellow with a warning symbol.
 log_warning() {
     printf "\033[0;33m ⚠\033[0m %s\n" "$1" >&2
 }
 
+# Print an error message in red with a cross symbol.
 log_error() {
     printf "\033[0;31m ✘\033[0m %s\n" "$1" >&2
 }
 
-MISSING=0
+# Returns 0 (true) if whiptail is available, 1 (false) otherwise
+has_whiptail() {
+    if command -v whiptail >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Yes/No prompt. Uses whiptail for a dialog when available; otherwise
+# falls back to a plain terminal prompt. Returns 0 (success) for "Yes"
+# and 1 for "No".
+ask_yesno() {
+    local prompt="$1"
+
+    if has_whiptail; then
+        whiptail --clear --yesno "$prompt" 10 60
+    else
+        local _in
+        read -rp "$prompt [y/N]: " _in || _in=""
+        case "${_in:-N}" in
+            y|Y) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+}
+
+# Generic text input prompt. Uses whiptail inputbox when available; otherwise
+# reads from the terminal. Echoes the entered value (or the provided default
+# if the user submits an empty value).
+ask_input() {
+    local prompt="$1" default="${2:-}"
+
+    if has_whiptail; then
+        whiptail --clear --inputbox "$prompt" 10 60 "$default" 3>&1 1>&2 2>&3
+    else
+        local _in
+        read -rp "$prompt${default:+ [$default]}: " _in || _in=""
+        echo "${_in:-$default}"
+    fi
+}
+
+# Verifies that a given command is available in PATH. If not found, marks the
+# global MISSING flag so the script can abort gracefully later.
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
         log_error "Required command '$1' not found in PATH."
@@ -30,13 +95,13 @@ require_command() {
     fi
 }
 
-# Detect Docker Compose binary (v2 plugin or v1)
+# Determines which Docker Compose binary is available and configures the
+# global COMPOSE_BIN array accordingly. Prefers `docker compose` (v2),
+# falling back to `docker-compose` (v1). Returns 0 on success, 1 on failure.
 resolve_compose_binary() {
-    if command -v docker >/dev/null 2>&1; then
-        if docker compose version >/dev/null 2>&1; then
-            COMPOSE_BIN=("docker" "compose")
-            return 0
-        fi
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        COMPOSE_BIN=("docker" "compose")
+        return 0
     fi
     if command -v docker-compose >/dev/null 2>&1; then
         COMPOSE_BIN=("docker-compose")
@@ -45,7 +110,17 @@ resolve_compose_binary() {
     return 1
 }
 
-# sed wrapper that applies sed -i edits portably on GNU and BSD/macOS systems.
+# Performs a light-weight check to see if the Docker daemon is reachable and
+# warns the user if it is not. Does not fail the script to allow offline
+# preparation of files.
+check_docker() {
+    if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then
+        log_warning "Docker daemon not reachable. Ensure Docker Desktop/daemon is running and you have permission to access it."
+    fi
+}
+
+# Applies an in-place sed expression to a file. Supports both GNU and BSD sed
+# by detecting availability and adjusting the -i syntax accordingly.
 update_environment_file() {
     local expr="$1" file="$2"
     if sed --version >/dev/null 2>&1; then
@@ -55,105 +130,56 @@ update_environment_file() {
     fi
 }
 
-printf "Setting up webtrees docker environment\n"
-printf "\n"
-
-# Basic prerequisites
-require_command bash
-require_command sed
-require_command git
-require_command make
-require_command docker || true
-
-resolve_compose_binary || true
-if [[ -z "${COMPOSE_BIN[*]}" ]]; then
-    log_error "Docker Compose is not available. Please install Docker Desktop (includes docker compose) or docker-compose."
-    MISSING=1
-fi
-
-if [ "$MISSING" -ne 0 ]; then
-    log_error "One or more required tools are missing. Please install the missing prerequisites and re-run scripts/setup.sh."
-    exit 1
-fi
-
-# Verify Docker daemon is reachable (non-fatal but informative)
-if command -v docker >/dev/null 2>&1; then
-    if ! docker info >/dev/null 2>&1; then
-        log_warning "Docker daemon not reachable. Ensure Docker Desktop/daemon is running and you have permission to access it."
+# Creates a directory if it does not exist. Emits a success message the first
+# time a directory is created; remains silent if it already exists.
+create_dir_if_missing() {
+    local dir="$1"
+    if [ ! -d "$dir" ]; then
+        log_success "Create directory: $dir"
+        mkdir -p "$dir"
     fi
-fi
+}
 
-printf "\033[0;34m[+] Setting up development environment\033[0m\n"
+# Ensures a working .env exists in the project root. If none exists,
+# copies .env.dist to .env. If .env is already present, warns and skips.
+# Aborts if .env.dist is missing.
+copy_env_file() {
+    if [ -f ".env" ]; then
+        log_warning "Environment file already exists. Copying will be skipped."
+    elif [ -f ".env.dist" ]; then
+        log_success "Copying .env.dist to .env"
+        cp .env.dist .env
+    else
+        log_error "Environment file .env.dist does not exist. Aborting."
+        exit 1
+    fi
+}
 
-cd "${SCRIPT_DIR}/.." || exit
+# Runs the interactive setup flow. Prompts the user (via whiptail if
+# available) for key decisions and credentials, then stores results in
+# global variables for later persistence into .env.
+#
+# Prompts include:
+#   - Traefik reverse proxy availability (sets USE_TRAEFIK)
+#   - DEV domain (defaults to current DEV_DOMAIN or SERVER_IP:APP_PORT)
+#   - Whether to use an existing, initialized database (sets USE_EXISTING_DB)
+#   - Whether to use an external database (sets USE_EXTERNAL_DB and MARIADB_HOST)
+#   - MariaDB root password, database name, user, and user password
+interactive_setup() {
+    if ask_yesno "Is a Traefik reverse proxy available?"; then
+        USE_TRAEFIK=1;
+    else
+        USE_TRAEFIK=0;
+    fi
 
-if [ -f ".env" ]; then
-    log_warning "Environment file already exists. Skipping."
-    exit 0;
-fi
-
-if [ ! -f ".env.dist" ]; then
-    log_error "Environment file .env.dist does not exist. Aborting."
-    exit 1;
-fi
-
-log_success "Copying .env.dist to .env"
-cp .env.dist .env
-
-if [ ! -d "persistent/database" ]; then
-    log_success "Create database directory"
-    mkdir -p "persistent/database"
-fi
-
-if [ ! -d "persistent/media" ]; then
-    log_success "Create media directory"
-    mkdir -p "persistent/media"
-fi
-
-log_success "Setting up local development docker stack in COMPOSE_FILE"
-# Set a minimal default compose stack; additional files can be added interactively
-pattern='/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=compose.yaml:compose.development.yaml|'
-update_environment_file "${pattern}" .env
-
-# Interactive detection
-INTERACTIVE=0
-if [ -t 0 ]; then
-    INTERACTIVE=1;
-fi
-
-# Defaults
-DEV_DOMAIN=${DEV_DOMAIN:-webtrees.nas.lan}
-MARIADB_DATABASE=${MARIADB_DATABASE:-webtrees}
-MARIADB_USER=${MARIADB_USER:-webtrees}
-MARIADB_PASSWORD=${MARIADB_PASSWORD:-webtrees}
-MARIADB_HOST=${MARIADB_HOST:-db}
-MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-}
-
-USE_TRAEFIK=0
-USE_EXTERNAL_DB=0
-
-if [ "$INTERACTIVE" -eq 1 ]; then
-    printf "\033[0;34m[+] Interactive setup\033[0m\n"
-
-    # Ask whether Traefik is available as reverse proxy FIRST
-    read -rp "Is a Traefik reverse proxy available? [y/N]: " _in || true
-
-    case "${_in:-N}" in
-        y|Y) USE_TRAEFIK=1 ;;
-        *) USE_TRAEFIK=0 ;;
-    esac
-
-    # Determine a sensible default for DEV_DOMAIN based on proxy choice
     if [ "$USE_TRAEFIK" -eq 1 ]; then
-        # Keep the current/default value (e.g., webtrees.nas.lan) when using a reverse proxy
         DEFAULT_DEV_DOMAIN="${DEV_DOMAIN}"
     else
-        # No reverse proxy: determine APP_PORT and use detected server IP as the default
-        # Safely read APP_PORT from .env (sed returns 0 even if no match)
         APP_PORT_VALUE="$(sed -n 's/^APP_PORT=//p' .env | head -n1)"
-        if [ -z "${APP_PORT_VALUE:-}" ]; then
-            APP_PORT_VALUE=50010
-        fi
+        APP_PORT_VALUE=${APP_PORT_VALUE:-50010}
+
+        PMA_PORT_VALUE="$(sed -n 's/^PMA_PORT=//p' .env | head -n1)"
+        PMA_PORT_VALUE=${PMA_PORT_VALUE:-50011}
 
         SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
@@ -162,142 +188,175 @@ if [ "$INTERACTIVE" -eq 1 ]; then
             SERVER_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i=="src"){print $(i+1); exit}}}')
         fi
 
-        if [ -z "$SERVER_IP" ]; then
-            SERVER_IP=${HOSTNAME}
-        fi
+        SERVER_IP=${SERVER_IP:-$HOSTNAME}
+
+        APP_PORT_VALUE=$(ask_input "Enter host port for Webtrees (maps to container 80):" "${APP_PORT_VALUE}")
+        PMA_PORT_VALUE=$(ask_input "Enter host port for phpMyAdmin (maps to container 80):" "${PMA_PORT_VALUE}")
 
         DEFAULT_DEV_DOMAIN="${SERVER_IP}:${APP_PORT_VALUE}"
     fi
 
-    # Ask for DEV_DOMAIN once, using the computed default
-    read -rp "Enter the domain under which the DEV system should be accessible [${DEFAULT_DEV_DOMAIN}]: " _in || true
-    DEV_DOMAIN=${_in:-$DEFAULT_DEV_DOMAIN}
+    DEV_DOMAIN=$(ask_input "Enter the domain under which the DEV system should be accessible:" "$DEFAULT_DEV_DOMAIN")
 
-    # Ask whether to use an existing database or not
-    read -rp "Do you want to use an existing database (already initialized)? [y/N]: " _in || true
-    case "${_in:-N}" in
-        y|Y) USE_EXISTING_DB=1 ;;
-        *) USE_EXISTING_DB=0 ;;
-    esac
+    if ask_yesno "Do you want to use an existing database (already initialized)?"; then
+        USE_EXISTING_DB=1;
+    else
+        USE_EXISTING_DB=0;
+    fi
 
-    # Ask whether to use a local or an external database
-    read -rp "Do you want to use an external database? [y/N]: " _in || true
-    case "${_in:-N}" in
-        y|Y) USE_EXTERNAL_DB=1 ;;
-        *) USE_EXTERNAL_DB=0 ;;
-    esac
-
-    read -rp "Enter your MySQL/MariaDB root password: " _in || true
-    MARIADB_ROOT_PASSWORD=${_in:-$MARIADB_ROOT_PASSWORD}
+    if ask_yesno "Do you want to use an external database?"; then
+        USE_EXTERNAL_DB=1;
+    else
+        USE_EXTERNAL_DB=0;
+    fi
 
     if [ "$USE_EXTERNAL_DB" -eq 1 ]; then
-        # When using an external DB, ask for the hostname/network name
-        read -rp "Enter your external MySQL/MariaDB hostname or network [${MARIADB_HOST}]: " _in || true
-        MARIADB_HOST=${_in:-$MARIADB_HOST}
+        MARIADB_HOST=$(ask_input "Enter your external MySQL/MariaDB hostname or network:" "$MARIADB_HOST")
     else
-        # For local DB, enforce built-in service name
         MARIADB_HOST=db
     fi
 
-    read -rp "Enter your MySQL/MariaDB database name [${MARIADB_DATABASE}]: " _in || true
-    MARIADB_DATABASE=${_in:-$MARIADB_DATABASE}
+    MARIADB_ROOT_PASSWORD=$(ask_input "Enter your MySQL/MariaDB root password" "$MARIADB_ROOT_PASSWORD")
+    MARIADB_DATABASE=$(ask_input "Enter your MySQL/MariaDB database name:" "$MARIADB_DATABASE")
+    MARIADB_USER=$(ask_input "Enter your MySQL/MariaDB username:" "$MARIADB_USER")
+    MARIADB_PASSWORD=$(ask_input "Enter your MySQL/MariaDB password" "$MARIADB_PASSWORD")
+}
 
-    read -rp "Enter your MySQL/MariaDB username [${MARIADB_USER}]: " _in || true
-    MARIADB_USER=${_in:-$MARIADB_USER}
+# Downloads the latest images referenced by the resolved compose files using
+# the previously detected Docker Compose binary (v2 or v1). This is a thin
+# wrapper to keep the main flow readable.
+setup_compose_images() {
+    "${COMPOSE_BIN[@]}" pull
+}
 
-    read -rp "Enter your MySQL/MariaDB password [${MARIADB_PASSWORD}]: " _in || true
-    MARIADB_PASSWORD=${_in:-$MARIADB_PASSWORD}
-fi
+# Prints post-setup guidance for the user. This function only outputs helpful
+# information and does not modify any files or settings. It reminds the user to
+# review important .env variables, file permissions for media, and how to apply
+# configuration changes afterward.
+post_setup_info() {
+    if [ "${USE_TRAEFIK}" -eq 1 ]; then
+        PMA_DOMAIN="pma-${DEV_DOMAIN}"
+    else
+        PMA_DOMAIN="${DEFAULT_DEV_DOMAIN%%:*}:${PMA_PORT_VALUE}"
+    fi
 
-printf "\033[0;34m[+] Updating environment file\033[0m\n"
+    printf "\n"
+    printf "\033[0;33m ⚠ Action required:\033[0m Please check your .env and set any missing values or update them according to your requirements, e.g."
+    echo ""
+    echo "   - LOCAL_GROUP_ID and LOCAL_GROUP_NAME"
+    echo "   - MEDIA_DIR"
+    echo "   - WEBTREES_TABLE_PREFIX"
+    echo "   - WEBTREES_REWRITE_URLS"
+    echo ""
+    echo "   Reminder: The media directory must be writable by the LOCAL_GROUP_ID inside the container."
+    echo "             If the container group differs from the host, you might need to set folder rights to 777 on the media directory."
+    echo ""
+    echo "   Note: If you change the database configuration, DEV_DOMAIN, or any WEBTREES_* variables in your .env later,"
+    echo "         run 'make apply-config' to re-apply the configuration to the application."
+    echo ""
+    log_success "Access information:"
+    echo ""
+    echo "   - Webtrees: ${DEV_DOMAIN}"
+    echo "   - phpMyAdmin: ${PMA_DOMAIN}"
+    printf "\n"
+    log_success "After you have reviewed and updated your .env as noted above, you can start the environment with 'make up'."
+}
 
-# Update COMPOSE_FILE according to choices
-if [ "$USE_TRAEFIK" -eq 1 ]; then
-    update_environment_file "s|^COMPOSE_FILE=.*|&:compose.traefik.yaml|" .env
-fi
+# Orchestrates the overall setup process:
+#   1) Validates required tools and resolves Docker Compose binary
+#   2) Ensures .env and required directories exist
+#   3) Initializes compose file defaults and runs interactive prompts when in a TTY
+#   4) Persists user choices and credentials into .env
+#   5) Sets local user metadata
+#   6) Pre-pulls Docker images to speed up first run
+#   7) Ensures app directory exists and triggers 'make install'
+#   8) Prints post-setup guidance without making further changes
+main() {
+    printf "Setting up webtrees docker environment\n\n"
 
-if [ "$USE_EXTERNAL_DB" -eq 1 ]; then
-    update_environment_file "s|^COMPOSE_FILE=.*|&:compose.external.yaml|" .env
-fi
+    require_command bash
+    require_command sed
+    require_command git
+    require_command make
+    require_command docker || true
 
-# Enable development host port mappings only when NOT using a reverse proxy
-if [ "$USE_TRAEFIK" -eq 0 ]; then
-    # Uncomment or create APP_PORT and PMA_PORT with defaults
-    update_environment_file "s/^[#]*APP_PORT=.*/APP_PORT=50010/" .env
-    update_environment_file "s/^[#]*PMA_PORT=.*/PMA_PORT=50011/" .env
+    resolve_compose_binary || true
+    if [[ -z "${COMPOSE_BIN[*]}" ]]; then
+        log_error "Docker Compose is not available. Please install Docker Desktop (includes docker compose) or docker-compose."
+        MISSING=1
+    fi
 
-    # When no reverse proxy is used, do not enforce HTTPS inside nginx/app
-    update_environment_file "s/^[#]*ENFORCE_HTTPS=.*/ENFORCE_HTTPS=FALSE/" .env
-fi
+    if [ "$MISSING" -ne 0 ]; then
+        log_error "One or more required tools are missing. Please install the missing prerequisites and re-run scripts/setup.sh."
+        exit 1;
+    fi
 
-update_environment_file "s/DEV_DOMAIN=.*/DEV_DOMAIN=${DEV_DOMAIN}/" .env
-update_environment_file "s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}/" .env
-update_environment_file "s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/" .env
-update_environment_file "s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/" .env
-update_environment_file "s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/" .env
-update_environment_file "s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/" .env
+    check_docker
 
-# Persist choice about existing database usage (default to 1 if absent later)
-if [ -n "${USE_EXISTING_DB:-}" ]; then
-    update_environment_file "s/^[#]*USE_EXISTING_DB=.*/USE_EXISTING_DB=${USE_EXISTING_DB}/" .env
-fi
+    printf "\033[0;34m[+] Setting up development environment\033[0m\n"
 
-log_success "Set local user ID"
-update_environment_file "s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/" .env
+    cd "${SCRIPT_DIR}/.." || exit
 
-#echo "Set local group ID"
-#update_environment_file "s/LOCAL_GROUP_ID=.*/LOCAL_GROUP_ID=$(id -g)/" .env
+    copy_env_file
+    create_dir_if_missing "persistent/database"
+    create_dir_if_missing "persistent/media"
 
-log_success "Set local username"
-# Ensure username contains only allowed chars (replace dots with dashes)
-update_environment_file "s/LOCAL_USER_NAME=.*/LOCAL_USER_NAME=$(whoami | sed 's/\./-/')/" .env
+    log_success "Setting up local development docker stack in COMPOSE_FILE"
+    update_environment_file '/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=compose.yaml:compose.development.yaml|' .env
 
-# Git identity
-GIT_NAME=$(git config user.name || true)
-GIT_EMAIL=$(git config user.email || true)
-if [ -z "${GIT_NAME}" ]; then GIT_NAME="webtrees-developer"; fi
-if [ -z "${GIT_EMAIL}" ]; then GIT_EMAIL="developer@example.com"; fi
+    if [ -t 0 ]; then
+        INTERACTIVE=1;
+    fi
 
-log_success "Set GIT username"
-update_environment_file "s/GIT_AUTHOR_NAME=.*/GIT_AUTHOR_NAME=${GIT_NAME}/" .env
+    if [ "$INTERACTIVE" -eq 1 ]; then
+        interactive_setup;
+    fi
 
-log_success "Set GIT email address"
-update_environment_file "s/GIT_AUTHOR_EMAIL=.*/GIT_AUTHOR_EMAIL=${GIT_EMAIL}/" .env
+    # Update COMPOSE_FILE according to choices
+    if [ "$USE_TRAEFIK" -eq 1 ]; then
+        update_environment_file "s|^COMPOSE_FILE=.*|&:compose.traefik.yaml|" .env
+    fi
 
-# Pull images using detected compose binary (v2 or v1)
-"${COMPOSE_BIN[@]}" pull
+    if [ "$USE_EXTERNAL_DB" -eq 1 ]; then
+        update_environment_file "s|^COMPOSE_FILE=.*|&:compose.external.yaml|" .env
+    fi
 
-# Ensure APP_DIR exists before installation
-# Read APP_DIR from .env; default to ./app if unset
-APP_DIR_VALUE=$(grep -E '^APP_DIR=' .env | sed 's/^APP_DIR=//')
-if [ -z "${APP_DIR_VALUE:-}" ]; then
-    APP_DIR_VALUE="./app"
-fi
+    # Enable development host port mappings only when NOT using a reverse proxy
+    if [ "$USE_TRAEFIK" -eq 0 ]; then
+        # Write APP_PORT and PMA_PORT to .env
+        update_environment_file "s/^[#]*APP_PORT=.*/APP_PORT=${APP_PORT_VALUE}/" .env
+        update_environment_file "s/^[#]*PMA_PORT=.*/PMA_PORT=${PMA_PORT_VALUE}/" .env
 
-# Create directory if it does not exist (relative to project root)
-if [ ! -d "$APP_DIR_VALUE" ]; then
-    echo "Create application directory: $APP_DIR_VALUE"
-    mkdir -p "$APP_DIR_VALUE"
-fi
+        # When no reverse proxy is used, do not enforce HTTPS inside nginx/app
+        update_environment_file "s/^[#]*ENFORCE_HTTPS=.*/ENFORCE_HTTPS=FALSE/" .env
+    fi
 
-make install
+    update_environment_file "s/DEV_DOMAIN=.*/DEV_DOMAIN=${DEV_DOMAIN}/" .env
+    update_environment_file "s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}/" .env
+    update_environment_file "s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/" .env
+    update_environment_file "s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/" .env
+    update_environment_file "s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/" .env
+    update_environment_file "s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/" .env
 
-log_success "Development environment setup complete."
+    # Persist choice about existing database usage (default to 1 if absent later)
+    if [ -n "${USE_EXISTING_DB:-}" ]; then
+        update_environment_file "s/^[#]*USE_EXISTING_DB=.*/USE_EXISTING_DB=${USE_EXISTING_DB}/" .env
+    fi
 
-# Post-setup information (no changes are performed here)
-printf "\n"
-log_warning "Action required: Please check your .env and set any missing values or update them according to your requirements, e.g."
-echo ""
-echo "   - LOCAL_GROUP_ID and LOCAL_GROUP_NAME"
-echo "   - MEDIA_DIR"
-echo "   - WEBTREES_TABLE_PREFIX"
-echo "   - WEBTREES_REWRITE_URLS"
-echo ""
-echo "   Reminder: The media directory must be writable by the LOCAL_GROUP_ID inside the container."
-echo "             If the container group differs from the host, you might need to set folder rights to 777 on the media directory."
-echo ""
-echo "   Note: If you change the database configuration, DEV_DOMAIN, or any WEBTREES_* variables in your .env later,"
-echo "         run 'make apply-config' to re-apply the configuration to the application."
-printf "\n"
+    log_success "Set local user ID"
+    update_environment_file "s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/" .env
+    update_environment_file "s/LOCAL_USER_NAME=.*/LOCAL_USER_NAME=$(whoami | sed 's/\./-/')/" .env
 
-log_success "After you have reviewed and updated your .env as noted above, you can start the environment with 'make up'."
+    setup_compose_images
+
+    APP_DIR_VALUE=$(grep -E '^APP_DIR=' .env | sed 's/^APP_DIR=//')
+    APP_DIR_VALUE=${APP_DIR_VALUE:-"./app"}
+    create_dir_if_missing "$APP_DIR_VALUE"
+
+    make install
+    log_success "Development environment setup complete."
+
+    post_setup_info
+}
+
+main "$@"
