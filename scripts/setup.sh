@@ -210,7 +210,7 @@ if [ "$USE_TRAEFIK" -eq 1 ]; then
 fi
 
 if [ "$USE_EXTERNAL_DB" -eq 1 ]; then
-    update_environment_file "s|^COMPOSE_FILE=.*|&:compose.external-db.yaml|" .env
+    update_environment_file "s|^COMPOSE_FILE=.*|&:compose.external.yaml|" .env
 fi
 
 # Enable development host port mappings only when NOT using a reverse proxy

@@ -1,4 +1,4 @@
-# The external database configuration
+# The external configuration
 #
 # This configuration is designed for connecting to an external database server
 # instead of using the built-in database container. It's useful for:

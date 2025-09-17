@@ -123,7 +123,7 @@ The project uses several Docker Compose files for different environments:
 
 - `compose.yaml`: Base configuration
 - `compose.development.yaml`: Development environment configuration
-- `compose.external-db.yaml`: External database configuration
+- `compose.external.yaml`: External database and media configuration
 - `compose.traefik.yaml`: Configuration for use with Traefik
 
 ### 🧱 Container Structure

@@ -62,11 +62,6 @@ x-buildbox-base: &buildbox-base
         - default
 
 services:
-    # Override database service to use the local volume
-    db:
-        volumes:
-            - database:/var/lib/mysql
-
     # Buildbox service running as root
     # Used for operations that require elevated privileges
     buildbox-root:

@@ -19,12 +19,11 @@ services:
             # Database credentials and configuration
             # These values are loaded from the .env file
             - MARIADB_ROOT_PASSWORD
-            - MARIADB_HOST
-            - MARIADB_PORT
             - MARIADB_DATABASE
             - MARIADB_USER
             - MARIADB_PASSWORD
         volumes:
+            - database:/var/lib/mysql
             # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
