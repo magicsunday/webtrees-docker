@@ -63,7 +63,6 @@ main() {
     source scripts/configuration
 
     validate_environment
-    setup_configuration
     setup_directories
     setup_directory_permissions
 

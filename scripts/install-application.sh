@@ -69,7 +69,14 @@ main() {
     validate_environment
     copy_application_files
     install_application
-    setup_configuration
+
+    # Conditionally set up configuration if using an existing database
+    if [[ "${USE_EXISTING_DB:-1}" == "1" ]]; then
+        setup_configuration
+    else
+        log_warning "Skipping initial configuration because no existing database will be used."
+    fi
+
     setup_directories
     setup_directory_permissions
 

@@ -173,6 +173,13 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     read -rp "Enter the domain under which the DEV system should be accessible [${DEFAULT_DEV_DOMAIN}]: " _in || true
     DEV_DOMAIN=${_in:-$DEFAULT_DEV_DOMAIN}
 
+    # Ask whether to use an existing database or not
+    read -rp "Do you want to use an existing database (already initialized)? [y/N]: " _in || true
+    case "${_in:-N}" in
+        y|Y) USE_EXISTING_DB=1 ;;
+        *) USE_EXISTING_DB=0 ;;
+    esac
+
     # Ask whether to use a local or an external database
     read -rp "Do you want to use an external database? [y/N]: " _in || true
     case "${_in:-N}" in
@@ -229,6 +236,11 @@ update_environment_file "s/MARIADB_HOST=.*/MARIADB_HOST=${MARIADB_HOST}/" .env
 update_environment_file "s/MARIADB_DATABASE=.*/MARIADB_DATABASE=${MARIADB_DATABASE}/" .env
 update_environment_file "s/MARIADB_USER=.*/MARIADB_USER=${MARIADB_USER}/" .env
 update_environment_file "s/MARIADB_PASSWORD=.*/MARIADB_PASSWORD=${MARIADB_PASSWORD}/" .env
+
+# Persist choice about existing database usage (default to 1 if absent later)
+if [ -n "${USE_EXISTING_DB:-}" ]; then
+    update_environment_file "s/^[#]*USE_EXISTING_DB=.*/USE_EXISTING_DB=${USE_EXISTING_DB}/" .env
+fi
 
 log_success "Set local user ID"
 update_environment_file "s/LOCAL_USER_ID=.*/LOCAL_USER_ID=$(id -u)/" .env
