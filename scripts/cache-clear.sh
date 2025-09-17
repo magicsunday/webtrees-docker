@@ -22,6 +22,8 @@ setup_directories() {
 
 # Permission management
 setup_directory_permissions() {
+    log_success "Setting up directory permissions"
+
     chown -R "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" "${WEBTREES_BASE}/data/cache"
     chmod -R ug+rw "${WEBTREES_BASE}/data/cache"
 }

@@ -43,6 +43,8 @@ setup_directories() {
 
 # Permission management
 setup_directory_permissions() {
+    log_success "Setting up directory permissions"
+
     local target_dirs=("${WEBTREES_BASE}/data/media" "${WEBTREES_BASE}/data/cache")
 
     setfacl -m g:"${LOCAL_GROUP_NAME}":rwx,d:g:"${LOCAL_GROUP_NAME}":rwx "${WEBTREES_BASE}/data/cache"

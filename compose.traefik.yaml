@@ -14,6 +14,8 @@
 services:
     # Configure the Nginx web server for Traefik integration
     nginx:
+        # When using Traefik, do not expose host ports directly
+        ports: []
         labels:
             # Enable Traefik for this container
             - traefik.enable=true
@@ -29,6 +31,8 @@ services:
 
     # Configure phpMyAdmin for Traefik integration
     pma:
+        # When using Traefik, do not expose host ports directly
+        ports: []
         labels:
             # Enable Traefik for this container
             - traefik.enable=true

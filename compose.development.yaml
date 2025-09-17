@@ -84,12 +84,15 @@ services:
     # Override nginx service to add port mapping for development
     nginx:
         # Add a port to access the website via IP
-        # 50010 is the external port mapped to container port 80
+        # The APP_PORT is the external port mapped to container port 80
         ports:
-            - "50010:80"
+            - "${APP_PORT:-50010}:80"
 
     # Override phpMyAdmin service to add default credentials
     pma:
+        # Expose phpMyAdmin on the configured PMA_PORT for local development
+        ports:
+            - "${PMA_PORT:-50011}:80"
         environment:
             # Autofill phpMyAdmin login with database credentials
             PMA_USER: ${MARIADB_USER}

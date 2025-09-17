@@ -56,6 +56,8 @@ setup_directories() {
 
 # Permission management
 setup_directory_permissions() {
+    log_success "Setting up directory permissions"
+
     local target_dirs=("${WEBTREES_BASE}/data/media" "${WEBTREES_BASE}/data/cache")
 
     chown "${LOCAL_USER_ID}:${LOCAL_GROUP_ID}" "${target_dirs[@]}"
