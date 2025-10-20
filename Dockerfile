@@ -7,7 +7,9 @@ ARG VERSION=1.0.0
 FROM php:${PHP_VERSION}-fpm-alpine AS php-build
 
 # docker-entrypoint.sh dependencies
-RUN apk add --no-cache \
+RUN apk update && \
+    apk upgrade --no-cache && \
+    apk add --no-cache \
     bash \
     tzdata
 
@@ -26,7 +28,7 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
         pdo_mysql \
         xdebug \
         zip && \
-        rm -f /usr/local/bin/install-php-extensions
+    rm -f /usr/local/bin/install-php-extensions
 
 LABEL org.opencontainers.image.title="Webtrees docker image" \
       org.opencontainers.image.description="Run webtrees with Alpine, Nginx and PHP FPM." \
@@ -39,8 +41,9 @@ LABEL org.opencontainers.image.title="Webtrees docker image" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git"
 
 # Copy our custom configuration files
-COPY rootfs/usr/local/etc/php/conf.d $PHP_INI_DIR/conf.d
+COPY rootfs/usr/local/etc/php/conf.d/*.ini $PHP_INI_DIR/conf.d/
 
+# Entrypoint
 COPY rootfs/docker-entrypoint.sh /docker-entrypoint.sh
 
 # Set proper permissions for entrypoint
@@ -62,25 +65,21 @@ ARG DOCKER_SERVER
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
 # Installing required extensions
-RUN apk --no-cache --update upgrade && \
-    apk add --no-cache \
+RUN apk add --no-cache \
         acl \
         bash \
-        build-base \
         ca-certificates \
         curl \
         dcron \
         findutils \
         git \
-        make \
-        mysql-client \
+        mariadb-client \
         nano \
         nodejs \
         npm \
         openssl \
         openssh \
         shadow \
-        ssmtp \
         sudo \
         zip
 
@@ -95,8 +94,6 @@ RUN rm -rf /tmp/* /var/tmp/* && \
 COPY rootfs/ /
 
 # Set executable permissions for all entrypoint scripts
-RUN chmod +x /docker-entrypoint.sh && \
-    chmod +x /opt/root-entrypoint.sh && \
-    chmod +x /opt/user-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh /opt/root-entrypoint.sh /opt/user-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]

@@ -21,7 +21,7 @@ up: .logo ## Starts all defined docker containers.
 	${COMPOSE_BIN} up -d
 	@echo ""
 	@echo -e "\033[0;32m ✔\033[0m Docker containers for ${COMPOSE_PROJECT_NAME} ... successfully STARTED"
-	@echo -e "\033[0;32m ✔\033[0m Project can be reached at ${PROJECT_URL}"
+	@echo -e "\033[0;32m ✔\033[0m Project can be reached at ${FYELLOW}${PROJECT_URL}${FRESET}"
 
 down: .logo ## Stops and removes all docker containers started with `make up`.
 	${COMPOSE_BIN} down -v
