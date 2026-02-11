@@ -136,9 +136,9 @@ setup_user_environment() {
 
 # Execute command as user
 execute_as_user() {
-    log_success "Executing command as user ${LOCAL_USER_NAME}: $*"
+    log_success "Executing command as user ${LOCAL_USER_NAME}: $( printf '%s ' "$@" )"
 
-    if ! su "${LOCAL_USER_NAME}" -s /bin/bash -c "$*"; then
+    if ! su "${LOCAL_USER_NAME}" -s /bin/bash -c "$(printf '%q ' "$@")"; then
         log_error "Command execution failed"
         return 1
     fi
@@ -168,7 +168,7 @@ main() {
         return 1
     fi
 
-    execute_as_user "$*"
+    execute_as_user "$@"
 }
 
 # Run the main function
