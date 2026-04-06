@@ -1,6 +1,8 @@
 .DS_Store
 .idea
+.playwright-mcp
 *.zip
+*.png
 /.env
 /.env.*
 !/.env.dist
