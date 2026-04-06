@@ -69,14 +69,14 @@ setup_php() {
     # Validate PHP settings before applying
     validate_php_value "PHP_MAX_EXECUTION_TIME" "$PHP_MAX_EXECUTION_TIME" '^[0-9]+$' || return 1
     validate_php_value "PHP_MAX_INPUT_VARS" "$PHP_MAX_INPUT_VARS" '^[0-9]+$' || return 1
-    validate_php_value "PHP_MEMORY_LIMIT" "$PHP_MEMORY_LIMIT" '^[0-9]+[KMG]?$' || return 1
+    validate_php_value "PHP_MEMORY_LIMIT" "$PHP_MEMORY_LIMIT" '^[0-9]+[KMGkmg]?$' || return 1
 
     if [ -n "${PHP_POST_MAX_SIZE:-}" ]; then
-        validate_php_value "PHP_POST_MAX_SIZE" "$PHP_POST_MAX_SIZE" '^[0-9]+[KMG]?$' || return 1
+        validate_php_value "PHP_POST_MAX_SIZE" "$PHP_POST_MAX_SIZE" '^[0-9]+[KMGkmg]?$' || return 1
     fi
 
     if [ -n "${PHP_UPLOAD_MAX_FILESIZE:-}" ]; then
-        validate_php_value "PHP_UPLOAD_MAX_FILESIZE" "$PHP_UPLOAD_MAX_FILESIZE" '^[0-9]+[KMG]?$' || return 1
+        validate_php_value "PHP_UPLOAD_MAX_FILESIZE" "$PHP_UPLOAD_MAX_FILESIZE" '^[0-9]+[KMGkmg]?$' || return 1
     fi
 
     # Apply PHP settings

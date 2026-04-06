@@ -316,11 +316,12 @@ COMPOSE_FILE=compose.yaml docker compose up -d
 ### Database Backups
 
 ```shell
-# Create a backup
-docker compose exec db mariadb-dump -u root -p webtrees > backup_$(date +%Y%m%d).sql
+# Create a backup (uses MARIADB_ROOT_PASSWORD from .env)
+source .env
+docker compose exec db mariadb-dump -u root -p"${MARIADB_ROOT_PASSWORD}" webtrees > backup_$(date +%Y%m%d).sql
 
 # Restore a backup
-docker compose exec -T db mariadb -u root -p webtrees < backup.sql
+docker compose exec -T db mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" webtrees < backup.sql
 ```
 
 ## 🛡️ Security Considerations

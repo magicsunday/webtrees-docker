@@ -26,8 +26,7 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
         intl \
         opcache \
         pdo_mysql \
-        zip && \
-    rm -f /usr/local/bin/install-php-extensions
+        zip
 
 LABEL org.opencontainers.image.title="Webtrees docker image" \
       org.opencontainers.image.description="Run webtrees with Alpine, Nginx and PHP FPM." \
@@ -63,11 +62,8 @@ ARG DOCKER_SERVER
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-# Add PHP extension installer and install xdebug (development only)
-ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
-
-RUN chmod +x /usr/local/bin/install-php-extensions && \
-    install-php-extensions xdebug && \
+# Install xdebug (development only) and clean up the extension installer
+RUN install-php-extensions xdebug && \
     rm -f /usr/local/bin/install-php-extensions
 
 # Installing required extensions
