@@ -1,6 +1,6 @@
 {
     "name": "magicsunday/webtrees-base",
-    "description": "Webtrees base installation",
+    "description": "Docker-based development and deployment environment for webtrees.",
     "license": "MIT",
     "authors": [
         {
