@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "playwright": {
+            "command": "bash",
+            "args": [
+                "-c",
+                "CDP_URL=$(curl -sf http://localhost:3000/json/version | python3 -c \"import sys,json;print(json.load(sys.stdin)['webSocketDebuggerUrl'])\") && exec npx @playwright/mcp@latest --cdp-endpoint \"$CDP_URL\" --ignore-https-errors"
+            ]
+        }
+    }
+}
