@@ -24,10 +24,10 @@ services:
             - MARIADB_PASSWORD
         healthcheck:
             test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 30s
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
         volumes:
             - database:/var/lib/mysql
             # System timezone configuration
@@ -68,10 +68,10 @@ services:
             - MAIL_HOST
         healthcheck:
             test: ["CMD-SHELL", "pgrep php-fpm > /dev/null || exit 1"]
-            interval: 30s
-            timeout: 10s
+            interval: 5s
+            timeout: 3s
             retries: 3
-            start_period: 10s
+            start_period: 5s
         restart: unless-stopped
         volumes:
             # System timezone configuration
@@ -95,10 +95,10 @@ services:
             - ENFORCE_HTTPS
         healthcheck:
             test: ["CMD-SHELL", "wget --spider -q http://localhost/ || exit 1"]
-            interval: 30s
-            timeout: 10s
+            interval: 10s
+            timeout: 5s
             retries: 3
-            start_period: 10s
+            start_period: 5s
         restart: unless-stopped
         volumes:
             # Application and media storage (read-only for web server)
