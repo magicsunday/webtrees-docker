@@ -24,8 +24,9 @@ endif
 
 build: .logo ## Builds/Updates the used docker images.
 	$(DOCKER_LOGIN_COMMAND)
-	# Add --no-cache to force rebuild
-	$(COMPOSE_BIN) build --pull
+	$(COMPOSE_BIN) build --pull \
+		--build-arg BUILD_DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+		--build-arg VCS_REF=$$(git rev-parse --short HEAD)
 
 push: .logo ## Pushes the docker images to the configured docker server.
 	$(DOCKER_LOGIN_COMMAND)

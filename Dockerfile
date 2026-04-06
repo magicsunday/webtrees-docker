@@ -3,6 +3,8 @@
 #######
 ARG PHP_VERSION=8.3
 ARG VERSION=1.0.0
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
 
 FROM php:${PHP_VERSION}-fpm-alpine AS php-build
 
@@ -28,15 +30,17 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
         pdo_mysql \
         zip
 
-LABEL org.opencontainers.image.title="Webtrees docker image" \
-      org.opencontainers.image.description="Run webtrees with Alpine, Nginx and PHP FPM." \
+LABEL org.opencontainers.image.title="Webtrees PHP-FPM" \
+      org.opencontainers.image.description="PHP-FPM runtime for the webtrees genealogy application." \
       org.opencontainers.image.authors="Rico Sonntag <mail@ricosonntag.de>" \
       org.opencontainers.image.vendor="Rico Sonntag" \
       org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
-      org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git"
+      org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 # Copy our custom configuration files
 COPY rootfs/usr/local/etc/php/conf.d/*.ini $PHP_INI_DIR/conf.d/
@@ -97,5 +101,8 @@ COPY rootfs/ /
 
 # Set executable permissions for all entrypoint scripts
 RUN chmod +x /docker-entrypoint.sh /opt/root-entrypoint.sh /opt/user-entrypoint.sh
+
+LABEL org.opencontainers.image.title="Webtrees Buildbox" \
+      org.opencontainers.image.description="Development environment for webtrees with Composer, Node.js, Git and xdebug."
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
