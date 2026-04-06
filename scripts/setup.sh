@@ -149,6 +149,7 @@ copy_env_file() {
     elif [ -f ".env.dist" ]; then
         log_success "Copying .env.dist to .env"
         cp .env.dist .env
+        chmod 600 .env
     else
         log_error "Environment file .env.dist does not exist. Aborting."
         exit 1
@@ -302,7 +303,7 @@ main() {
     create_dir_if_missing "persistent/media"
 
     log_success "Setting up local development docker stack in COMPOSE_FILE"
-    update_environment_file '/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=compose.yaml:compose.development.yaml|' .env
+    update_environment_file '/^[[:space:]]*COMPOSE_FILE=/s|COMPOSE_FILE=.*|COMPOSE_FILE=compose.yaml:compose.pma.yaml:compose.development.yaml|' .env
 
     if [ -t 0 ]; then
         INTERACTIVE=1;
