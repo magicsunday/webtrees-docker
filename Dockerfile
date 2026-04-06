@@ -26,7 +26,6 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
         intl \
         opcache \
         pdo_mysql \
-        xdebug \
         zip && \
     rm -f /usr/local/bin/install-php-extensions
 
@@ -63,6 +62,13 @@ ARG PHP_VERSION
 ARG DOCKER_SERVER
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
+
+# Add PHP extension installer and install xdebug (development only)
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+
+RUN chmod +x /usr/local/bin/install-php-extensions && \
+    install-php-extensions xdebug && \
+    rm -f /usr/local/bin/install-php-extensions
 
 # Installing required extensions
 RUN apk add --no-cache \
