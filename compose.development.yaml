@@ -83,12 +83,10 @@ services:
         ports:
             - "${APP_PORT:-50010}:80"
 
-    # Override phpMyAdmin service to add default credentials
+    # Override phpMyAdmin service to add port mapping and default credentials
     pma:
-        # Expose phpMyAdmin on the configured PMA_PORT for local development
         ports:
             - "${PMA_PORT:-50011}:80"
         environment:
-            # Autofill phpMyAdmin login with database credentials
             PMA_USER: ${MARIADB_USER}
             PMA_PASSWORD: ${MARIADB_PASSWORD}
