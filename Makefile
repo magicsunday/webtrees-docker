@@ -30,6 +30,13 @@ COMPOSE_BIN := $(shell \
 check-docker:
 	@$(COMPOSE_BIN) --version >/dev/null 2>&1 || (echo "Docker Compose not available" && exit 1)
 
+# Auto-detect GitHub token for Composer API authentication (avoids rate limiting)
+GITHUB_TOKEN ?= $(shell command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null)
+
+ifdef GITHUB_TOKEN
+    export COMPOSER_AUTH := {"github-oauth":{"github.com":"$(GITHUB_TOKEN)"}}
+endif
+
 COMPOSE_BUILD_BASE := $(COMPOSE_BIN) run --rm -e COMPOSER_AUTH
 COMPOSE_BUILD      := $(COMPOSE_BUILD_BASE) buildbox
 COMPOSE_BUILD_ROOT := $(COMPOSE_BUILD_BASE) buildbox-root

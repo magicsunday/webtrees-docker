@@ -289,6 +289,10 @@ sudo service docker restart
 - **Database connection errors**: Check your database credentials in the `.env` file
 - **Permission issues**: Ensure proper file permissions in mounted volumes
 - **Port conflicts**: Change the port mappings in the Docker Compose files if ports are already in use
+- **GitHub API rate limit**: Composer uses the GitHub API to resolve packages from GitHub repositories. Without authentication, the limit is 60 requests per hour. If the [GitHub CLI](https://cli.github.com/) (`gh`) is installed and authenticated on the host, the token is picked up automatically. Otherwise, you can set `COMPOSER_AUTH` manually in your environment:
+  ```shell
+  export COMPOSER_AUTH='{"github-oauth":{"github.com":"YOUR_TOKEN"}}'
+  ```
 
 ## 🛡️ Security Considerations
 
