@@ -9,6 +9,12 @@ services:
             - db
         image: phpmyadmin:5.2
         restart: unless-stopped
+        healthcheck:
+            test: ["CMD-SHELL", "curl -sf http://localhost/ -o /dev/null || exit 1"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 5s
         environment:
             PMA_HOST: ${MARIADB_HOST}
             PMA_PORT: ${MARIADB_PORT}
