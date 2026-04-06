@@ -121,19 +121,20 @@ The `.env` file contains all configurable options for the project. Key settings 
 
 The project uses several Docker Compose files for different environments:
 
-- `compose.yaml`: Base configuration
-- `compose.development.yaml`: Development environment configuration
+- `compose.yaml`: Base production configuration (db, phpfpm, nginx)
+- `compose.pma.yaml`: phpMyAdmin for database management (development only)
+- `compose.development.yaml`: Development environment (buildbox, port mappings, local volumes)
 - `compose.external.yaml`: External database and media configuration
-- `compose.traefik.yaml`: Configuration for use with Traefik
+- `compose.traefik.yaml`: Configuration for use with Traefik reverse proxy
 
 ### 🧱 Container Structure
 
 The application consists of several containers:
 
-1. **db**: MariaDB database
-2. **phpfpm**: PHP-FPM service with all required extensions
-3. **nginx**: Nginx web server
-4. **pma**: phpMyAdmin for database management
+1. **db**: MariaDB database (with health check)
+2. **phpfpm**: PHP-FPM service with all required extensions (with health check)
+3. **nginx**: Nginx web server (with health check)
+4. **pma**: phpMyAdmin for database management (development only, via `compose.pma.yaml`)
 
 ## 📖 Usage
 
@@ -294,12 +295,44 @@ sudo service docker restart
   export COMPOSER_AUTH='{"github-oauth":{"github.com":"YOUR_TOKEN"}}'
   ```
 
+## 🚀 Production Deployment
+
+For production, use only the base `compose.yaml` without development overrides:
+
+```shell
+COMPOSE_FILE=compose.yaml docker compose up -d
+```
+
+### Production Checklist
+
+- [ ] Set `ENVIRONMENT=production` in `.env`
+- [ ] Set `ENFORCE_HTTPS=TRUE` in `.env`
+- [ ] Use strong, unique passwords for `MARIADB_ROOT_PASSWORD` and `MARIADB_PASSWORD`
+- [ ] Do **not** include `compose.pma.yaml` — phpMyAdmin should never be exposed in production
+- [ ] Set up regular database backups (e.g. `docker compose exec db mariadb-dump ...`)
+- [ ] Place behind a reverse proxy (Traefik, nginx) with TLS termination
+- [ ] Monitor container health via `docker compose ps` or your orchestrator
+
+### Database Backups
+
+```shell
+# Create a backup
+docker compose exec db mariadb-dump -u root -p webtrees > backup_$(date +%Y%m%d).sql
+
+# Restore a backup
+docker compose exec -T db mariadb -u root -p webtrees < backup.sql
+```
+
 ## 🛡️ Security Considerations
 
 - HTTPS enforcement can be enabled by setting `ENFORCE_HTTPS=TRUE` in the `.env` file
 - Security headers are configured in `rootfs/etc/nginx/includes/security-headers.conf`
 - Keep all containers updated with `make build` regularly
 - Use strong passwords for database and admin accounts
+- The `.env` file contains secrets and is created with restricted permissions (`chmod 600`)
+- Never commit `.env` to version control
+- phpMyAdmin (`compose.pma.yaml`) is for development only and should **never** be exposed publicly in production. For production database access, use SSH tunneling or a VPN instead
+- xdebug is only installed in the development buildbox image, not in the production PHP-FPM image
 
 ## ⚡ Performance Optimization
 
