@@ -26,6 +26,19 @@ check_file_is_writable() {
     return 0
 }
 
+# Validate that a value matches an expected pattern
+validate_php_value() {
+    local name="$1"
+    local value="$2"
+    local pattern="$3"
+
+    if [[ ! "$value" =~ $pattern ]]; then
+        log_error "Invalid $name value: '$value'"
+        return 1
+    fi
+    return 0
+}
+
 # Configure PHP settings based on environment variables
 setup_php() {
     local php_config_file="$PHP_INI_DIR/conf.d/webtrees-php.ini"
@@ -51,6 +64,19 @@ setup_php() {
     # Setup memory_limit
     if [ -z "$PHP_MEMORY_LIMIT" ]; then
         PHP_MEMORY_LIMIT=128M
+    fi
+
+    # Validate PHP settings before applying
+    validate_php_value "PHP_MAX_EXECUTION_TIME" "$PHP_MAX_EXECUTION_TIME" '^[0-9]+$' || return 1
+    validate_php_value "PHP_MAX_INPUT_VARS" "$PHP_MAX_INPUT_VARS" '^[0-9]+$' || return 1
+    validate_php_value "PHP_MEMORY_LIMIT" "$PHP_MEMORY_LIMIT" '^[0-9]+[KMG]?$' || return 1
+
+    if [ -n "${PHP_POST_MAX_SIZE:-}" ]; then
+        validate_php_value "PHP_POST_MAX_SIZE" "$PHP_POST_MAX_SIZE" '^[0-9]+[KMG]?$' || return 1
+    fi
+
+    if [ -n "${PHP_UPLOAD_MAX_FILESIZE:-}" ]; then
+        validate_php_value "PHP_UPLOAD_MAX_FILESIZE" "$PHP_UPLOAD_MAX_FILESIZE" '^[0-9]+[KMG]?$' || return 1
     fi
 
     # Apply PHP settings
@@ -104,7 +130,7 @@ setup_environment() {
     fi
 
     # Configure HTTPS enforcement
-    if [[ -n "${ENFORCE_HTTPS:-}" ]] && [[ "${ENFORCE_HTTPS}" == "TRUE" ]]; then
+    if [[ -n "${ENFORCE_HTTPS:-}" ]] && [[ "${ENFORCE_HTTPS^^}" == "TRUE" ]]; then
         log_success "HTTPS enforcement is enabled"
     else
         if [[ -f "/etc/nginx/includes/enforce-https.conf" ]]; then
