@@ -94,7 +94,7 @@ services:
             # Whether to enforce HTTPS (TRUE/FALSE)
             - ENFORCE_HTTPS
         healthcheck:
-            test: ["CMD-SHELL", "wget --spider -q http://localhost/ || exit 1"]
+            test: ["CMD-SHELL", "curl -sf http://localhost/ -o /dev/null || exit 1"]
             interval: 10s
             timeout: 5s
             retries: 3
