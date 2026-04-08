@@ -56,6 +56,9 @@ services:
             - ENVIRONMENT
             # Whether to enforce HTTPS (TRUE/FALSE)
             - ENFORCE_HTTPS
+            # UID/GID for media file ownership (set by scripts/setup.sh, optional)
+            - LOCAL_USER_ID=${LOCAL_USER_ID:-}
+            - LOCAL_GROUP_ID=${LOCAL_GROUP_ID:-}
             # PHP configuration settings
             - PHP_MAX_EXECUTION_TIME
             - PHP_MAX_INPUT_VARS

@@ -199,6 +199,26 @@ main() {
         log_success "No ENVIRONMENT specified, defaulting to production"
     fi
 
+    # Remap www-data UID/GID to match host user (set by scripts/setup.sh).
+    # Required on NAS systems where bind-mounted directories enforce host permissions.
+    if [[ -n "${LOCAL_USER_ID:-}" ]] && [[ "${LOCAL_USER_ID}" != "0" ]] \
+        && [[ "$(id -u www-data 2>/dev/null)" != "${LOCAL_USER_ID}" ]]; then
+        # Note: adduser/deluser flags are Alpine/BusyBox-specific.
+        # If switching to a Debian-based image, replace with useradd/groupadd.
+        deluser www-data 2>/dev/null || true
+        delgroup www-data 2>/dev/null || true
+        addgroup -g "${LOCAL_GROUP_ID:-82}" -S www-data 2>/dev/null || true
+        adduser -u "${LOCAL_USER_ID}" -G www-data -s /sbin/nologin -D -H www-data 2>/dev/null || true
+
+        if [[ "$(id -u www-data 2>/dev/null)" != "${LOCAL_USER_ID}" ]]; then
+            log_error "Failed to remap www-data to UID ${LOCAL_USER_ID} — media uploads may fail"
+        else
+            sed -i "s/^user = .*/user = www-data/" /usr/local/etc/php-fpm.d/www.conf 2>/dev/null || true
+            sed -i "s/^group = .*/group = www-data/" /usr/local/etc/php-fpm.d/www.conf 2>/dev/null || true
+            log_success "Remapped www-data to UID:GID ${LOCAL_USER_ID}:${LOCAL_GROUP_ID:-82}"
+        fi
+    fi
+
     # Check if we have write permissions to PHP configuration directories
     if ! check_file_is_writable "$PHP_INI_DIR/conf.d"; then
         log_error "No write permission to PHP configuration directory. Skipping PHP configuration."
