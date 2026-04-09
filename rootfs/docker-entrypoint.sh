@@ -201,8 +201,10 @@ main() {
 
     # Remap www-data UID/GID to match host user (set by scripts/setup.sh).
     # Required on NAS systems where bind-mounted directories enforce host permissions.
+    # Skip when user-entrypoint.sh follows (buildbox) to avoid UID collision.
     if [[ -n "${LOCAL_USER_ID:-}" ]] && [[ "${LOCAL_USER_ID}" != "0" ]] \
-        && [[ "$(id -u www-data 2>/dev/null)" != "${LOCAL_USER_ID}" ]]; then
+        && [[ "$(id -u www-data 2>/dev/null)" != "${LOCAL_USER_ID}" ]] \
+        && [[ "${1:-}" != */user-entrypoint.sh ]]; then
         # Note: adduser/deluser flags are Alpine/BusyBox-specific.
         # If switching to a Debian-based image, replace with useradd/groupadd.
         deluser www-data 2>/dev/null || true
