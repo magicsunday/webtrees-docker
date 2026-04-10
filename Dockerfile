@@ -80,6 +80,7 @@ RUN apk add --no-cache \
         findutils \
         git \
         github-cli \
+        make \
         mariadb-client \
         nano \
         nodejs \
