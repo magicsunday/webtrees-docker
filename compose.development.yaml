@@ -55,8 +55,9 @@ x-buildbox-base: &buildbox-base
         - /etc/localtime:/etc/localtime:ro
         # Mount the project directory
         - ./:/var/webtrees
-        # Mount SSH configuration for Git operations
+        # Mount SSH and Git configuration
         - ${HOME}/.ssh:/root/.ssh
+        - ${HOME}/.gitconfig:/root/.gitconfig:ro
         - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
     networks:
         - default
