@@ -57,7 +57,7 @@ x-buildbox-base: &buildbox-base
         - ./:/var/webtrees
         # Mount SSH and Git configuration
         - ${HOME}/.ssh:/root/.ssh
-        - ${HOME}/.gitconfig:/home/${LOCAL_USER_NAME:-rso}/.gitconfig:ro
+        - ${HOME}/.gitconfig:/root/.gitconfig:ro
         - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
     networks:
         - default

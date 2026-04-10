@@ -102,6 +102,12 @@ setup_user_environment() {
         fi
     fi
 
+    # Copy mounted Git configuration if it exists
+    if [ -f /root/.gitconfig ] && [ "${HOME_DIR}" != "/root" ]; then
+        cp /root/.gitconfig "${HOME_DIR}/.gitconfig" 2>/dev/null
+        chown "${LOCAL_USER_NAME}" "${HOME_DIR}/.gitconfig" 2>/dev/null
+    fi
+
     # Export all environment variables except HOME, otherwise the user would still have /root
     # as their home directory after running su.
     if ! export | grep -v HOME >>"${FILE_PROFILE}"; then
