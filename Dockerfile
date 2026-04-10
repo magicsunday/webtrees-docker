@@ -79,6 +79,7 @@ RUN apk add --no-cache \
         dcron \
         findutils \
         git \
+        github-cli \
         mariadb-client \
         nano \
         nodejs \
