@@ -80,6 +80,7 @@ RUN apk add --no-cache \
         findutils \
         git \
         github-cli \
+        jq \
         make \
         ncurses \
         mariadb-client \
