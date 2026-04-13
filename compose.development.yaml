@@ -84,19 +84,19 @@ services:
         ports:
             - "${APP_PORT:-50010}:80"
 
-    # Headless Chrome for browser testing (Playwright connects via CDP)
+    # Browser for testing with web-based debugger and CDP endpoint.
+    # Debugger UI:  http://localhost:3000
+    # CDP endpoint: ws://localhost:3000
+    # Live view:    http://localhost:3000 → Sessions tab
     browser:
-        image: zenika/alpine-chrome:latest
+        image: browserless/chrome:latest
         restart: unless-stopped
-        command:
-            - "--headless"
-            - "--no-sandbox"
-            - "--disable-gpu"
-            - "--ignore-certificate-errors"
-            - "--remote-debugging-address=0.0.0.0"
-            - "--remote-debugging-port=9222"
+        environment:
+            - CONNECTION_TIMEOUT=600000
+            - IGNORE_HTTPS_ERRORS=true
+            - DEFAULT_LAUNCH_ARGS=["--ignore-certificate-errors","--no-sandbox"]
         ports:
-            - "${BROWSER_PORT:-3000}:9222"
+            - "${BROWSER_PORT:-3000}:3000"
         networks:
             - default
 
