@@ -1,0 +1,52 @@
+name: Check for new webtrees versions
+
+# Polls fisharebest/webtrees once a day and opens an issue per version
+# that is not yet in dev/versions.json. The build workflow stays manual —
+# a human reviews the issue and updates versions.json + triggers the build.
+on:
+    schedule:
+        - cron: '0 12 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    issues: write
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Find versions not yet in dev/versions.json
+              id: find
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  upstream=$(gh api repos/fisharebest/webtrees/releases --jq '.[].tag_name' | head -50 | sort -V)
+                  known=$(jq -r '.[].webtrees' dev/versions.json | sort -V)
+                  new=$(comm -23 <(printf '%s\n' "$upstream") <(printf '%s\n' "$known") | head -20)
+                  {
+                      echo 'new<<EOF'
+                      printf '%s\n' "$new"
+                      echo 'EOF'
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Open issues for new versions
+              if: steps.find.outputs.new != ''
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  while IFS= read -r version; do
+                      [ -z "$version" ] && continue
+                      title="Webtrees $version released — bump dev/versions.json"
+                      if gh issue list --state all --search "$title in:title" --json number --jq 'length' | grep -q '^0$'; then
+                          gh issue create \
+                              --title "$title" \
+                              --body $'Upstream released webtrees `'"$version"$'`.\n\nTo build and push:\n1. Add an entry to `dev/versions.json` for this version.\n2. Trigger the **Build and push image** workflow with the version as input.'
+                      else
+                          echo "Issue for $version already exists — skipping"
+                      fi
+                  done <<< "${{ steps.find.outputs.new }}"
