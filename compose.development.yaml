@@ -35,6 +35,8 @@ x-buildbox-base: &buildbox-base
         args:
             - PHP_VERSION
             - DOCKER_SERVER
+            - VCS_REF
+            - BUILD_DATE
     image: ${DOCKER_SERVER}/webtrees/buildbox:${PHP_VERSION}
     depends_on:
         - db

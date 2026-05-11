@@ -50,6 +50,10 @@ services:
             args:
                 # PHP version to use, defined in .env
                 - PHP_VERSION
+                # Git commit SHA and build timestamp for OCI image labels;
+                # populated by Make/build.mk via --build-arg.
+                - VCS_REF
+                - BUILD_DATE
         image: ${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}
         environment:
             # Application environment (production, development)

@@ -2,11 +2,16 @@
 # PHP #
 #######
 ARG PHP_VERSION=8.3
-ARG VERSION=1.0.0
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 FROM php:${PHP_VERSION}-fpm-alpine AS php-build
+
+# Re-declare ARGs inside the stage so they are in scope for LABEL instructions.
+# ARGs declared before the first FROM are only valid in the FROM line itself.
+ARG PHP_VERSION
+ARG VCS_REF
+ARG BUILD_DATE
 
 # docker-entrypoint.sh dependencies
 RUN apk update && \
@@ -36,11 +41,13 @@ LABEL org.opencontainers.image.title="Webtrees PHP-FPM" \
       org.opencontainers.image.vendor="Rico Sonntag" \
       org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.version="${PHP_VERSION}" \
       org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
       org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.revision="${VCS_REF}"
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.base.name="php:${PHP_VERSION}-fpm-alpine" \
+      org.opencontainers.image.ref.name="webtrees/php:${PHP_VERSION}"
 
 # Copy our custom configuration files
 COPY rootfs/usr/local/etc/php/conf.d/*.ini $PHP_INI_DIR/conf.d/
@@ -61,7 +68,10 @@ CMD ["php-fpm"]
 ############
 FROM php-build AS build-box
 
+# Re-declare ARGs (same reason as in php-build stage).
 ARG PHP_VERSION
+ARG VCS_REF
+ARG BUILD_DATE
 ARG DOCKER_SERVER
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
@@ -107,6 +117,17 @@ COPY rootfs/ /
 RUN chmod +x /docker-entrypoint.sh /opt/root-entrypoint.sh /opt/user-entrypoint.sh
 
 LABEL org.opencontainers.image.title="Webtrees Buildbox" \
-      org.opencontainers.image.description="Development environment for webtrees with Composer, Node.js, Git and xdebug."
+      org.opencontainers.image.description="Development environment for webtrees with Composer, Node.js, Git and xdebug." \
+      org.opencontainers.image.authors="Rico Sonntag <mail@ricosonntag.de>" \
+      org.opencontainers.image.vendor="Rico Sonntag" \
+      org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${PHP_VERSION}" \
+      org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
+      org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.base.name="${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}" \
+      org.opencontainers.image.ref.name="webtrees/buildbox:${PHP_VERSION}"
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
