@@ -584,6 +584,7 @@ use Fisharebest\Webtrees\Cli\Console;
 use Fisharebest\Webtrees\Services\MigrationService;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Webtrees;
+Webtrees::new()->bootstrap();   # wires Registry::container; required
 (new Console())->bootstrap();
 Registry::container()->get(MigrationService::class)
   ->updateSchema("\\Fisharebest\\Webtrees\\Schema", "WT_SCHEMA_VERSION", Webtrees::SCHEMA_VERSION);
