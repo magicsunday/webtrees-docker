@@ -304,3 +304,53 @@ LABEL org.opencontainers.image.title="Webtrees Buildbox" \
       org.opencontainers.image.ref.name="webtrees/buildbox:${PHP_VERSION}"
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
+
+
+##################
+# NGINX          #
+##################
+# Pre-baked nginx with webtrees configs and an empty /etc/nginx/conf.d/custom/
+# directory that users override-mount for their own snippets.
+FROM nginx:1.28-alpine AS nginx-build
+
+ARG NGINX_CONFIG_REVISION=1
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="Webtrees nginx" \
+      org.opencontainers.image.description="nginx with webtrees configs and override-hook." \
+      org.opencontainers.image.authors="Rico Sonntag <mail@ricosonntag.de>" \
+      org.opencontainers.image.vendor="Rico Sonntag" \
+      org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="1.28-r${NGINX_CONFIG_REVISION}" \
+      org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
+      org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.base.name="nginx:1.28-alpine" \
+      org.opencontainers.image.ref.name="webtrees/nginx:1.28-r${NGINX_CONFIG_REVISION}"
+
+# Baked configs: conf.d, includes, templates.
+COPY rootfs/etc/nginx/conf.d /etc/nginx/conf.d
+COPY rootfs/etc/nginx/includes /etc/nginx/includes
+COPY rootfs/etc/nginx/templates /etc/nginx/templates
+
+# Empty override directory — users mount their own snippets in.
+RUN mkdir -p /etc/nginx/conf.d/custom
+
+# Validate config at build time so syntax errors fail the build.
+# Two prep steps are needed before `nginx -t` works:
+#   1. Run the upstream image's envsubst script so the templates/ directory
+#      becomes a concrete /etc/nginx/conf.d/10-variables.conf — otherwise
+#      $enforce_https resolves to an unknown variable.
+#   2. Stub the `phpfpm` upstream to loopback. nginx -t resolves upstream
+#      hostnames; the build network has no DNS for the compose service name.
+#      Docker overrides /etc/hosts at runtime with the real network entry,
+#      so the layer-baked stub is invisible once the container starts.
+RUN echo "127.0.0.1 phpfpm" >> /etc/hosts \
+ && ENFORCE_HTTPS=FALSE /docker-entrypoint.d/20-envsubst-on-templates.sh \
+ && nginx -t -c /etc/nginx/nginx.conf 2>&1 | tee /tmp/nginx-t.log \
+ && grep -q "syntax is ok" /tmp/nginx-t.log \
+ && grep -q "test is successful" /tmp/nginx-t.log \
+ && rm -f /etc/nginx/conf.d/10-variables.conf /tmp/nginx-t.log
