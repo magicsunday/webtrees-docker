@@ -100,6 +100,22 @@ services:
         environment:
             - WEBTREES_AUTO_SEED=false
 
+    # In dev mode rebuild webtrees-nginx locally + bind-mount configs writable
+    # so changes apply via `nginx -s reload` without an image rebuild.
+    nginx:
+        build:
+            context: .
+            dockerfile: ./Dockerfile
+            target: nginx-build
+            args:
+                - NGINX_CONFIG_REVISION
+                - VCS_REF
+                - BUILD_DATE
+        volumes:
+            - ./rootfs/etc/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf
+            - ./rootfs/etc/nginx/includes:/etc/nginx/includes
+            - ./rootfs/etc/nginx/templates:/etc/nginx/templates
+
     # Nginx host-port publishing lives in compose.publish.yaml. Include that
     # overlay alongside this one to bind APP_PORT on the host.
 

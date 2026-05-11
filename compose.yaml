@@ -89,17 +89,17 @@ services:
             - default
 
     # Nginx web server
-    # This container serves the Webtrees web application and handles HTTP requests.
-    # Host port publishing is handled via the compose.publish.yaml overlay so
-    # `ports:` is never merged into stacks that route through Traefik (Compose's
-    # ports list merging is unreliable with `ports: []` overrides).
+    # Pulls the pre-baked webtrees-nginx image. For live config edits during
+    # development, compose.development.yaml rebuilds nginx from source AND
+    # bind-mounts ./rootfs/etc/nginx/ writable on top.
+    # Host port publishing lives in compose.publish.yaml so `ports:` is never
+    # merged into stacks that route through Traefik.
     nginx:
         depends_on:
             phpfpm:
                 condition: service_healthy
-        image: nginx:1.28-alpine
+        image: ${DOCKER_SERVER}/webtrees/nginx:${WEBTREES_NGINX_VERSION}
         environment:
-            # Whether to enforce HTTPS (TRUE/FALSE)
             - ENFORCE_HTTPS
         healthcheck:
             test: ["CMD-SHELL", "curl -sf http://localhost/ -o /dev/null || exit 1"]
@@ -109,19 +109,10 @@ services:
             start_period: 5s
         restart: unless-stopped
         volumes:
-            # Application source + media storage (read-only for web server)
             - app:/var/www/html:ro
             - media:/var/www/html/data/media:ro
-            # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
-            # Nginx configuration files
-            - ./rootfs/etc/nginx/templates:/etc/nginx/templates:ro
-            - ./rootfs/etc/nginx/includes/enforce-https.conf:/etc/nginx/includes/enforce-https.conf:ro
-            - ./rootfs/etc/nginx/includes/php-proxy.conf:/etc/nginx/includes/php-proxy.conf:ro
-            - ./rootfs/etc/nginx/includes/security-headers-map.conf:/etc/nginx/includes/security-headers-map.conf:ro
-            - ./rootfs/etc/nginx/includes/security-headers.conf:/etc/nginx/includes/security-headers.conf:ro
-            - ./rootfs/etc/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
         networks:
             - default
 
