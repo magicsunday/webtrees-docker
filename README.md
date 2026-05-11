@@ -161,31 +161,28 @@ instead.
 
 ## 🔄 Switching Between Dev and Production Mode
 
-The two modes are selected by the `COMPOSE_FILE` chain in `.env`:
+The two modes are selected by whether `compose.development.yaml` is part of
+the `COMPOSE_FILE` chain in `.env`:
 
-| Mode | Chain | Effect |
-|---|---|---|
-| **Dev** | `compose.yaml:compose.development.yaml:…` | bind-mounted `./app`, buildbox, xdebug, browserless, `WEBTREES_AUTO_SEED=false` |
-| **Production** | `compose.yaml:compose.publish.yaml` (or `:compose.traefik.yaml`) | named volume `app:`, seeded on first run from the bundled webtrees release |
+| Mode | Effect |
+|---|---|
+| **Production** | Image-only build, named `app:` volume seeded on first run from the bundled webtrees release. nginx published on `APP_PORT` (or behind Traefik). |
+| **Dev** (overlay added) | Bind-mounted `./app`, buildbox container, xdebug, browserless. `WEBTREES_AUTO_SEED=false` so the host bind-mount is never overwritten. |
 
-The simplest switch is to edit `.env` and re-run `make up`. To **run both side by side** (verify a production-mode build without taking your dev stack down), use the isolated test-stack targets:
+Toggle via make:
 
 ```shell
-# One-time: create your test-stack env from the template
-cp .env.prod-test.dist .env.prod-test
+make enable-dev-mode    # add compose.development.yaml to COMPOSE_FILE
+make up                 # restart with the new chain
 
-# Build the image locally first (uses your dev chain)
-make build
+make disable-dev-mode   # remove compose.development.yaml from COMPOSE_FILE
+make up                 # back to production
 
-# Start the production-mode stack on port 58080, separate volumes
-make prod-up
-curl -sI http://localhost:58080/
-
-# Tear down + drop the test volumes when done
-make prod-down
+make dev-mode-status    # ON / OFF
 ```
 
-`make prod-up` runs the stack under `COMPOSE_PROJECT_NAME=webtrees-prod-test`, so its containers/volumes/networks never collide with the regular `webtrees` project. Other helpers: `make prod-config` (resolved compose), `make prod-logs` (tail), `make prod-status` (ps).
+The toggle only edits the `COMPOSE_FILE` chain in `.env`; everything else
+(database credentials, host port, mail config, …) stays where it is.
 
 ## 🛠️ Setup and Installation
 

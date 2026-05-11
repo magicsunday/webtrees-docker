@@ -2,35 +2,41 @@
 # TARGETS
 # =============================================================================
 
-#### Production-Mode Test (isolated stack, runs alongside dev)
+#### Dev Mode Toggle
 
-.PHONY: prod-up prod-down prod-config prod-logs prod-status
+.PHONY: enable-dev-mode disable-dev-mode dev-mode-status
 
-PROD_ENV := .env.prod-test
+ENV_FILE := .env
 
-prod-up: .logo ## Starts an isolated production-mode stack (use `make prod-down` to remove).
-	@test -f $(PROD_ENV) || { \
-		echo "Missing $(PROD_ENV). Copy the template:"; \
-		echo "    cp $(PROD_ENV).dist $(PROD_ENV)"; \
-		exit 1; \
-	}
-	$(COMPOSE_BIN) --env-file $(PROD_ENV) up -d
+enable-dev-mode: .logo ## Adds compose.development.yaml to COMPOSE_FILE (buildbox, xdebug, browserless, bind-mount).
+	@test -f $(ENV_FILE) || { echo "Missing $(ENV_FILE) — run scripts/setup.sh first"; exit 1; }
+	@if grep -qE "^COMPOSE_FILE=.*compose\.development\.yaml" $(ENV_FILE); then \
+		echo "Dev mode already enabled."; \
+	else \
+		sed -i 's|^COMPOSE_FILE=\(.*\)$$|COMPOSE_FILE=\1:compose.development.yaml|' $(ENV_FILE); \
+		echo "Dev mode enabled. Run 'make up' (or 'make restart') to apply."; \
+	fi
 
-prod-down: .logo ## Stops the production-mode stack and removes its volumes.
-	@test -f $(PROD_ENV) || exit 0
-	$(COMPOSE_BIN) --env-file $(PROD_ENV) down -v
+disable-dev-mode: .logo ## Removes compose.development.yaml from COMPOSE_FILE.
+	@test -f $(ENV_FILE) || { echo "Missing $(ENV_FILE) — run scripts/setup.sh first"; exit 1; }
+	@if grep -qE "^COMPOSE_FILE=.*compose\.development\.yaml" $(ENV_FILE); then \
+		sed -i \
+			-e 's|:compose\.development\.yaml||g' \
+			-e 's|compose\.development\.yaml:||g' \
+			-e 's|=compose\.development\.yaml$$|=|' \
+			$(ENV_FILE); \
+		echo "Dev mode disabled. Run 'make up' (or 'make restart') to apply."; \
+	else \
+		echo "Dev mode already disabled."; \
+	fi
 
-prod-config: .logo ## Prints the effective Compose configuration for the production-mode stack.
-	@test -f $(PROD_ENV) || { echo "Missing $(PROD_ENV) — run `make prod-up` for instructions"; exit 1; }
-	$(COMPOSE_BIN) --env-file $(PROD_ENV) config
-
-prod-logs: .logo ## Tails logs of the production-mode stack.
-	@test -f $(PROD_ENV) || { echo "Missing $(PROD_ENV)"; exit 1; }
-	$(COMPOSE_BIN) --env-file $(PROD_ENV) logs -f
-
-prod-status: .logo ## Shows the running production-mode containers.
-	@test -f $(PROD_ENV) || { echo "Missing $(PROD_ENV)"; exit 1; }
-	$(COMPOSE_BIN) --env-file $(PROD_ENV) ps
+dev-mode-status: .logo ## Shows whether dev mode is currently enabled in .env.
+	@test -f $(ENV_FILE) || { echo "Missing $(ENV_FILE)"; exit 1; }
+	@if grep -qE "^COMPOSE_FILE=.*compose\.development\.yaml" $(ENV_FILE); then \
+		echo "Dev mode: ON  (compose.development.yaml is in COMPOSE_FILE chain)"; \
+	else \
+		echo "Dev mode: OFF (compose.development.yaml NOT in COMPOSE_FILE chain)"; \
+	fi
 
 #### Module Management (end-users)
 
