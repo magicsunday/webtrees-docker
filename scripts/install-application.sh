@@ -25,7 +25,7 @@ copy_application_files() {
     fi
 
     cp -r "${APP_DIR}"/../setup/public/* "${APP_DIR}"/public
-    cp -r "${APP_DIR}"/../setup/composer.json "${APP_DIR}"
+    cp -r "${APP_DIR}"/../setup/composer-core.json "${APP_DIR}/composer.json"
 
     # Patches consumed by cweagans/composer-patches must sit next to
     # composer.json — paths in composer.json's extra.patches are relative to it.

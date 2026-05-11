@@ -1,7 +1,7 @@
 ####################
 # WEBTREES BUILD   #
 ####################
-# Throwaway stage that composer-installs webtrees from setup/composer.json,
+# Throwaway stage that composer-installs webtrees from setup/composer-core.json,
 # applies the upgrade-lock patch via cweagans/composer-patches, and prepares
 # the public/ + html→public layout the entrypoint copies into /var/www.
 ARG PHP_VERSION=8.3
@@ -19,13 +19,13 @@ WORKDIR /build
 # Copy the same setup files the dev install consumes: the composer manifest,
 # the patches directory referenced from composer.json's extra.patches, and
 # the front-controller wrapper that bootstraps webtrees from vendor/.
-COPY setup/composer.json /build/composer.json
+COPY setup/composer-core.json /build/composer.json
 COPY setup/patches /build/patches
 COPY setup/public /build/public
 
 RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
  # Pin fisharebest/webtrees to the exact version this image bundles.
- # setup/composer.json carries a "~2.2.0" range for the dev bootstrap; the
+ # setup/composer-core.json carries a "~2.2.0" range for the dev bootstrap; the
  # image must lock to one version so the OCI label and the on-disk install
  # cannot drift.
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
