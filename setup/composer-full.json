@@ -1,6 +1,6 @@
 {
-    "name": "magicsunday/webtrees-base",
-    "description": "Docker-based development and deployment environment for webtrees.",
+    "name": "magicsunday/webtrees-base-full",
+    "description": "Docker-based deployment with bundled Magic-Sunday charts.",
     "type": "project",
     "license": "MIT",
     "authors": [
@@ -22,7 +22,10 @@
     },
     "require": {
         "fisharebest/webtrees": "~2.2.0",
-        "cweagans/composer-patches": "^1.7"
+        "cweagans/composer-patches": "^1.7",
+        "magicsunday/webtrees-fan-chart": "*",
+        "magicsunday/webtrees-pedigree-chart": "*",
+        "magicsunday/webtrees-descendants-chart": "*"
     },
     "extra": {
         "patches": {
@@ -31,11 +34,5 @@
                 "Add VendorModuleService for composer-installed modules": "patches/add-vendor-module-service.patch"
             }
         }
-    },
-    "scripts": {
-        "post-autoload-dump": [
-            "../scripts/update-application.sh",
-            "../scripts/update-languages.sh"
-        ]
     }
 }
