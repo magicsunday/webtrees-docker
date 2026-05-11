@@ -123,6 +123,29 @@ vol_cat() {
     docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" -c "cat /v/$path 2>/dev/null || true"
 }
 
+# Build an ephemeral image with a php stub that records argv and exits 0.
+# Used by bootstrap-hook tests to exercise the entrypoint's decision logic
+# without needing a real DB connection.
+build_stub_image() {
+    local stub_image="webtrees-bootstrap-stub:test"
+
+    # Use a heredoc'd Dockerfile via `docker build -`. The image is identical
+    # to $IMAGE except /usr/local/bin/php logs args to /var/www/.bootstrap-stub.log
+    # and returns 0.
+    docker build -t "$stub_image" --build-arg "BASE_IMAGE=$IMAGE" - >/dev/null <<'EOF'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN if [ -f /usr/local/bin/php ]; then mv /usr/local/bin/php /usr/local/bin/php.real; fi && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'echo "PHP-STUB $*" >> /var/www/.bootstrap-stub.log 2>/dev/null || true' \
+        'exit 0' \
+        > /usr/local/bin/php && \
+    chmod +x /usr/local/bin/php
+EOF
+    printf '%s' "$stub_image"
+}
+
 #
 # State 1: AUTO_SEED unset → skip
 #
@@ -445,6 +468,166 @@ test_file_secrets_missing() {
     fi
 }
 
+# ============================================================================
+# Bootstrap-Hook tests (setup_webtrees_bootstrap)
+# ============================================================================
+
+# Pre-seed a volume so the seed state machine passes and the bootstrap
+# function reaches its decision branches.
+bootstrap_prep_volume() {
+    local vol="$1"
+    vol_prep "$vol" 'mkdir -p /v/html/public /v/html/data && \
+        echo "2.2.6" > /v/.webtrees-bundled-version && \
+        touch /v/html/public/index.php && \
+        touch /v/html/data/.htaccess'
+}
+
+test_bootstrap_noop_without_admin_user() {
+    local name="bootstrap: no-op when WT_ADMIN_USER unset"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    local out exit_code
+    set +e
+    out=$(docker run --rm \
+        -v "$vol:/var/www" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        php-fpm -t 2>&1)
+    exit_code=$?
+    set -e
+
+    # The php-fpm -t invocation will exit 0 once the entrypoint completes.
+    # If the bootstrap-hook had run, the stub would have logged something.
+    local stub_calls
+    stub_calls=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null | wc -l')
+
+    if [[ "$stub_calls" -eq 0 ]] && ! echo "$out" | grep -qi "bootstrap"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — stub_calls=$stub_calls, output had 'bootstrap': $(echo "$out" | grep -ci bootstrap)")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_fails_without_password() {
+    local name="bootstrap: fails when WT_ADMIN_USER set but password missing"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    local out exit_code
+    set +e
+    out=$(docker run --rm \
+        -v "$vol:/var/www" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        php-fpm -t 2>&1)
+    exit_code=$?
+    set -e
+
+    if [[ "$exit_code" -ne 0 ]] && echo "$out" | grep -q "WT_ADMIN_PASSWORD is empty"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — expected non-zero exit + 'WT_ADMIN_PASSWORD is empty', got exit=$exit_code, output=$(echo "$out" | tail -5)")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_sets_marker_on_success() {
+    local name="bootstrap: marker file present after successful run"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$vol:/var/www" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local marker_present
+    marker_present=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c '[ -f /v/.webtrees-bootstrapped ] && echo yes || echo no')
+
+    if [[ "$marker_present" == "yes" ]]; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — marker missing after bootstrap")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_respects_marker_on_second_run() {
+    local name="bootstrap: skips when marker already exists"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+    # Pre-set the marker so the hook should skip everything
+    vol_prep "$vol" 'touch /v/.webtrees-bootstrapped'
+
+    docker run --rm \
+        -v "$vol:/var/www" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local stub_calls
+    stub_calls=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null | wc -l')
+
+    if [[ "$stub_calls" -eq 0 ]]; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — bootstrap stubbed-php was called $stub_calls times despite marker")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
 main() {
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
         printf "Image %s not found locally — build it first (make build).\n" "$IMAGE" >&2
@@ -469,6 +652,10 @@ main() {
     test_file_secrets_skips_compose_file
     test_file_secrets_skips_relative_paths
     test_file_secrets_missing
+    test_bootstrap_noop_without_admin_user
+    test_bootstrap_fails_without_password
+    test_bootstrap_sets_marker_on_success
+    test_bootstrap_respects_marker_on_second_run
 
     for line in "${results[@]}"; do
         printf "%s\n" "$line"
