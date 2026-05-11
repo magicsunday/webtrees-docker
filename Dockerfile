@@ -206,6 +206,35 @@ LABEL org.opencontainers.image.title="Webtrees PHP-FPM" \
 COPY --from=webtrees-build /opt/webtrees-dist /opt/webtrees-dist
 
 
+##############################
+# WEBTREES FULL EDITION      #
+##############################
+FROM php-base AS php-build-full
+
+ARG PHP_VERSION=8.3
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+ARG WEBTREES_VERSION=2.2.6
+
+LABEL org.opencontainers.image.title="Webtrees PHP-FPM (Magic-Sunday-Edition)" \
+      org.opencontainers.image.description="PHP-FPM runtime with bundled webtrees ${WEBTREES_VERSION} + Magic-Sunday charts (fan, pedigree, descendants)." \
+      org.opencontainers.image.authors="Rico Sonntag <mail@ricosonntag.de>" \
+      org.opencontainers.image.vendor="Rico Sonntag" \
+      org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${WEBTREES_VERSION}-php${PHP_VERSION}" \
+      org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
+      org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.base.name="php:${PHP_VERSION}-fpm-alpine" \
+      org.opencontainers.image.ref.name="webtrees/php-full:${PHP_VERSION}" \
+      net.webtrees.upgrade-locked="true" \
+      net.webtrees.edition="full"
+
+COPY --from=webtrees-build-full /opt/webtrees-dist /opt/webtrees-dist
+
+
 ############
 # BUILDBOX #
 ############
