@@ -80,6 +80,58 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  && test -f /opt/webtrees-dist/html/data/.htaccess
 
 
+##########################
+# WEBTREES BUILD (FULL)  #
+##########################
+# Magic-Sunday-Edition: webtrees core + fan/pedigree/descendants charts.
+# Same install pipeline as webtrees-build, different composer manifest.
+# webtrees-statistics is deferred until the module is published to Packagist.
+FROM composer:2 AS webtrees-build-full
+ARG WEBTREES_VERSION=2.2.6
+
+WORKDIR /build
+
+COPY setup/composer-full.json /build/composer.json
+COPY setup/patches /build/patches
+COPY setup/public /build/public
+
+RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
+ && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
+ && composer install \
+        --no-dev \
+        --no-scripts \
+        --no-progress \
+        --no-interaction \
+        --classmap-authoritative \
+        --prefer-dist \
+        --ignore-platform-req=ext-gd \
+        --ignore-platform-req=ext-intl \
+        --ignore-platform-req=ext-exif \
+        --ignore-platform-req=ext-imagick \
+        --ignore-platform-req=ext-zip \
+ # Patch-applied guards (same sentinels as core)
+ && grep -q "Upgrade-lock: bundled image is immutable" \
+        vendor/fisharebest/webtrees/app/Services/UpgradeService.php \
+ && test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
+ && grep -q 'merge($this->vendorModules())' \
+        vendor/fisharebest/webtrees/app/Services/ModuleService.php \
+ && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
+ # Verify Magic-Sunday charts landed in vendor/ (NOT modules_v4/)
+ && test -d vendor/magicsunday/webtrees-fan-chart \
+ && test -d vendor/magicsunday/webtrees-pedigree-chart \
+ && test -d vendor/magicsunday/webtrees-descendants-chart \
+ # Layout promotion (same as core)
+ && mv vendor/fisharebest/webtrees/data data \
+ && ln -s ../../../data vendor/fisharebest/webtrees/data \
+ && mkdir -p /opt/webtrees-dist/html \
+ && mv composer.json composer.lock vendor public data /opt/webtrees-dist/html/ \
+ && rm -rf /build/patches \
+ && test -f /opt/webtrees-dist/html/public/index.php \
+ && test -d /opt/webtrees-dist/html/vendor/fisharebest/webtrees \
+ && test -L /opt/webtrees-dist/html/vendor/fisharebest/webtrees/data \
+ && test -f /opt/webtrees-dist/html/data/.htaccess
+
+
 ###############
 # PHP RUNTIME #
 ###############
