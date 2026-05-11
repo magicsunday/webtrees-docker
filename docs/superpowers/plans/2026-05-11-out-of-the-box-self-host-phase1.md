@@ -371,8 +371,7 @@ The Full edition pre-bakes the four Magic-Sunday chart modules. `allow-plugins` 
         "cweagans/composer-patches": "^1.7",
         "magicsunday/webtrees-fan-chart": "*",
         "magicsunday/webtrees-pedigree-chart": "*",
-        "magicsunday/webtrees-descendants-chart": "*",
-        "magicsunday/webtrees-statistics": "*"
+        "magicsunday/webtrees-descendants-chart": "*"
     },
     "extra": {
         "patches": {
@@ -415,7 +414,9 @@ docker run --rm -v "$PWD/setup:/build" \
         --working-dir=/build 2>&1 | grep -iE 'magicsunday|plugin|warn' | head -30
 ```
 
-Expected: list shows `magicsunday/webtrees-fan-chart`, `pedigree-chart`, `descendants-chart`, `statistics` being resolved. No `webtrees-module-installer-plugin` is *activated* (line about "not allowed plugin" is OK; line about "plugin executed" is NOT OK).
+Expected: list shows `magicsunday/webtrees-fan-chart`, `pedigree-chart`, `descendants-chart` being resolved. `webtrees-module-installer-plugin` may show up as a transitive dependency being installed, but should NOT activate (no "Plugin: … executed/activated" line).
+
+`magicsunday/webtrees-statistics` is **deferred** — the module is not yet published to Packagist. It will join the Full edition later in a follow-up.
 
 If the plugin tries to run despite `allow-plugins` restriction, add `"replace": { "magicsunday/webtrees-module-installer-plugin": "*" }` to the manifest and re-test.
 
@@ -442,8 +443,9 @@ This stage mirrors `webtrees-build` but consumes `setup/composer-full.json` inst
 ##########################
 # WEBTREES BUILD (FULL)  #
 ##########################
-# Magic-Sunday-Edition: webtrees core + fan/pedigree/descendants/statistics
-# charts. Same install pipeline as webtrees-build, different composer manifest.
+# Magic-Sunday-Edition: webtrees core + fan/pedigree/descendants charts.
+# Same install pipeline as webtrees-build, different composer manifest.
+# webtrees-statistics is deferred until the module is published to Packagist.
 FROM composer:2 AS webtrees-build-full
 ARG WEBTREES_VERSION=2.2.6
 
@@ -478,7 +480,6 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  && test -d vendor/magicsunday/webtrees-fan-chart \
  && test -d vendor/magicsunday/webtrees-pedigree-chart \
  && test -d vendor/magicsunday/webtrees-descendants-chart \
- && test -d vendor/magicsunday/webtrees-statistics \
  # Layout promotion (same as core)
  && mv vendor/fisharebest/webtrees/data data \
  && ln -s ../../../data vendor/fisharebest/webtrees/data \
@@ -513,11 +514,11 @@ Expected output:
 webtrees-descendants-chart
 webtrees-fan-chart
 webtrees-module-base
+webtrees-module-installer-plugin
 webtrees-pedigree-chart
-webtrees-statistics
 ```
 
-(`webtrees-module-base` comes in as transitive dependency.)
+(`webtrees-module-base` and `webtrees-module-installer-plugin` come in as transitive dependencies. The installer plugin is NOT activated thanks to `allow-plugins` restricting to `cweagans/composer-patches` only — it sits inert in vendor/.)
 
 - [ ] **Step 4:** Verify no module-installer-plugin executed.
 
@@ -559,7 +560,7 @@ ARG BUILD_DATE=unknown
 ARG WEBTREES_VERSION=2.2.6
 
 LABEL org.opencontainers.image.title="Webtrees PHP-FPM (Magic-Sunday-Edition)" \
-      org.opencontainers.image.description="PHP-FPM runtime with bundled webtrees ${WEBTREES_VERSION} + Magic-Sunday charts (fan, pedigree, descendants, statistics)." \
+      org.opencontainers.image.description="PHP-FPM runtime with bundled webtrees ${WEBTREES_VERSION} + Magic-Sunday charts (fan, pedigree, descendants)." \
       org.opencontainers.image.authors="Rico Sonntag <mail@ricosonntag.de>" \
       org.opencontainers.image.vendor="Rico Sonntag" \
       org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
@@ -1736,7 +1737,7 @@ Expected: stack healthy.
 docker compose exec phpfpm ls /var/www/html/vendor/magicsunday/
 ```
 
-Expected: `webtrees-fan-chart`, `webtrees-pedigree-chart`, `webtrees-descendants-chart`, `webtrees-statistics` are listed.
+Expected: `webtrees-fan-chart`, `webtrees-pedigree-chart`, `webtrees-descendants-chart` are listed.
 
 Open the webtrees admin → modules page; the Magic-Sunday charts should appear in the list of available modules.
 

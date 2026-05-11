@@ -48,7 +48,8 @@ webtrees-build       (FROM composer:2)
 webtrees-build-full  (FROM composer:2)
   └─ wie webtrees-build, aber lädt setup/composer-full.json
      → enthält von Anfang an magicsunday/webtrees-{fan,pedigree,
-       descendants,statistics}-chart in require
+       descendants}-chart in require (statistics deferred —
+       Modul ist nicht auf Packagist publiziert)
 
 php-base             (FROM php:<x>-fpm-alpine)
   ├─ installiert PHP-Extensions (incl. pdo_sqlite — Vorbereitung Cluster B)
