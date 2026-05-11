@@ -2,6 +2,7 @@
 .idea
 .playwright-mcp
 *.zip
+/release-notes/
 /.env
 /.env.*
 !/.env.dist
