@@ -1,12 +1,19 @@
 # 🚀 Webtrees Docker
 
-A Docker-based development and deployment environment for [Webtrees](https://www.webtrees.net/), the free and open source web genealogy application.
+A Docker-based environment for running and developing [Webtrees](https://www.webtrees.net/), the free and open source web genealogy application.
+
+This repository serves two audiences:
+
+- **Self-hosters** who want a running webtrees instance → pull the pre-built image from ghcr.io and run with one compose chain
+- **Module developers** who hack on webtrees modules → clone the repo, bind-mount the source, and use the buildbox
 
 ## 📚 Table of Contents
 
-- [Overview](#-overview)
+- [Self-host Quickstart](#-self-host-quickstart)
+- [Module Developer Quickstart](#-module-developer-quickstart)
 - [Requirements](#-requirements)
-- [Quick Start](#-quick-start)
+- [Installing Modules (self-host)](#-installing-modules-self-host)
+- [Switching Between Dev and Production Mode](#-switching-between-dev-and-production-mode)
 - [Setup and Installation](#️-setup-and-installation)
     - [Clone the Repository](#-clone-the-repository)
     - [Run the Setup Script](#️-run-the-setup-script)
@@ -33,9 +40,57 @@ A Docker-based development and deployment environment for [Webtrees](https://www
 - [Security Considerations](#️-security-considerations)
 - [Performance Optimization](#-performance-optimization)
 
-## 🧩 Overview
+## 🏠 Self-host Quickstart
 
-This project provides a Docker-based environment for running and developing with Webtrees, a powerful web genealogy application. The containerized setup includes all necessary components (web server, PHP, database, and phpMyAdmin) configured to work together seamlessly.
+For a stable webtrees installation, pull the pre-built image. No build step needed.
+
+```shell
+# 1. Grab the repo (the compose files reference local nginx configs)
+git clone https://github.com/magicsunday/webtrees-docker.git
+cd webtrees-docker
+
+# 2. Create your .env from the template and edit DB credentials + WEBTREES_VERSION
+cp .env.dist .env
+$EDITOR .env
+
+# 3. Standalone (binds nginx on APP_PORT, default 80)
+echo 'COMPOSE_FILE=compose.yaml:compose.publish.yaml' >> .env
+docker compose pull && docker compose up -d
+
+# 4. Open http://localhost:${APP_PORT:-80} and run the webtrees setup wizard
+```
+
+Behind Traefik instead of binding a host port:
+
+```shell
+echo 'COMPOSE_FILE=compose.yaml:compose.traefik.yaml' >> .env
+echo 'DEV_DOMAIN=webtrees.example.com' >> .env
+docker compose pull && docker compose up -d
+```
+
+**Upgrades:** bump `WEBTREES_VERSION` in `.env`, `docker compose pull`, then **wipe the app volume** (`docker compose down && docker volume rm webtrees_app`) so the entrypoint re-seeds. Webtrees data and modules in named volumes survive.
+
+**Secrets:** any env var ending in `_FILE` is read from its referenced file (Docker Swarm / Kubernetes secret-mount pattern). Example: `MARIADB_PASSWORD_FILE=/run/secrets/db_password`.
+
+## 🧪 Module Developer Quickstart
+
+For working on webtrees modules with live source bind-mount, xdebug, and the buildbox:
+
+```shell
+# Clone the repository
+git clone git@github.com:magicsunday/webtrees-docker.git
+cd webtrees-docker
+
+# Run the setup script (interactive — picks dev vs traefik vs external DB)
+./scripts/setup.sh
+
+# Start the containers
+make up
+
+# Access Webtrees at http://localhost:50010
+```
+
+The rest of this README focuses on the developer workflow. Self-hosters can stop after the Quickstart above.
 
 ## 🧰 Requirements
 
@@ -51,21 +106,86 @@ Notes:
 - Both Docker Compose v2 (plugin) and v1 (standalone) are supported.
 - The script works on GNU/Linux and macOS (BSD sed is handled).
 
-## 🏁 Quick Start
+## 🧩 Installing Modules (self-host)
+
+The pre-built image bundles webtrees-core only. Custom modules can be added in
+two ways, depending on whether the host file system is your source of truth or
+you prefer to drive everything from inside the container.
+
+### Option A — Host-side bind-mount (recommended)
+
+Add `compose.modules.yaml` to the `COMPOSE_FILE` chain so a host directory
+maps into the container's `modules_v4/`:
 
 ```shell
-# Clone the repository
-git clone git@github.com:magicsunday/webtrees-docker.git
-cd webtrees-docker
+# Append to .env
+COMPOSE_FILE=compose.yaml:compose.publish.yaml:compose.modules.yaml
 
-# Run the setup script
-./scripts/setup.sh
+# Drop your unpacked module into ./modules/
+mkdir -p modules
+unzip ~/Downloads/webtrees-fan-chart.zip -d modules/
 
-# Start the containers
-make up
-
-# Access Webtrees at http://localhost:50010
+# Restart so PHP-FPM and nginx pick the bind-mount up
+docker compose restart phpfpm nginx
 ```
+
+Modules placed here **survive image upgrades** — a `WEBTREES_VERSION` bump
+re-seeds the `app:` volume, but your `./modules` directory is left alone.
+
+When the entrypoint seeds the volume for the first time *with the overlay
+active*, webtrees' shipped `modules_v4/README.md` lands in `./modules/`
+(owned by uid 82 — the container's `www-data`). That is expected; remove it
+if it bothers you.
+
+### Option B — Shell into the container
+
+If you don't want a bind-mount, drop into the running PHP-FPM container
+straight into the modules directory:
+
+```shell
+make modules-shell
+# inside the container:
+curl -L <download-url> -o module.zip
+unzip module.zip && rm module.zip
+exit
+```
+
+Modules installed this way live inside the `app:` named volume. They are
+preserved across container restarts but **wiped on a `WEBTREES_VERSION`
+upgrade** (the entrypoint refuses to overwrite a populated volume, so you
+must wipe it manually to re-seed — modules included).
+
+For unattended module installs use the companion project
+[magicsunday/webtrees-module-updater](https://github.com/magicsunday/webtrees-module-updater)
+instead.
+
+## 🔄 Switching Between Dev and Production Mode
+
+The two modes are selected by the `COMPOSE_FILE` chain in `.env`:
+
+| Mode | Chain | Effect |
+|---|---|---|
+| **Dev** | `compose.yaml:compose.development.yaml:…` | bind-mounted `./app`, buildbox, xdebug, browserless, `WEBTREES_AUTO_SEED=false` |
+| **Production** | `compose.yaml:compose.publish.yaml` (or `:compose.traefik.yaml`) | named volume `app:`, seeded on first run from the bundled webtrees release |
+
+The simplest switch is to edit `.env` and re-run `make up`. To **run both side by side** (verify a production-mode build without taking your dev stack down), use the isolated test-stack targets:
+
+```shell
+# One-time: create your test-stack env from the template
+cp .env.prod-test.dist .env.prod-test
+
+# Build the image locally first (uses your dev chain)
+make build
+
+# Start the production-mode stack on port 58080, separate volumes
+make prod-up
+curl -sI http://localhost:58080/
+
+# Tear down + drop the test volumes when done
+make prod-down
+```
+
+`make prod-up` runs the stack under `COMPOSE_PROJECT_NAME=webtrees-prod-test`, so its containers/volumes/networks never collide with the regular `webtrees` project. Other helpers: `make prod-config` (resolved compose), `make prod-logs` (tail), `make prod-status` (ps).
 
 ## 🛠️ Setup and Installation
 
@@ -121,9 +241,11 @@ The `.env` file contains all configurable options for the project. Key settings 
 
 The project uses several Docker Compose files for different environments:
 
-- `compose.yaml`: Base production configuration (db, phpfpm, nginx)
-- `compose.pma.yaml`: phpMyAdmin for database management (development only)
-- `compose.development.yaml`: Development environment (buildbox, port mappings, local volumes)
+- `compose.yaml`: Base production configuration (db, phpfpm, nginx) — image only, no host port
+- `compose.publish.yaml`: Publishes nginx on `APP_PORT` (use when running standalone, without Traefik)
+- `compose.modules.yaml`: Bind-mounts `./modules` into the container's `modules_v4/` for host-side module installs
+- `compose.pma.yaml`: phpMyAdmin for database management
+- `compose.development.yaml`: Development overlay (buildbox, local volume bind-mounts, browserless)
 - `compose.external.yaml`: External database and media configuration
 - `compose.traefik.yaml`: Configuration for use with Traefik reverse proxy
 
@@ -151,12 +273,16 @@ The application consists of several containers:
 
 ### 🌐 Accessing the Application
 
-By default, the application is accessible at:
+After running `scripts/setup.sh` in development mode, the application is
+accessible at:
 
 - Webtrees: http://localhost:50010
 - phpMyAdmin: http://localhost:50011
 
-The default port can be configured in the `compose.development.yaml` file.
+Standalone production stacks default to port 80 (set by `compose.publish.yaml`).
+Set `APP_PORT` and `PMA_PORT` in `.env` to change the host ports. The nginx
+port is only published when `compose.publish.yaml` is part of the
+`COMPOSE_FILE` chain.
 
 ### 👩‍💻 Working with the Buildbox
 
@@ -289,7 +415,7 @@ sudo service docker restart
 
 - **Database connection errors**: Check your database credentials in the `.env` file
 - **Permission issues**: Ensure proper file permissions in mounted volumes
-- **Port conflicts**: Change the port mappings in the Docker Compose files if ports are already in use
+- **Port conflicts**: Set `APP_PORT` and `PMA_PORT` in `.env` to remap the host ports when 50010/50011 (or 80, in standalone production) are already in use
 - **GitHub API rate limit**: Composer uses the GitHub API to resolve packages from GitHub repositories. Without authentication, the limit is 60 requests per hour. If the [GitHub CLI](https://cli.github.com/) (`gh`) is installed and authenticated on the host, the token is picked up automatically. Otherwise, you can set `COMPOSER_AUTH` manually in your environment:
   ```shell
   export COMPOSER_AUTH='{"github-oauth":{"github.com":"YOUR_TOKEN"}}'
@@ -297,10 +423,20 @@ sudo service docker restart
 
 ## 🚀 Production Deployment
 
-For production, use only the base `compose.yaml` without development overrides:
+For production, run the base `compose.yaml` plus either `compose.publish.yaml`
+(standalone, binds `APP_PORT` on the host) or `compose.traefik.yaml`
+(routes through Traefik, no host port). Do not combine the two.
+
+Create `.env` first by copying `.env.dist` and filling in the database and
+mail variables; `docker compose up` reads it automatically from the working
+directory.
 
 ```shell
-COMPOSE_FILE=compose.yaml docker compose up -d
+# Standalone, reachable on http://localhost:${APP_PORT:-80}
+COMPOSE_FILE=compose.yaml:compose.publish.yaml docker compose up -d
+
+# Behind Traefik (set DEV_DOMAIN to your hostname first)
+COMPOSE_FILE=compose.yaml:compose.traefik.yaml docker compose up -d
 ```
 
 ### Production Checklist
