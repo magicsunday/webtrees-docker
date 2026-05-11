@@ -15,14 +15,21 @@
             "*": "dist"
         },
         "allow-plugins": {
-            "magicsunday/webtrees-module-installer-plugin": true
-        }
+            "cweagans/composer-patches": true
+        },
+        "sort-packages": true
     },
     "require": {
-        "fisharebest/webtrees": "~2.2.0"
+        "fisharebest/webtrees": "~2.2.0",
+        "cweagans/composer-patches": "^1.7"
     },
-    "require-dev": {
-        "magicsunday/webtrees-module-installer-plugin": "^1.8"
+    "extra": {
+        "patches": {
+            "fisharebest/webtrees": {
+                "Disable the in-app upgrade prompt (bundled image is immutable)": "patches/disable-upgrade-prompt.patch",
+                "Add VendorModuleService for composer-installed modules": "patches/add-vendor-module-service.patch"
+            }
+        }
     },
     "scripts": {
         "post-autoload-dump": [

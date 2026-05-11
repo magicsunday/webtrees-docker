@@ -26,6 +26,10 @@ copy_application_files() {
 
     cp -r "${APP_DIR}"/../setup/public/* "${APP_DIR}"/public
     cp -r "${APP_DIR}"/../setup/composer.json "${APP_DIR}"
+
+    # Patches consumed by cweagans/composer-patches must sit next to
+    # composer.json — paths in composer.json's extra.patches are relative to it.
+    cp -r "${APP_DIR}"/../setup/patches "${APP_DIR}"/patches
 }
 
 # Application installation
@@ -33,13 +37,6 @@ install_application() {
     log_success "Installing webtrees"
 
     composer install -d "${APP_DIR}" --no-ansi --no-interaction
-
-    cd "${APP_DIR}" || exit 1
-
-    rm -rf html
-    ln -sf public html
-
-    cd - > /dev/null || exit 1
 }
 
 # Directory management

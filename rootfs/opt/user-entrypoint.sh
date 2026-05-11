@@ -48,9 +48,11 @@ set_defaults() {
         log_success "Using default user ID: ${LOCAL_USER_ID}"
     fi
 
-    # Set APP_BIN if APP_DIR is defined
+    # Set APP_BIN if APP_DIR is defined. /var/www is the in-container
+    # mount of the host's app/ directory; vendor/bin/ contains composer-
+    # installed CLI tools (phpunit, phpstan, ...).
     if [ -n "${APP_DIR:-}" ]; then
-        APP_BIN="/var/www/html/app/vendor/bin"
+        APP_BIN="/var/www/vendor/bin"
         log_success "Setting up application binary directory to ${APP_BIN}"
     else
         APP_BIN=""

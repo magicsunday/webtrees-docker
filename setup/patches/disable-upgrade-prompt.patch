@@ -1,0 +1,20 @@
+Disable the in-app webtrees upgrade prompt.
+
+The bundled docker image is immutable: bumping WEBTREES_VERSION is the
+only supported upgrade path. Letting the admin UI's "upgrade now" button
+run against an image-bound install would corrupt the tree.
+
+--- a/app/Services/UpgradeService.php
++++ b/app/Services/UpgradeService.php
+@@ -237,9 +237,8 @@ class UpgradeService
+      */
+     public function isUpgradeAvailable(bool $force = false): bool
+     {
+-        // If the latest version is unavailable, we will have an empty string which equates to version 0.
+-
+-        return version_compare(Webtrees::VERSION, $this->fetchLatestVersion($force)) < 0;
++        // Upgrade-lock: bundled image is immutable. See setup/patches/disable-upgrade-prompt.patch.
++        return false;
+     }
+
+     /**

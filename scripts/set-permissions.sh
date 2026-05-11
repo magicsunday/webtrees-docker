@@ -49,9 +49,8 @@ else
     exit 1
 fi
 
+# The html → public symlink is no longer created. nginx now serves the
+# composer-installed bootstrap from /var/www/public directly.
 rm -rf "${APP_DIR}/html"
-
-# Copy public folder to webtrees directory
-ln -s public "${APP_DIR}/html"
 
 log_success "Permissions changed successfully"
