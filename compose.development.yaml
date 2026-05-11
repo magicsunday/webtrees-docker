@@ -8,12 +8,14 @@ volumes:
             type: none
             device: ${PWD}/app
             o: bind
-    # Media files volume - maps to local ./persistent/media directory
+    # Media files volume - maps to local ./persistent/media directory.
+    # Only media is bind-mounted; config.ini.php and cache stay inside the
+    # app volume because they are container-internal and re-seedable.
     media:
         driver: local
         driver_opts:
             type: none
-            device: ${PWD}/persistent/media
+            device: ${MEDIA_DIR:-${PWD}/persistent/media}
             o: bind
     # Database files volume - maps to local ./persistent/database directory
     database:
@@ -35,6 +37,7 @@ x-buildbox-base: &buildbox-base
         args:
             - PHP_VERSION
             - DOCKER_SERVER
+            - WEBTREES_VERSION
             - VCS_REF
             - BUILD_DATE
     image: ${DOCKER_SERVER}/webtrees/buildbox:${PHP_VERSION}
@@ -51,6 +54,8 @@ x-buildbox-base: &buildbox-base
         - SSH_AUTH_SOCK=/ssh-agent
         # Set terminal type for better CLI experience
         - TERM=xterm-256color
+        # Buildbox uses the host bind-mount of ./app — never seed
+        - WEBTREES_AUTO_SEED=false
     volumes:
         # System timezone configuration
         - /etc/timezone:/etc/timezone:ro
@@ -79,12 +84,24 @@ services:
     buildbox:
         <<: *buildbox-base
 
-    # Override nginx service to add port mapping for development
-    nginx:
-        # Add a port to access the website via IP
-        # The APP_PORT is the external port mapped to container port 80
-        ports:
-            - "${APP_PORT:-50010}:80"
+    # Override phpfpm in dev: ./app is bind-mounted into /var/www and must
+    # never be overwritten by the seed. Adds a build context so `make build`
+    # rebuilds the local image instead of pulling from the registry.
+    phpfpm:
+        build:
+            context: .
+            dockerfile: ./Dockerfile
+            target: php-build
+            args:
+                - PHP_VERSION
+                - WEBTREES_VERSION
+                - VCS_REF
+                - BUILD_DATE
+        environment:
+            - WEBTREES_AUTO_SEED=false
+
+    # Nginx host-port publishing lives in compose.publish.yaml. Include that
+    # overlay alongside this one to bind APP_PORT on the host.
 
     # Browser for testing with web-based debugger and CDP endpoint.
     # Debugger UI:  http://localhost:3000

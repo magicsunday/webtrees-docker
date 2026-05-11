@@ -324,6 +324,9 @@ main() {
 
     # Enable development host port mappings only when NOT using a reverse proxy
     if [ "$USE_TRAEFIK" -eq 0 ]; then
+        # Include compose.publish.yaml so nginx is actually bound to APP_PORT
+        update_environment_file "s|^COMPOSE_FILE=.*|&:compose.publish.yaml|" .env
+
         # Write APP_PORT and PMA_PORT to .env
         update_environment_file "s/^[#]*APP_PORT=.*/APP_PORT=${APP_PORT_VALUE}/" .env
         update_environment_file "s/^[#]*PMA_PORT=.*/PMA_PORT=${PMA_PORT_VALUE}/" .env

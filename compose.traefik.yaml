@@ -12,10 +12,11 @@
 # instead of IP addresses and ports.
 
 services:
-    # Configure the Nginx web server for Traefik integration
+    # Configure the Nginx web server for Traefik integration.
+    # Do not include compose.publish.yaml together with this overlay —
+    # Traefik routes by Host header and should be the only thing binding
+    # the host port.
     nginx:
-        # When using Traefik, do not expose host ports directly
-        ports: []
         labels:
             # Enable Traefik for this container
             - traefik.enable=true
@@ -29,10 +30,9 @@ services:
             # Connect to the external Traefik network
             - traefik
 
-    # Configure phpMyAdmin for Traefik integration
+    # Configure phpMyAdmin for Traefik integration. compose.pma.yaml does
+    # not publish a host port, so no override needed here.
     pma:
-        # When using Traefik, do not expose host ports directly
-        ports: []
         labels:
             # Enable Traefik for this container
             - traefik.enable=true

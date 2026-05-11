@@ -3,9 +3,11 @@
 .playwright-mcp
 *.zip
 /release-notes/
+/modules/
 /.env
 /.env.*
 !/.env.dist
+!/.env.*.dist
 /app/*
 !.gitkeep
 

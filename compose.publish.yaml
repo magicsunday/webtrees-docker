@@ -1,0 +1,14 @@
+# Publish nginx on a host port so the stack is reachable without a reverse
+# proxy. Include this overlay when running the stack standalone:
+#
+#   COMPOSE_FILE=compose.yaml:compose.publish.yaml docker compose up -d
+#
+# Do NOT combine with compose.traefik.yaml — Traefik should be the only thing
+# binding the host port in that mode. The base compose.yaml deliberately
+# omits `ports:` because Compose's list-merging across multiple overlays
+# makes `ports: []` overrides unreliable.
+
+services:
+    nginx:
+        ports:
+            - "${APP_PORT:-80}:80"

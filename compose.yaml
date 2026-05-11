@@ -2,9 +2,12 @@ name: webtrees
 
 # Persistent volumes for data storage
 volumes:
-    # Stores the Webtrees application files
+    # Stores the Webtrees application files (composer-installed). Also
+    # holds runtime state (config.ini.php, cache) which is re-seedable —
+    # only media must survive a volume wipe.
     app:
-    # Stores media files uploaded to Webtrees (photos, documents, etc.)
+    # Stores media files uploaded to webtrees (photos, documents). The
+    # only path end-users typically need to back up or bind-mount.
     media:
     # Stores the MariaDB database files
     database:
@@ -37,23 +40,13 @@ services:
             - default
 
     # PHP-FPM service
-    # This container runs the PHP interpreter with all required extensions for Webtrees
+    # This container runs the PHP interpreter with all required extensions for Webtrees.
+    # The base config is image-only (production): `docker compose pull && up` is enough.
+    # compose.development.yaml adds a `build:` block so contributors can rebuild locally.
     phpfpm:
         depends_on:
             db:
                 condition: service_healthy
-        build:
-            # Build configuration for the PHP container
-            context: .
-            dockerfile: ./Dockerfile
-            target: php-build
-            args:
-                # PHP version to use, defined in .env
-                - PHP_VERSION
-                # Git commit SHA and build timestamp for OCI image labels;
-                # populated by Make/build.mk via --build-arg.
-                - VCS_REF
-                - BUILD_DATE
         image: ${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}
         environment:
             # Application environment (production, development)
@@ -63,6 +56,11 @@ services:
             # UID/GID for media file ownership (set by scripts/setup.sh, optional)
             - LOCAL_USER_ID=${LOCAL_USER_ID:-}
             - LOCAL_GROUP_ID=${LOCAL_GROUP_ID:-}
+            # Seed /var/www from bundled webtrees release on first run.
+            # Disabled in compose.development.yaml so dev bind-mounts of ./app
+            # are never overwritten.
+            - WEBTREES_AUTO_SEED=true
+            - WEBTREES_VERSION
             # PHP configuration settings
             - PHP_MAX_EXECUTION_TIME
             - PHP_MAX_INPUT_VARS
@@ -84,14 +82,17 @@ services:
             # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro
-            # Application and media storage
-            - app:/var/www
-            - media:/var/www/public/data/media
+            # Application source + media storage
+            - app:/var/www/html
+            - media:/var/www/html/data/media
         networks:
             - default
 
     # Nginx web server
-    # This container serves the Webtrees web application and handles HTTP requests
+    # This container serves the Webtrees web application and handles HTTP requests.
+    # Host port publishing is handled via the compose.publish.yaml overlay so
+    # `ports:` is never merged into stacks that route through Traefik (Compose's
+    # ports list merging is unreliable with `ports: []` overrides).
     nginx:
         depends_on:
             phpfpm:
@@ -108,9 +109,9 @@ services:
             start_period: 5s
         restart: unless-stopped
         volumes:
-            # Application and media storage (read-only for web server)
-            - app:/var/www:ro
-            - media:/var/www/public/data/media:ro
+            # Application source + media storage (read-only for web server)
+            - app:/var/www/html:ro
+            - media:/var/www/html/data/media:ro
             # System timezone configuration
             - /etc/timezone:/etc/timezone:ro
             - /etc/localtime:/etc/localtime:ro

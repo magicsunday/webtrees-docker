@@ -1,0 +1,23 @@
+# Bind a host directory into webtrees' modules directory so end-users can drop
+# module zips on the host without entering the container.
+#
+# Webtrees discovers custom modules from MODULES_DIR, which the composer
+# layout resolves to /var/www/html/vendor/fisharebest/webtrees/modules_v4/.
+#
+# Usage: append :compose.modules.yaml to COMPOSE_FILE in .env, then
+#
+#     mkdir modules
+#     unzip some-module.zip -d modules/
+#     docker compose restart phpfpm nginx
+#
+# Modules placed here survive image upgrades (the named app: volume gets
+# re-seeded on a WEBTREES_VERSION bump; this bind-mount does not).
+
+services:
+    phpfpm:
+        volumes:
+            - ./modules:/var/www/html/vendor/fisharebest/webtrees/modules_v4
+
+    nginx:
+        volumes:
+            - ./modules:/var/www/html/vendor/fisharebest/webtrees/modules_v4:ro
