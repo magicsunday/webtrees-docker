@@ -16,7 +16,8 @@
             "*": "dist"
         },
         "allow-plugins": {
-            "cweagans/composer-patches": true
+            "cweagans/composer-patches": true,
+            "magicsunday/webtrees-module-installer-plugin": false
         },
         "sort-packages": true
     },
