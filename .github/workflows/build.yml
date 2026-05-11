@@ -172,3 +172,98 @@ jobs:
                       BUILD_DATE=${{ github.event.repository.updated_at }}
                   cache-from: type=gha,scope=nginx
                   cache-to: type=gha,mode=max,scope=nginx
+
+    smoke-test:
+        name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
+        needs: [matrix, build-php, build-php-full, build-nginx]
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                edition: [core, full]
+                entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Prepare .env for smoke-test
+              env:
+                  EDITION: ${{ matrix.edition }}
+                  WT_VERSION: ${{ matrix.entry.webtrees }}
+                  PHP_V: ${{ matrix.entry.php }}
+                  NGINX_TAG: ${{ needs.matrix.outputs.nginx_tag }}
+              run: |
+                  set -euo pipefail
+                  cat > .env <<EOF
+                  COMPOSE_PROJECT_NAME=webtrees-smoke
+                  COMPOSE_FILE=compose.yaml:compose.publish.yaml
+                  DOCKER_SERVER=ghcr.io/magicsunday
+                  PHP_VERSION=${PHP_V}
+                  WEBTREES_VERSION=${WT_VERSION}
+                  WEBTREES_NGINX_VERSION=${NGINX_TAG}
+                  NGINX_CONFIG_REVISION=1
+                  ENVIRONMENT=production
+                  ENFORCE_HTTPS=FALSE
+                  APP_PORT=18080
+                  MARIADB_ROOT_PASSWORD=smoke-root
+                  MARIADB_USER=webtrees
+                  MARIADB_PASSWORD=smoke-pw
+                  MARIADB_HOST=db
+                  MARIADB_DATABASE=webtrees
+                  MARIADB_PORT=3306
+                  PHP_MAX_EXECUTION_TIME=30
+                  PHP_MAX_INPUT_VARS=1000
+                  PHP_MEMORY_LIMIT=256M
+                  PHP_POST_MAX_SIZE=128M
+                  PHP_UPLOAD_MAX_FILESIZE=128M
+                  MAIL_SMTP=
+                  MAIL_DOMAIN=example.org
+                  MAIL_HOST=
+                  LOCAL_GROUP_ID=82
+                  LOCAL_GROUP_NAME=www-data
+                  WEBTREES_TABLE_PREFIX=wt_
+                  WEBTREES_REWRITE_URLS=0
+                  EOF
+
+                  # Full edition overrides the phpfpm image via compose.override.yaml
+                  if [ "${EDITION}" = "full" ]; then
+                      cat > compose.override.yaml <<EOF
+                  services:
+                      phpfpm:
+                          image: ghcr.io/magicsunday/webtrees/php-full:${WT_VERSION}-php${PHP_V}
+                  EOF
+                  fi
+
+            - name: Pull images
+              run: docker compose pull
+
+            - name: Up stack
+              run: docker compose up -d
+
+            - name: Wait for nginx healthy
+              run: |
+                  set -euo pipefail
+                  for i in $(seq 1 60); do
+                      health=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q nginx)" 2>/dev/null || echo starting)
+                      if [ "$health" = "healthy" ]; then
+                          echo "nginx healthy after ${i}s"
+                          exit 0
+                      fi
+                      sleep 1
+                  done
+                  echo "::error::nginx did not become healthy within 60s"
+                  docker compose logs --tail=200
+                  exit 1
+
+            - name: Probe HTTP
+              run: |
+                  set -euo pipefail
+                  body=$(curl -sS http://localhost:18080/)
+                  echo "$body" | head -50
+                  echo "$body" | grep -qi "webtrees" || {
+                      echo "::error::response body does not mention 'webtrees'"
+                      exit 1
+                  }
+
+            - name: Tear down
+              if: always()
+              run: docker compose down -v
