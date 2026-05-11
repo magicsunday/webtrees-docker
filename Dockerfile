@@ -30,8 +30,8 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # cannot drift.
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
  # --ignore-platform-req=ext-*: the composer:2 image lacks the PHP extensions
- # webtrees needs (gd, intl, exif, ...). The final php-build stage installs
- # them; we only need composer to resolve and unpack here.
+ # webtrees needs (gd, intl, exif, ...). The php-base stage installs them;
+ # we only need composer to resolve and unpack here.
  && composer install \
         --no-dev \
         --no-scripts \
@@ -80,19 +80,13 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  && test -f /opt/webtrees-dist/html/data/.htaccess
 
 
-#######
-# PHP #
-#######
-FROM php:${PHP_VERSION}-fpm-alpine AS php-build
-
-# Re-declare ARGs inside the stage so they are in scope for LABEL instructions.
-# ARGs declared before the first FROM are only valid in the FROM line itself.
-# Defaults guard against compose passing an empty --build-arg when the variable
-# is missing from the calling environment.
-ARG PHP_VERSION=8.3
-ARG VCS_REF=unknown
-ARG BUILD_DATE=unknown
-ARG WEBTREES_VERSION=2.2.6
+###############
+# PHP RUNTIME #
+###############
+# Shared base: PHP-FPM, extensions, entrypoint. Both production tracks
+# (php-build core, php-build-full Magic-Sunday-Edition) derive from this
+# stage so the PHP runtime is built once.
+FROM php:${PHP_VERSION}-fpm-alpine AS php-base
 
 # docker-entrypoint.sh dependencies
 RUN apk update && \
@@ -104,7 +98,9 @@ RUN apk update && \
 # Add PHP extension installer
 ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
-# Install additionally required php extensions
+# Install required PHP extensions.
+# pdo_sqlite is included even though the default compose uses MariaDB — keeps
+# the SQLite variant from Cluster B as an env-var-only switch later.
 RUN chmod +x /usr/local/bin/install-php-extensions && \
     install-php-extensions \
         apcu \
@@ -114,7 +110,30 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
         intl \
         opcache \
         pdo_mysql \
+        pdo_sqlite \
         zip
+
+# Custom PHP configuration
+COPY rootfs/usr/local/etc/php/conf.d/*.ini $PHP_INI_DIR/conf.d/
+
+# Entrypoint
+COPY rootfs/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["php-fpm"]
+
+
+#######################
+# WEBTREES CORE IMAGE #
+#######################
+FROM php-base AS php-build
+
+# Re-declare ARGs (out of scope across FROM boundaries)
+ARG PHP_VERSION=8.3
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+ARG WEBTREES_VERSION=2.2.6
 
 LABEL org.opencontainers.image.title="Webtrees PHP-FPM" \
       org.opencontainers.image.description="PHP-FPM runtime with bundled webtrees ${WEBTREES_VERSION}." \
@@ -132,24 +151,7 @@ LABEL org.opencontainers.image.title="Webtrees PHP-FPM" \
       net.webtrees.upgrade-locked="true"
 
 # Bundle the composer-installed webtrees for first-run initialisation.
-# The docker-entrypoint.sh seeds /var/www from this directory when
-# WEBTREES_AUTO_SEED=true and the volume's marker file is absent. The dev
-# compose overlay sets WEBTREES_AUTO_SEED=false so host bind-mounts of ./app
-# are never touched.
 COPY --from=webtrees-build /opt/webtrees-dist /opt/webtrees-dist
-
-# Copy our custom configuration files
-COPY rootfs/usr/local/etc/php/conf.d/*.ini $PHP_INI_DIR/conf.d/
-
-# Entrypoint
-COPY rootfs/docker-entrypoint.sh /docker-entrypoint.sh
-
-# Set proper permissions for entrypoint
-RUN chmod +x /docker-entrypoint.sh
-
-ENTRYPOINT ["/docker-entrypoint.sh"]
-
-CMD ["php-fpm"]
 
 
 ############
