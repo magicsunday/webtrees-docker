@@ -29,8 +29,6 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `dev/versions.json` | PHP × webtrees matrix the build workflow expands |
 | `.github/workflows/build.yml` | Image build + smoke matrix (manual / tag-triggered) |
 | `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases |
-| `docs/superpowers/specs/` | Authoritative architecture spec |
-| `docs/superpowers/plans/` | Executable plan docs (Phase 1, 2a, 2b, 3) |
 | `docs/developing.md` | Module-maintainer guide |
 | `docs/customizing.md` | Self-hoster customising + backup |
 
@@ -92,5 +90,6 @@ in global memory. Multi-platform image builds run only on CI.
 Self-host install instructions → [`README.md`](README.md).
 Module-developer onboarding → [`docs/developing.md`](docs/developing.md).
 Customising / backup → [`docs/customizing.md`](docs/customizing.md).
-Architecture rationale → `docs/superpowers/specs/2026-05-11-out-of-the-box-self-host-design.md`.
+Architecture rationale lives with the maintainer's notes outside the repo;
+ask the maintainer if you need it.
 <!-- /GENERATED:agent-rules -->
