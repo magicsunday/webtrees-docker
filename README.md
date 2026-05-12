@@ -43,10 +43,9 @@ Subsequent `docker compose pull && up -d` re-uses the same files.
 
 ## Customising
 
-Drop a `compose.override.yaml` next to the generated `compose.yaml` for
-extra PHP limits, custom nginx snippets, an external database, or your
-own webtrees modules — Docker Compose merges it automatically. A dedicated
-customising guide is planned for the next phase.
+Full guide: [`docs/customizing.md`](docs/customizing.md) — covers
+`compose.override.yaml` patterns (PHP limits, custom nginx snippets,
+external database, third-party modules) plus Backup / Restore.
 
 ## Updating to a new webtrees release
 

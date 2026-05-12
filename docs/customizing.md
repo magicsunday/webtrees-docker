@@ -1,0 +1,183 @@
+# Customising your webtrees stack
+
+This guide is for self-hosters who want to tweak the stack the wizard
+generated. Maintainers working on the wizard, the images, or the compose
+chain itself should read [`docs/developing.md`](developing.md) instead.
+
+## `compose.override.yaml`
+
+Docker Compose automatically merges a file named `compose.override.yaml`
+sitting next to `compose.yaml`. Put every per-host customisation there:
+extra services, environment overrides, volume bind-mounts, anything you
+do not want to re-do after the next wizard run.
+
+The wizard's `--force` flag overwrites `compose.yaml` and `.env`, but it
+never touches `compose.override.yaml`. The same goes for any extra
+files you add (custom nginx snippets, secrets, helper scripts).
+
+### Higher PHP limits
+
+The `phpfpm` entrypoint reads `PHP_MEMORY_LIMIT`, `PHP_POST_MAX_SIZE`,
+`PHP_UPLOAD_MAX_FILESIZE`, `PHP_MAX_EXECUTION_TIME` and
+`PHP_MAX_INPUT_VARS`. The wizard ships sensible defaults (128 MB memory,
+128 MB up/post); bump them when a large GEDCOM or a chunky media import
+needs more headroom.
+
+```yaml
+services:
+    phpfpm:
+        environment:
+            PHP_MEMORY_LIMIT: 512M
+            PHP_POST_MAX_SIZE: 256M
+            PHP_UPLOAD_MAX_FILESIZE: 256M
+            PHP_MAX_EXECUTION_TIME: "120"
+```
+
+### Custom nginx snippet
+
+The bundled nginx image includes
+`include /etc/nginx/conf.d/custom/*.conf;` inside the `server { }`
+block. Drop your own `.conf` files into that directory to add headers,
+rewrites, locations, rate limits — anything `nginx -t` accepts.
+
+```yaml
+services:
+    nginx:
+        volumes:
+            - ./nginx/security-headers.conf:/etc/nginx/conf.d/custom/security-headers.conf:ro
+```
+
+A minimal `nginx/security-headers.conf`:
+
+```nginx
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+```
+
+### External database
+
+To run against an existing MariaDB / MySQL server, disable the bundled
+`db` service and point `phpfpm` at the external host. Pair this with
+`--use-external-db` (and `--mariadb-host …`) on the wizard command line
+when you are in `--mode dev` so the rendered `.env` already wires up
+the right `MARIADB_HOST`.
+
+```yaml
+services:
+    db:
+        deploy:
+            replicas: 0
+    phpfpm:
+        environment:
+            MARIADB_HOST: db.example.org
+            MARIADB_PORT: "3306"
+            MARIADB_DATABASE: webtrees
+            MARIADB_USER: webtrees
+            MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+```
+
+### Your own webtrees modules
+
+Webtrees discovers custom modules under
+`/var/www/html/vendor/fisharebest/webtrees/modules_v4/`. Bind-mount a
+host directory there to drop modules in without rebuilding the image.
+Modules added this way survive image upgrades (the `app` volume is
+re-seeded on a `WEBTREES_VERSION` bump; a bind-mount is not).
+
+```yaml
+services:
+    phpfpm:
+        volumes:
+            - ./modules:/var/www/html/vendor/fisharebest/webtrees/modules_v4
+    nginx:
+        volumes:
+            - ./modules:/var/www/html/vendor/fisharebest/webtrees/modules_v4:ro
+```
+
+The `full` edition's image already bundles the Magic-Sunday charts under
+that path. A bind-mount fully shadows the directory, so when you go
+this route you become responsible for shipping every module yourself —
+including the ones the image used to provide.
+
+## Backup
+
+### Daily snapshot
+
+```bash
+# Database (single transaction, no table locks)
+docker compose exec -T db mariadb-dump \
+    --all-databases --single-transaction --quick \
+    | gzip > "backup-$(date +%F).sql.gz"
+
+# Media files (read-only mount, host writes the tarball)
+docker run --rm \
+    -v webtrees_media:/m:ro \
+    -v "$PWD:/host" \
+    alpine:3.20 \
+    tar -C /m -czf "/host/media-$(date +%F).tar.gz" .
+```
+
+The wizard names volumes `webtrees_database`, `webtrees_media` and
+`webtrees_app`. Only `webtrees_media` and the SQL dump need a backup —
+`webtrees_app` is re-seeded from the image on every fresh boot.
+
+### Restore
+
+```bash
+# Database
+gunzip < backup-2026-05-12.sql.gz \
+    | docker compose exec -T db mariadb
+
+# Media
+docker run --rm \
+    -v webtrees_media:/m \
+    -v "$PWD:/host" \
+    alpine:3.20 \
+    sh -c "cd /m && tar -xzf /host/media-2026-05-12.tar.gz"
+```
+
+Bring the stack down before a restore (`docker compose down`) so
+webtrees does not see a half-imported database.
+
+### Scheduling
+
+A simple cron entry wrapping a shell script keeps things sustainable.
+Drop a `backup.sh` next to your `compose.yaml`, then:
+
+```cron
+# Daily at 03:30, prune snapshots older than 14 days
+30 3 * * *  cd /srv/webtrees && ./backup.sh >> backup.log 2>&1
+```
+
+systemd `OnCalendar=daily` timers work just as well; pick whichever
+fits the host. Either way, store the resulting tarballs off the
+machine — a backup on the same disk as the live data is not a backup.
+
+## Per-environment configuration
+
+A handful of variables are read straight out of `.env` at compose time
+rather than written by the wizard. Add them by hand when you need them:
+
+| Variable | Purpose |
+|---|---|
+| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Default `FALSE`. |
+| `WEBTREES_VERSION` | Pins the webtrees image tag. The wizard writes this; bump it manually for an out-of-cycle upgrade. |
+| `APP_PORT` | Host port published by the standalone overlay (default `8080` in the wizard quickstart). |
+| `MARIADB_HOST` / `MARIADB_PORT` | Override when you point at an external database (see above). |
+
+The wizard's `.env` carries a comment block noting that subsequent runs
+ignore the file — edits stick.
+
+## When things go wrong
+
+- **Stack stays unhealthy** — `docker compose logs phpfpm` and
+  `docker compose logs nginx` surface bad config almost immediately;
+  the `db` container's first boot takes 30-60 s before it reports
+  healthy.
+- **Admin password lost** — the wizard wrote it once to
+  `.webtrees-admin-password` (mode 0600) in the directory you ran it
+  from. Reset via the webtrees CLI inside the container:
+  `docker compose exec phpfpm php /var/www/html/index.php user-password admin newpass`.
+- **Override not picked up** — Compose only merges
+  `compose.override.yaml` when the filename matches exactly. Check
+  `docker compose config` to see the effective merged stack.
