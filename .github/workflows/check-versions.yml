@@ -1,8 +1,10 @@
 name: Check for new webtrees versions
 
-# Polls fisharebest/webtrees once a day and opens an issue per version
-# that is not yet in dev/versions.json. The build workflow stays manual —
-# a human reviews the issue and updates versions.json + triggers the build.
+# Polls fisharebest/webtrees once a day and opens an issue per release
+# that is strictly newer than the highest version in dev/versions.json.
+# Older missing entries (e.g. 2.0.x while we ship only 2.2.x) are
+# deliberately ignored — the build workflow stays manual, a human
+# reviews the issue and updates versions.json + triggers the build.
 on:
     schedule:
         - cron: '0 12 * * *'
@@ -24,18 +26,22 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
-                  # `comm` requires lexically-sorted inputs, but `sort -V` orders 2.2.10 after
-                  # 2.2.6, which `comm` then rejects with "not in sorted order". Skip `comm`
-                  # entirely: load the known list once and filter upstream with `grep -vxFf`.
                   upstream=$(gh api repos/fisharebest/webtrees/releases --jq '.[].tag_name' | head -50)
                   # Bail loud if the API returned nothing (auth, rate limit, network):
-                  # otherwise the empty string sneaks through `printf | grep -vxFf` as a
-                  # single empty line and the step silently reports "no new versions".
+                  # otherwise downstream comparisons see an empty stream and the step
+                  # silently reports "no new versions".
                   [ -n "$upstream" ] || { echo "::error::gh api returned no releases" >&2; exit 1; }
-                  known_file=$(mktemp)
-                  trap 'rm -f "$known_file"' EXIT
-                  jq -r '.[].webtrees' dev/versions.json > "$known_file"
-                  new=$(printf '%s\n' "$upstream" | grep -vxFf "$known_file" | sort -V | head -20)
+                  max_known=$(jq -r '.[].webtrees' dev/versions.json | sort -V | tail -1)
+                  [ -n "$max_known" ] || { echo "::error::dev/versions.json carries no entries" >&2; exit 1; }
+                  # Seed max_known into the merged stream so the awk position-scan flips
+                  # even when upstream's 50-tag window cuts max_known off. After `sort -uV`
+                  # max_known appears exactly once at its proper place, and every line
+                  # that follows is — by `sort -V`'s total ordering on dotted versions —
+                  # strictly newer.
+                  new=$(printf '%s\n%s\n' "$upstream" "$max_known" \
+                      | sort -uV \
+                      | awk -v max="$max_known" 'past && $0 != max { print } $0 == max { past = 1 }' \
+                      | head -20)
                   {
                       echo 'new<<EOF'
                       printf '%s\n' "$new"
