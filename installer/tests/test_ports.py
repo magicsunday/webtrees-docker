@@ -16,19 +16,24 @@ def test_probe_port_free() -> None:
         run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="", stderr=""
         )
-        assert probe_port(8080) == PortStatus.FREE
+        assert probe_port(8080) is PortStatus.FREE
 
 
-def test_probe_port_in_use() -> None:
-    """docker run exits non-zero with 'address already in use' → IN_USE."""
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "bind: address already in use",
+        "Bind for 0.0.0.0:8080 failed: port is already allocated",
+        "Ports are not available: exposing port TCP 0.0.0.0:8080 → 0.0.0.0:1",
+    ],
+)
+def test_probe_port_in_use_recognises_known_phrasings(stderr: str) -> None:
+    """All three known docker-daemon variants of 'port taken' → IN_USE."""
     with patch("webtrees_installer.ports._run_docker_probe") as run:
         run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=125,
-            stdout="",
-            stderr="bind: address already in use",
+            args=[], returncode=125, stdout="", stderr=stderr,
         )
-        assert probe_port(8080) == PortStatus.IN_USE
+        assert probe_port(8080) is PortStatus.IN_USE
 
 
 def test_probe_port_check_failed_on_unrelated_error() -> None:
@@ -40,14 +45,24 @@ def test_probe_port_check_failed_on_unrelated_error() -> None:
             stdout="",
             stderr="docker: permission denied",
         )
-        assert probe_port(8080) == PortStatus.CHECK_FAILED
+        assert probe_port(8080) is PortStatus.CHECK_FAILED
 
 
 def test_probe_port_check_failed_on_subprocess_error() -> None:
     """docker CLI itself missing / hangs → CHECK_FAILED."""
     with patch("webtrees_installer.ports._run_docker_probe") as run:
         run.side_effect = FileNotFoundError("docker not on PATH")
-        assert probe_port(8080) == PortStatus.CHECK_FAILED
+        assert probe_port(8080) is PortStatus.CHECK_FAILED
+
+
+def test_probe_port_honours_custom_timeout() -> None:
+    """Caller-supplied timeout_s overrides the module default."""
+    with patch("webtrees_installer.ports._run_docker_probe") as run:
+        run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr="",
+        )
+        probe_port(8080, timeout_s=120.0)
+        assert run.call_args.kwargs["timeout_s"] == 120.0
 
 
 @pytest.mark.parametrize("invalid", [0, -1, 65536, 99999])
