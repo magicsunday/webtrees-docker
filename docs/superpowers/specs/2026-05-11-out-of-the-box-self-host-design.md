@@ -83,7 +83,7 @@ python:3.12-alpine
 
 ### Compose-Templates (im Installer-Image)
 
-`installer/templates/compose.standalone.j2`, `compose.traefik.j2`, `compose.dev.j2`. Wizard rendert das passende Template mit den User-Werten und Image-Tags aus `versions.json`.
+`installer/webtrees_installer/templates/compose.standalone.j2`, `compose.traefik.j2`, `env.j2`. Wizard rendert das passende Template mit den User-Werten und Image-Tags aus `versions.json`. (`compose.dev.j2` kommt in Phase 2b zusammen mit der Dev-Flow-Migration.)
 
 Kern-Struktur der generierten `compose.yaml` (Standalone-Modus, Edition-agnostisch):
 
@@ -101,15 +101,17 @@ services:
     image: alpine:3.20
     restart: "no"
     volumes: [ "secrets:/secrets" ]
-    command: |
-      sh -ec '
-        umask 077
-        apk add --no-cache openssl >/dev/null
-        for name in mariadb_root_password mariadb_password{{ admin_secret }}; do
-          [ -s "/secrets/$name" ] || openssl rand -hex 24 > "/secrets/$name"
-        done
-        chmod 444 /secrets/*
-      '
+    command:
+      - sh
+      - -ec
+      - |
+          umask 077
+          for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
+            if [ ! -s "/secrets/$name" ]; then
+              head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/secrets/$name"
+            fi
+          done
+          chmod 444 /secrets/*
 
   db:
     image: mariadb:11.7
@@ -125,7 +127,7 @@ services:
     healthcheck: { ... }
 
   phpfpm:
-    image: ghcr.io/magicsunday/webtrees-php{{ '-full' if edition == 'full' else '' }}:{{ wt_version }}-php{{ php_version }}
+    image: ghcr.io/magicsunday/webtrees/php{{ '-full' if edition == 'full' else '' }}:{{ wt_version }}-php{{ php_version }}
     depends_on: { db: { condition: service_healthy } }
     environment:
       ENVIRONMENT: production
@@ -146,7 +148,7 @@ services:
       - media:/var/www/html/data/media
 
   nginx:
-    image: ghcr.io/magicsunday/webtrees-nginx:{{ nginx_tag }}
+    image: ghcr.io/magicsunday/webtrees/nginx:{{ nginx_tag }}
     depends_on: { phpfpm: { condition: service_healthy } }
     {% if proxy_mode == 'standalone' %}
     ports: [ "${APP_PORT:-{{ chosen_port }}}:80" ]
@@ -160,7 +162,10 @@ services:
 
 {% if proxy_mode == 'traefik' %}
 networks:
-  traefik: { external: true }
+  default:
+  traefik:
+    external: true
+    name: {{ traefik_network }}
 {% endif %}
 ```
 
@@ -192,12 +197,13 @@ Optionaler Bash-Wrapper im Repo unter `install` (~10 Zeilen, ruft den `docker ru
 3. **Edition-Wahl**: Core / Full / Full + Demo-Tree (default Full).
 4. **Reverse-Proxy-Wahl**: Standalone / Traefik (default Standalone).
 5. **Port- oder Domain-Eingabe**: bei Standalone Port (default 80, Live-Check via Alpine-Container, Fallback 8080); bei Traefik Domain (pflicht).
-6. **Admin-Bootstrap**: y/N (default y). Bei y: Username, Email. Passwort wird via `openssl rand` generiert und nach Stack-Start ausgegeben.
+6. **Admin-Bootstrap**: y/N (default y). Bei y: Username, Email. Passwort wird vom Wizard via `secrets.token_hex(12)` (24 hex chars, 96 bit) generiert und nach Stack-Start ausgegeben.
 7. **Demo-Tree-Größe** (nur bei Demo-Edition): Anzahl Personen (default 200).
 8. **Zusammenfassung + Bestätigung**.
-9. **Files schreiben**: `compose.yaml` (Jinja), `.env` (Architektur-Werte: WEBTREES_VERSION, APP_PORT, COMPOSE_PROJECT_NAME, optional WT_ADMIN_*), `demo.ged` (nur bei Demo-Edition).
-10. **Optional**: `docker compose up -d` direkt ausführen; Warten auf nginx-Healthcheck (Timeout 60s); bei Demo + Admin: Stack hochfahren → Marker-File abwarten → `compose cp` GEDCOM → `tree-import` via CLI.
-11. **Banner**: URL, Admin-Login + generiertes Passwort, Hinweis auf `compose.override.yaml` und gängige Compose-Befehle.
+9. **Files schreiben**: `compose.yaml` (Jinja) und `.env` (Architektur-Werte: COMPOSE_PROJECT_NAME, WEBTREES_VERSION, PHP_VERSION, WEBTREES_NGINX_VERSION, im Standalone-Modus zusätzlich APP_PORT). Phase 2b: `demo.ged` bei Demo-Edition.
+10. **Admin-Passwort persistieren** (nur bei Admin-Bootstrap): Wizard legt das `webtrees_secrets`-Volume mit `docker volume create` an und schreibt das generierte Passwort über einen kurzlebigen Alpine-Container nach `/secrets/wt_admin_password` (chmod 444). Parallel dazu wird `.webtrees-admin-password` im Work-Dir mit Mode 0600 abgelegt, damit der User es nach dem ersten Login löschen kann. Der `init`-Service findet die Datei beim Stack-Start gefüllt und überschreibt sie nicht.
+11. **Optional**: `docker compose up -d` direkt ausführen; Warten auf nginx-Healthcheck (Timeout 60s); bei Demo + Admin (Phase 2b): Stack hochfahren → Marker-File abwarten → `compose cp` GEDCOM → `tree-import` via CLI.
+12. **Banner**: URL, Admin-Login + generiertes Passwort, Hinweis auf `compose.override.yaml` und gängige Compose-Befehle.
 
 ### Dev-Flow (`--mode dev`)
 
@@ -221,7 +227,7 @@ Edition-Wahl entfällt im Dev-Modus — die Edition ist durch `setup/composer.js
 
 ### Non-Interactive-Modus
 
-Für CI und Skripted-Deployments unterstützt der Wizard `--non-interactive` + Flags für jeden Prompt: `--edition`, `--proxy`, `--port`, `--admin-user`, `--admin-email`, `--no-admin`, `--no-demo`, `--mode`, `--no-up`.
+Für CI und Skripted-Deployments unterstützt der Wizard `--non-interactive` + Flags für jeden Prompt: `--edition core|full`, `--proxy standalone|traefik`, `--port <int>` (Standalone), `--domain <host>` (Traefik), `--admin-user`, `--admin-email`, `--no-admin`, `--no-up`, `--force` (überschreibt vorhandene `compose.yaml` / `.env` ohne Prompt). Phase 2b ergänzt `--no-demo` und `--mode dev`.
 
 ### Edge-Cases
 
@@ -243,6 +249,17 @@ Für CI und Skripted-Deployments unterstützt der Wizard `--non-interactive` + F
 ### Lebensort
 
 Im **`webtrees-php`-Image-Entrypoint** (`rootfs/docker-entrypoint.sh`), neue Funktion `setup_webtrees_bootstrap`. Marker `/var/www/html/.webtrees-bootstrapped` (innerhalb des persistenten Volumes, damit Container-Recreate den Hook nicht erneut auslöst), idempotent.
+
+### Passwort-Übergabe (Wizard → Bootstrap-Hook)
+
+Der Wizard erzeugt das Admin-Passwort lokal (`secrets.token_hex(12)`) und gibt es nach dem File-Write im Banner aus. Damit der Bootstrap-Hook beim ersten `up -d` exakt dieses Passwort verwendet, schreibt der Wizard es vor dem Stack-Start in das `webtrees_secrets`-Volume:
+
+1. `docker volume create webtrees_secrets` (idempotent).
+2. Ephemerer Alpine-Container schreibt `umask 077 && cat > /secrets/wt_admin_password && chmod 444` (stdin-fed, kein Argv-Leak).
+3. Schlägt Schritt 2 fehl, entfernt der Wizard das Volume wieder (sauberer Re-Run).
+4. Zusätzlich landet das Passwort als `.webtrees-admin-password` (Mode 0600) im Work-Dir als Reveal-File für den User; der Banner verweist explizit darauf.
+
+Der `init`-Service im generierten `compose.yaml` prüft `[ -s "/secrets/wt_admin_password" ]` und überschreibt vorhandene Inhalte nicht — d. h. das wizard-seitig vorbeireitete Passwort gewinnt.
 
 ### Pfad A: `config.ini.php` + Webtrees-CLI
 
