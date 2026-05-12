@@ -7,10 +7,10 @@ without writing your own compose file.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
-  | bash -s -- --edition full --proxy standalone --port 8080
+  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 8080
 ```
 
-(Or with admin auto-create: append `--admin-user admin --admin-email me@example.org`.)
+(Or with admin auto-create: drop `--no-admin` and add `--admin-user admin --admin-email me@example.org`.)
 
 The wizard writes `compose.yaml` + `.env` into the current directory and
 brings the stack up via `docker compose up -d`. Visit `http://localhost:8080/`.
@@ -43,9 +43,10 @@ Subsequent `docker compose pull && up -d` re-uses the same files.
 
 ## Customising
 
-See [`docs/customizing.md`](docs/customizing.md) for `compose.override.yaml`
-patterns: extra PHP limits, custom nginx snippets, an external database,
-bringing in your own webtrees modules. (Docs pending — Phase 3.)
+Drop a `compose.override.yaml` next to the generated `compose.yaml` for
+extra PHP limits, custom nginx snippets, an external database, or your
+own webtrees modules — Docker Compose merges it automatically. A dedicated
+customising guide is planned for the next phase.
 
 ## Updating to a new webtrees release
 
@@ -53,7 +54,7 @@ bringing in your own webtrees modules. (Docs pending — Phase 3.)
 docker compose down
 docker volume rm webtrees_app
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
-  | bash -s -- --edition full --proxy standalone --port 8080 --force
+  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 8080 --force
 docker compose pull
 docker compose up -d
 ```
