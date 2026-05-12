@@ -67,7 +67,7 @@ Phase 3 schließt die drei dokumentierten Phase-2b-Lücken (Doku-Trias unvollst�
 ```
 
 **Steps:**
-- [ ] Step 1.1: Existing developer-touchpoints inventarisieren via `git log -- README.md` rückwärts bis pre-Phase-2b und produktive Inhalte (make targets, layout, dev-flow) extrahieren.
+- [ ] Step 1.1: Existing developer-touchpoints inventarisieren — Cutoff ist Commit `a2bb2ac` ("Rewrite the README around the wizard quickstart"); davor stand alles relevante in der alten README. `git show a2bb2ac~1:README.md` liefert die produktive Substanz, daraus make targets, Layout, dev-flow extrahieren.
 - [ ] Step 1.2: `docs/developing.md` schreiben gemäß Skeleton. Sprache: Deutsch-mit-englischen-Code-Blocks (matched repo convention).
 - [ ] Step 1.3: `README.md` — "For module developers"-Section schmaler machen, link auf `docs/developing.md`.
 - [ ] Step 1.4: Markdown-Lint via `markdownlint-cli2`.
@@ -301,7 +301,7 @@ so render-and-grep is the right gate for now.
               working-directory: ${{ env.SMOKE_DIR }}
               run: docker compose down -v
 ```
-- [ ] Step 4.2: Lokales Pre-flight: den Job-Body als Shell-Script extrahieren und gegen die laufende NAS-Stack-Kopie probefahren um Healthcheck-Timing und tree-import-Exit-Codes zu kalibrieren.
+- [ ] Step 4.2: Lokales Pre-flight: den Job-Body als Shell-Script extrahieren und gegen die laufende NAS-Stack-Kopie probefahren um Healthcheck-Timing und tree-import-Exit-Codes zu kalibrieren. Wähle einen freien High-Port (Implementer-Discovery, nicht hardcoden — der Live-Stack belegt 50010/50011/3000, traefik 80/443/8080); dokumentiere den gewählten Port im Task-5.4-Commit-Body damit der nächste Run reproduzierbar bleibt.
 - [ ] Step 4.3: actionlint.
 - [ ] Step 4.4: Workflow_dispatch des Branches → Job läuft → grün-validieren.
 - [ ] Step 4.5: Commit:
@@ -360,7 +360,7 @@ Sync the spec with the shipped Phase 3 wizard documentation
 
 ## Open Implementation Items (während Plan-Phase, hier vermerkt)
 
-- Task 4 Step 4.2: lokales Pre-flight braucht Stack-Up auf nicht-50010-Ports (Live-Stack-Konflikt). NAS hat 18181 frei.
+- Task 4 Step 4.2: lokales Pre-flight braucht Stack-Up auf einem hohen freien Port (Live-Stack belegt 50010/50011/3000, traefik 80/443/8080). Implementer entscheidet zum Zeitpunkt des Pre-flights via `ss -ltn`.
 - Task 4: `tree-list`-Subkommando — checken ob in Webtrees-CLI exists; falls nicht: SQL-Query gegen `wt_gedcom` als Fallback.
 
 ## Migration aus Phase 2b
