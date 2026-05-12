@@ -231,45 +231,35 @@ setup_webtrees_dist() {
     return 0
 }
 
-# Headless bootstrap split into three independent steps so installs without an
-# admin user (--no-admin) still land the user on webtrees' admin-creation form
-# instead of the native setup wizard asking for DB credentials they can't see:
-#
-#   setup_webtrees_database_config — writes config.ini.php from MARIADB_* env
-#                                    vars. Unconditional whenever MARIADB_PASSWORD
-#                                    is resolvable. Marker: .config-ini-written.
-#   setup_webtrees_database_schema — runs MigrationService::updateSchema once
-#                                    config.ini.php is in place. Unconditional.
-#                                    Marker: .schema-migrated.
-#   setup_webtrees_admin_user      — creates the admin account and grants the
-#                                    admin role. Only runs when WT_ADMIN_USER is
-#                                    set. Marker: .admin-created plus the legacy
-#                                    .webtrees-bootstrapped flag.
-#
-# Each step is idempotent via its own marker file inside the persistent volume,
-# so a container recreate or a transient DB-not-ready failure on any step lets
-# the next start retry just that step without redoing the earlier ones.
+# Headless bootstrap: when WT_ADMIN_USER is set, write config.ini.php,
+# trigger DB schema migration, create the admin user, and grant admin role.
+# Idempotent via /var/www/html/.webtrees-bootstrapped (marker lives inside the
+# persistent volume so container recreate doesn't replay the admin-create step).
+# Without WT_ADMIN_USER the function is a no-op and the browser-side setup
+# wizard handles things.
 #
 # Inputs (env vars; *_FILE indirection already resolved by expand_file_secrets):
-#   WT_ADMIN_USER          username for the admin account (gates admin step only)
+#   WT_ADMIN_USER          username for the admin account
 #   WT_ADMIN_PASSWORD      password (typically from WT_ADMIN_PASSWORD_FILE)
 #   WT_ADMIN_EMAIL         email (default: admin@example.org)
 #   WT_ADMIN_REAL_NAME     real name (default: same as username)
 #   MARIADB_HOST/PORT/USER/PASSWORD/DATABASE for the DB connection
 #   WEBTREES_TABLE_PREFIX  table prefix (default: wt_)
-
-# Write config.ini.php from MARIADB_* env vars so webtrees boots straight into
-# the application instead of its setup wizard asking the operator for DB
-# credentials they have no easy way to retrieve. Runs whenever MARIADB_PASSWORD
-# is set, independent of WT_ADMIN_USER — both --admin-user and --no-admin flows
-# need this. Marker file lives inside the persistent volume so the write does
-# not repeat on every container start.
-setup_webtrees_database_config() {
-    if [[ -z "${MARIADB_PASSWORD:-}" ]]; then
+#
+# Schema migration: no CLI command exists; the canonical path is the HTTP
+# UpdateDatabaseSchema middleware. We invoke MigrationService::updateSchema
+# directly via php -r to avoid waiting for nginx + curl-with-https quirks.
+setup_webtrees_bootstrap() {
+    if [[ -z "${WT_ADMIN_USER:-}" ]]; then
         return 0
     fi
 
-    local marker="/var/www/html/.config-ini-written"
+    if [[ -z "${WT_ADMIN_PASSWORD:-}" ]]; then
+        log_error "WT_ADMIN_USER set but WT_ADMIN_PASSWORD is empty (forgot WT_ADMIN_PASSWORD_FILE?)"
+        return 1
+    fi
+
+    local marker="/var/www/html/.webtrees-bootstrapped"
     local launcher="/var/www/html/public/index.php"
 
     if [[ -f "$marker" ]]; then
@@ -277,7 +267,7 @@ setup_webtrees_database_config() {
     fi
 
     if [[ ! -f "$launcher" ]]; then
-        log_error "Database config requested but launcher missing at ${launcher} — webtrees not seeded yet"
+        log_error "Bootstrap requested but launcher missing at ${launcher} — webtrees not seeded yet"
         return 1
     fi
 
@@ -296,34 +286,12 @@ setup_webtrees_database_config() {
         return 1
     fi
 
-    if ! touch "$marker"; then
-        log_error "Cannot create marker ${marker} — config-ini would re-run on every start"
-        return 1
-    fi
-    chown www-data:www-data "$marker" 2>/dev/null || true
-
-    return 0
-}
-
-# Apply the webtrees DB schema by invoking MigrationService::updateSchema —
-# the same call the HTTP UpdateDatabaseSchema middleware makes on every
-# request. Order matters: Webtrees::bootstrap() wires the Registry container
-# and all factories; Console::bootstrap() then reads config.ini.php and opens
-# the DB connection. Without the Webtrees::bootstrap() prefix
-# Registry::container() throws "must not be accessed before initialization".
-# Skipped when config.ini.php has not been written yet (no DB to migrate
-# against) so the next start can retry once config is in place.
-setup_webtrees_database_schema() {
-    if [[ ! -f "/var/www/html/.config-ini-written" ]]; then
-        return 0
-    fi
-
-    local marker="/var/www/html/.schema-migrated"
-
-    if [[ -f "$marker" ]]; then
-        return 0
-    fi
-
+    # The migration runs MigrationService::updateSchema(...) directly — the
+    # same call the HTTP UpdateDatabaseSchema middleware makes on every request.
+    # Order matters: Webtrees::bootstrap() wires the Registry container and
+    # all factories; Console::bootstrap() then reads config.ini.php and opens
+    # the DB connection. Without the Webtrees::bootstrap() prefix
+    # Registry::container() throws "must not be accessed before initialization".
     log_success "Running webtrees DB schema migration"
     if ! su www-data -s /bin/sh -c '
         php -d display_errors=0 -r "
@@ -340,51 +308,7 @@ setup_webtrees_database_schema() {
             echo \"schema ok\n\";
         "
     '; then
-        log_error "Webtrees DB schema migration failed — marker not set, will retry on next start"
-        return 1
-    fi
-
-    if ! touch "$marker"; then
-        log_error "Cannot create marker ${marker} — schema migration would re-run on every start"
-        return 1
-    fi
-    chown www-data:www-data "$marker" 2>/dev/null || true
-
-    return 0
-}
-
-# Create the headless admin account and grant the admin role. Gated on
-# WT_ADMIN_USER so --no-admin installs leave the user landing on webtrees'
-# admin-creation form (DB is already configured by the steps above). Requires
-# config.ini.php + schema to be in place — bails early otherwise so the next
-# start can retry once those prerequisites land.
-setup_webtrees_admin_user() {
-    if [[ -z "${WT_ADMIN_USER:-}" ]]; then
-        return 0
-    fi
-
-    if [[ -z "${WT_ADMIN_PASSWORD:-}" ]]; then
-        log_error "WT_ADMIN_USER set but WT_ADMIN_PASSWORD is empty (forgot WT_ADMIN_PASSWORD_FILE?)"
-        return 1
-    fi
-
-    local marker="/var/www/html/.admin-created"
-    # Legacy marker preserved so older volumes that already ran the combined
-    # bootstrap don't re-create the admin account on first start after upgrade.
-    local legacy_marker="/var/www/html/.webtrees-bootstrapped"
-    local launcher="/var/www/html/public/index.php"
-
-    if [[ -f "$marker" ]] || [[ -f "$legacy_marker" ]]; then
-        return 0
-    fi
-
-    if [[ ! -f "/var/www/html/.config-ini-written" ]] || [[ ! -f "/var/www/html/.schema-migrated" ]]; then
-        log_warn "Admin user requested but DB config/schema not ready — will retry on next start"
-        return 0
-    fi
-
-    if [[ ! -f "$launcher" ]]; then
-        log_error "Admin bootstrap requested but launcher missing at ${launcher} — webtrees not seeded yet"
+        log_error "Webtrees DB schema migration failed"
         return 1
     fi
 
@@ -415,20 +339,12 @@ setup_webtrees_admin_user() {
     fi
 
     if ! touch "$marker"; then
-        log_error "Cannot create marker ${marker} — admin bootstrap would re-run on every start"
+        log_error "Cannot create marker ${marker} — bootstrap would re-run on every start"
         return 1
     fi
     chown www-data:www-data "$marker" 2>/dev/null || true
 
-    # Keep the legacy composite marker in sync so tests + tooling that look for
-    # .webtrees-bootstrapped continue to detect a fully-bootstrapped volume.
-    if ! touch "$legacy_marker"; then
-        log_error "Cannot create marker ${legacy_marker} — admin bootstrap would re-run on every start"
-        return 1
-    fi
-    chown www-data:www-data "$legacy_marker" 2>/dev/null || true
-
-    log_success "Webtrees admin bootstrap complete"
+    log_success "Webtrees bootstrap complete"
     return 0
 }
 
@@ -617,26 +533,10 @@ main() {
         exit 1
     fi
 
-    # Headless bootstrap in three independent steps, each idempotent via its
-    # own marker file:
-    #   1. config.ini.php from MARIADB_* env vars (unconditional)
-    #   2. DB schema migration once config is in place (unconditional)
-    #   3. admin account + role grant when WT_ADMIN_USER is set (gated)
-    # Without WT_ADMIN_USER the first two still run, so a --no-admin install
-    # lands on webtrees' admin-creation form instead of the setup wizard
-    # asking for DB credentials.
-    if ! setup_webtrees_database_config; then
-        log_error "Webtrees database config failed — refusing to start"
-        exit 1
-    fi
-
-    if ! setup_webtrees_database_schema; then
-        log_error "Webtrees DB schema migration failed — refusing to start"
-        exit 1
-    fi
-
-    if ! setup_webtrees_admin_user; then
-        log_error "Webtrees admin bootstrap failed — refusing to start"
+    # Opt-in headless bootstrap: writes config.ini.php + migrates DB schema +
+    # creates admin user when WT_ADMIN_USER is set. No-op otherwise.
+    if ! setup_webtrees_bootstrap; then
+        log_error "Webtrees bootstrap failed — refusing to start"
         exit 1
     fi
 
