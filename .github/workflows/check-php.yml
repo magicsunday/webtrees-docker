@@ -44,8 +44,14 @@ jobs:
                       [ -n "$current" ] || { echo "::error::failed to read digest for php:${ver}-fpm-alpine"; exit 1; }
                       echo "${ver}=${current}" >> /tmp/new_digests
                       previous=$(grep "^${ver}=" dev/php_digests.lock 2>/dev/null | cut -d= -f2- || echo "")
-                      if [ "$current" != "$previous" ]; then
+                      if [ -n "$previous" ] && [ "$current" != "$previous" ]; then
                           changes="${changes}${ver} ($previous → $current)\n"
+                      elif [ -z "$previous" ]; then
+                          # New version present in versions.json but no baseline digest yet.
+                          # Seed the lockfile silently — do NOT dispatch a rebuild. The
+                          # corresponding minor-bump issue (filed by the maintainer or by the
+                          # scan-step below) is the place to gate the human review.
+                          echo "Seeding new digest for ${ver} (no prior baseline)"
                       fi
                   done
                   sort /tmp/new_digests > /tmp/new_digests.sorted
@@ -57,21 +63,34 @@ jobs:
                           echo "EOF"
                       } >> "$GITHUB_OUTPUT"
                   fi
+                  if ! cmp -s /tmp/new_digests dev/php_digests.lock; then
+                      echo "lockfile_dirty=true" >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Update lockfile + dispatch rebuild
-              if: steps.digests.outputs.changes != ''
+              if: steps.digests.outputs.lockfile_dirty == 'true'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HAS_CHANGES: ${{ steps.digests.outputs.changes != '' }}
               run: |
                   set -euo pipefail
                   git config user.name 'github-actions[bot]'
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
                   mv /tmp/new_digests dev/php_digests.lock
                   git add dev/php_digests.lock
-                  git commit -m "Update dev/php_digests.lock for PHP patch-level rebuild"
+                  if [ "$HAS_CHANGES" = "true" ]; then
+                      git commit -m "Update dev/php_digests.lock for PHP patch-level rebuild"
+                  else
+                      git commit -m "Seed dev/php_digests.lock for new PHP minor"
+                  fi
                   git push origin main
-                  gh workflow run build.yml --ref main \
-                      || echo "::warning::build.yml dispatch failed"
+                  # Only dispatch a rebuild on actual digest mutations; a
+                  # pure seed of a freshly-added minor must go through the
+                  # issue-only review path.
+                  if [ "$HAS_CHANGES" = "true" ]; then
+                      gh workflow run build.yml --ref main \
+                          || echo "::warning::build.yml dispatch failed"
+                  fi
 
             - name: Scan for new PHP minor
               env:
@@ -80,14 +99,19 @@ jobs:
                   set -euo pipefail
                   max_known=$(jq -r '.[].php' dev/versions.json | sort -V | tail -1)
                   # Hub returns up to page_size results; X.Y-fpm-alpine
-                  # tags are sparse so 100 is plenty.
-                  available=$(curl -sf "https://hub.docker.com/v2/repositories/library/php/tags/?name=-fpm-alpine&page_size=100" \
+                  # tags are sparse so 100 is plenty. ordering=name keeps
+                  # the response stable even when patch tags churn the
+                  # default last-updated ordering.
+                  hub_response=$(curl -sf --retry 3 \
+                      "https://hub.docker.com/v2/repositories/library/php/tags/?name=-fpm-alpine&page_size=100&ordering=name") \
+                      || { echo "::warning::Docker Hub tag fetch failed, skipping minor scan"; exit 0; }
+                  available=$(printf '%s' "$hub_response" \
                       | jq -r '.results[].name' \
                       | grep -E '^[0-9]+\.[0-9]+-fpm-alpine$' \
                       | sed 's/-fpm-alpine$//' \
                       | sort -uV)
                   for ver in $available; do
-                      if printf '%s\n%s\n' "$max_known" "$ver" | sort -V | head -1 | grep -qF "$max_known" \
+                      if [ "$(printf '%s\n%s\n' "$max_known" "$ver" | sort -V | head -1)" = "$max_known" ] \
                           && [ "$ver" != "$max_known" ]; then
                           title="PHP ${ver} available — consider adding to dev/versions.json"
                           if gh issue list --state all --search "$title in:title" --json number --jq 'length' | grep -q '^0$'; then
