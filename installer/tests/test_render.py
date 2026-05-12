@@ -61,6 +61,24 @@ def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) ->
     assert "COMPOSE_PROJECT_NAME=webtrees" in env
 
 
+def test_init_command_escapes_shell_vars(tmp_path: Path, standalone_core: RenderInput) -> None:
+    """The init service's secret-seeding loop references $name inside a YAML
+    block scalar. Compose v2 interpolates `$VAR` in command strings against
+    the host env at up-time, so a bare `$name` collapses to empty and the
+    redirect lands on `/secrets/` — the directory — and exit 1. The template
+    must escape with `$$name` so compose unwraps to a literal `$name` for
+    the in-container shell to expand.
+    """
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+    compose_text = (tmp_path / "compose.yaml").read_text()
+
+    assert "$$name" in compose_text, "init command must escape $name as $$name"
+    # Belt: no bare `$name` survives — only `$$name` allowed.
+    for line in compose_text.splitlines():
+        if "/secrets/$" in line:
+            assert "/secrets/$$name" in line, f"bare $name leak on: {line!r}"
+
+
 def test_render_standalone_full_with_admin(tmp_path: Path, catalog: Catalog) -> None:
     inp = RenderInput(
         edition="full",
