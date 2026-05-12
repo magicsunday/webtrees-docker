@@ -311,12 +311,12 @@ jobs:
                   # `|| true` the resulting SIGPIPE on `printf` would trip
                   # `set -o pipefail` and fail the step before grep even runs.
                   printf '%s\n' "$body" | head -50 || true
-                  # `grep -q` also closes stdin on first match, which can
-                  # deliver SIGPIPE to upstream `printf` whenever the response
-                  # body exceeds the pipe buffer (~64 KiB). An `if !` form
-                  # consumes the pipeline's exit code as a conditional, so
-                  # SIGPIPE / exit 141 does not cascade through pipefail.
-                  if ! printf '%s\n' "$body" | grep -qi "webtrees"; then
+                  # Here-string instead of a pipe so grep's early stdin-close
+                  # on first match cannot deliver SIGPIPE upstream. A previous
+                  # `if ! printf … | grep` form looked equivalent in local
+                  # testing but tripped CI's pipefail anyway — there is no
+                  # producer process to SIGPIPE when the source is `<<<`.
+                  if ! grep -qi "webtrees" <<< "$body"; then
                       echo "::error::response body does not mention 'webtrees'"
                       exit 1
                   fi
