@@ -66,6 +66,24 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         vendor/fisharebest/webtrees/app/Services/ModuleService.php \
  # Reject stray files in patches/ — only .patch files should land there.
  && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
+ # composer install --prefer-dist pulls fisharebest/webtrees from packagist,
+ # which strips resources/lang/<locale>/messages.po via .gitattributes
+ # export-ignore. Without those files webtrees' SetupWizard fatals on the
+ # very first non-English request (file(.../messages.po): No such file). The
+ # dev workflow handles this via scripts/update-languages.sh as a
+ # post-autoload-dump composer script, but the build runs `composer install
+ # --no-scripts` (composer:2 image lacks the PHP extensions some webtrees
+ # scripts could need) so the lang dir stays empty unless we fetch it
+ # explicitly. Sparse-checkout `/resources/lang` from upstream's git at the
+ # pinned WEBTREES_VERSION tag and overlay the files; everything else stays
+ # composer-managed.
+ && git clone --quiet --no-checkout --depth=1 --filter=tree:0 \
+        --branch "${WEBTREES_VERSION}" \
+        https://github.com/fisharebest/webtrees.git /tmp/webtrees-lang \
+ && git -C /tmp/webtrees-lang sparse-checkout set --no-cone /resources/lang \
+ && git -C /tmp/webtrees-lang checkout --quiet \
+ && cp -rf /tmp/webtrees-lang/resources/lang/* vendor/fisharebest/webtrees/resources/lang/ \
+ && rm -rf /tmp/webtrees-lang \
  # Promote webtrees' data/ directory out of vendor/ and replace it with a
  # relative symlink. Webtrees' Webtrees::DATA_DIR is hardcoded to
  # vendor/fisharebest/webtrees/data/; the symlink redirects that to the
@@ -134,6 +152,24 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  && test -d vendor/magicsunday/webtrees-fan-chart \
  && test -d vendor/magicsunday/webtrees-pedigree-chart \
  && test -d vendor/magicsunday/webtrees-descendants-chart \
+ # composer install --prefer-dist pulls fisharebest/webtrees from packagist,
+ # which strips resources/lang/<locale>/messages.po via .gitattributes
+ # export-ignore. Without those files webtrees' SetupWizard fatals on the
+ # very first non-English request (file(.../messages.po): No such file). The
+ # dev workflow handles this via scripts/update-languages.sh as a
+ # post-autoload-dump composer script, but the build runs `composer install
+ # --no-scripts` (composer:2 image lacks the PHP extensions some webtrees
+ # scripts could need) so the lang dir stays empty unless we fetch it
+ # explicitly. Sparse-checkout `/resources/lang` from upstream's git at the
+ # pinned WEBTREES_VERSION tag and overlay the files; everything else stays
+ # composer-managed.
+ && git clone --quiet --no-checkout --depth=1 --filter=tree:0 \
+        --branch "${WEBTREES_VERSION}" \
+        https://github.com/fisharebest/webtrees.git /tmp/webtrees-lang \
+ && git -C /tmp/webtrees-lang sparse-checkout set --no-cone /resources/lang \
+ && git -C /tmp/webtrees-lang checkout --quiet \
+ && cp -rf /tmp/webtrees-lang/resources/lang/* vendor/fisharebest/webtrees/resources/lang/ \
+ && rm -rf /tmp/webtrees-lang \
  # Layout promotion (same as core)
  && mv vendor/fisharebest/webtrees/data data \
  && ln -s ../../../data vendor/fisharebest/webtrees/data \
