@@ -469,3 +469,31 @@ jobs:
               if: always()
               working-directory: ${{ env.E2E_DIR }}
               run: docker compose down -v
+
+    notify-on-failure:
+        name: Notify on workflow failure
+        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, smoke-test, demo-import-e2e]
+        if: failure() && github.event_name != 'pull_request'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+        steps:
+            - name: Open tracking issue
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              run: |
+                  set -euo pipefail
+                  title="CI failure: ${{ github.workflow }} (run ${{ github.run_number }})"
+                  failed_jobs=$(gh run view ${{ github.run_id }} --json jobs \
+                      --jq '.jobs[] | select(.conclusion == "failure") | "- \(.name): \(.url)"')
+                  body="Workflow **${{ github.workflow }}** failed. Triggered by \`${{ github.event_name }}\` on \`${{ github.ref_name }}\`.
+
+                  Run: ${RUN_URL}
+
+                  Failed jobs:
+                  ${failed_jobs}
+
+                  Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed."
+                  gh issue create --title "$title" --body "$body" \
+                      || echo "::warning::issue creation failed; check token permissions"
