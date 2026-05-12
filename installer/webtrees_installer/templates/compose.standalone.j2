@@ -18,7 +18,6 @@ services:
             - -ec
             - |
                 umask 077
-                apk add --no-cache openssl >/dev/null
                 for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
                   [ -s "/secrets/$name" ] || openssl rand -hex 24 > "/secrets/$name"
                 done

@@ -11,6 +11,7 @@ networks:
     default:
     traefik:
         external: true
+        name: {{ traefik_network }}
 
 services:
     init:
@@ -23,7 +24,6 @@ services:
             - -ec
             - |
                 umask 077
-                apk add --no-cache openssl >/dev/null
                 for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
                   [ -s "/secrets/$name" ] || openssl rand -hex 24 > "/secrets/$name"
                 done
@@ -94,7 +94,7 @@ services:
             - traefik
         labels:
             traefik.enable: "true"
-            traefik.docker.network: "traefik"
+            traefik.docker.network: "{{ traefik_network }}"
             traefik.http.routers.webtrees.rule: "Host(`{{ domain }}`)"
             traefik.http.routers.webtrees.entrypoints: "websecure"
             traefik.http.routers.webtrees.tls: "true"
