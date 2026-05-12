@@ -13,14 +13,14 @@ RUN apk add --no-cache docker-cli docker-cli-compose
 
 WORKDIR /opt/installer
 
-COPY pyproject.toml README.md LICENSE ./
-COPY webtrees_installer ./webtrees_installer
+COPY installer/pyproject.toml installer/README.md installer/LICENSE ./
+COPY installer/webtrees_installer ./webtrees_installer
+COPY dev/versions.json dev/nginx-version.json dev/installer-version.json ./versions/
 
 RUN pip install --no-cache-dir .
 
-# Mount points the wizard expects at runtime. /work is the user's host
-# directory where compose.yaml + .env get written; /var/run/docker.sock is
-# the daemon endpoint the embedded docker CLI talks to.
+ENV WEBTREES_INSTALLER_MANIFEST_DIR=/opt/installer/versions
+
 VOLUME ["/work"]
 WORKDIR /work
 
