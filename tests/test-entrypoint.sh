@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Integration tests for rootfs/docker-entrypoint.sh — specifically the
-# setup_webtrees_dist state machine that seeds /var/www on first run.
+# setup_webtrees_dist state machine that seeds /var/www/html on first run.
 #
 # Each test sets up controlled volume state inside an ephemeral docker
 # volume, runs the entrypoint, and asserts on exit code + log output.
@@ -130,15 +130,16 @@ build_stub_image() {
     local stub_image="webtrees-bootstrap-stub:test"
 
     # Use a heredoc'd Dockerfile via `docker build -`. The image is identical
-    # to $IMAGE except /usr/local/bin/php logs args to /var/www/.bootstrap-stub.log
-    # and returns 0.
+    # to $IMAGE except /usr/local/bin/php logs args to /var/www/html/.bootstrap-stub.log
+    # (inside the volume mount point so tests can inspect via vol_cat) and
+    # returns 0.
     docker build -t "$stub_image" --build-arg "BASE_IMAGE=$IMAGE" - >/dev/null <<'EOF'
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 RUN if [ -f /usr/local/bin/php ]; then mv /usr/local/bin/php /usr/local/bin/php.real; fi && \
     printf '%s\n' \
         '#!/bin/sh' \
-        'echo "PHP-STUB $*" >> /var/www/.bootstrap-stub.log 2>/dev/null || true' \
+        'echo "PHP-STUB $*" >> /var/www/html/.bootstrap-stub.log 2>/dev/null || true' \
         'exit 0' \
         > /usr/local/bin/php && \
     chmod +x /usr/local/bin/php
@@ -177,9 +178,9 @@ test_state_3_seed_fresh() {
     local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
     run_entrypoint_test \
         "state 3: AUTO_SEED=true + empty volume → seed" \
-        "-v $vol:/var/www -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
+        "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
         0 \
-        "Seeding /var/www" \
+        "Seeding /var/www/html" \
         ""
 
     local marker_content; marker_content=$(vol_cat "$vol" ".webtrees-bundled-version")
@@ -191,14 +192,14 @@ test_state_3_seed_fresh() {
     # The marker is only meaningful if the seed actually populated the tree.
     # Bootstrap wrapper at /var/www/html/public/index.php is tiny so we only
     # require it to exist, not a minimum size.
-    local index_size; index_size=$(vol_cat "$vol" "html/public/index.php" | wc -c)
+    local index_size; index_size=$(vol_cat "$vol" "public/index.php" | wc -c)
     if [[ "$index_size" -lt 50 ]]; then
         results+=("FAIL  state 3 (tree check): /var/www/html/public/index.php is missing or empty ($index_size bytes)")
         fail=$((fail + 1))
     fi
 
     # Composer-installed webtrees must live under vendor/fisharebest/webtrees/.
-    if ! docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" -c 'test -d /v/html/vendor/fisharebest/webtrees'; then
+    if ! docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" -c 'test -d /v/vendor/fisharebest/webtrees'; then
         results+=("FAIL  state 3 (vendor check): vendor/fisharebest/webtrees/ missing in seeded volume")
         fail=$((fail + 1))
     fi
@@ -210,10 +211,10 @@ test_state_3_seed_fresh() {
 #
 test_state_4_marker_matches() {
     local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
-    vol_prep "$vol" 'mkdir -p /v/html/public && cp -a /opt/webtrees-dist/html/public/. /v/html/public/ && echo 2.2.6 > /v/.webtrees-bundled-version'
+    vol_prep "$vol" 'mkdir -p /v/public && cp -a /opt/webtrees-dist/html/public/. /v/public/ && echo 2.2.6 > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 4: marker matches + tree intact → skip" \
-        "-v $vol:/var/www -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
+        "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
         0 \
         "" \
         "Seeding|unmarked|differs|missing"
@@ -225,15 +226,15 @@ test_state_4_marker_matches() {
 #
 test_state_5_unmarked_tree() {
     local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
-    vol_prep "$vol" 'mkdir -p /v/html/public && echo USERDATA > /v/html/public/index.php'
+    vol_prep "$vol" 'mkdir -p /v/public && echo USERDATA > /v/public/index.php'
     run_entrypoint_test \
         "state 5: marker absent + tree present → warn, no clobber" \
-        "-v $vol:/var/www -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
+        "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
         0 \
         "unmarked webtrees install" \
         "Seeding"
 
-    local preserved; preserved=$(vol_cat "$vol" "html/public/index.php")
+    local preserved; preserved=$(vol_cat "$vol" "public/index.php")
     if [[ "$preserved" != "USERDATA" ]]; then
         results+=("FAIL  state 5 (no-clobber): index.php content changed from USERDATA to '$preserved'")
         fail=$((fail + 1))
@@ -246,10 +247,10 @@ test_state_5_unmarked_tree() {
 #
 test_state_6_version_mismatch() {
     local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
-    vol_prep "$vol" 'mkdir -p /v/html/public && cp -a /opt/webtrees-dist/html/public/. /v/html/public/ && echo 2.2.5 > /v/.webtrees-bundled-version'
+    vol_prep "$vol" 'mkdir -p /v/public && cp -a /opt/webtrees-dist/html/public/. /v/public/ && echo 2.2.5 > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 6: marker mismatch + tree intact → warn, exit 0" \
-        "-v $vol:/var/www -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
+        "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
         0 \
         "differs from installed 2.2.5" \
         "Seeding"
@@ -270,7 +271,7 @@ test_state_7_marker_no_tree() {
     vol_prep "$vol" 'echo 2.2.6 > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 7: marker present + index.php missing → fail fast" \
-        "-v $vol:/var/www -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
+        "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
         1 \
         "index.php is missing" \
         ""
@@ -282,10 +283,10 @@ test_state_7_marker_no_tree() {
 #
 test_state_8_empty_marker() {
     local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
-    vol_prep "$vol" 'mkdir -p /v/html/public && cp -a /opt/webtrees-dist/html/public/. /v/html/public/ && : > /v/.webtrees-bundled-version'
+    vol_prep "$vol" 'mkdir -p /v/public && cp -a /opt/webtrees-dist/html/public/. /v/public/ && : > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 8: empty marker → fail fast" \
-        "-v $vol:/var/www -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
+        "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
         1 \
         "Seed marker is empty" \
         ""
@@ -338,7 +339,7 @@ test_state_9_chown_scope() {
     # path keeps its 999:999 owner while /var/www/html/public ends up www-data:82.
     local out
     out=$(docker run --rm --entrypoint=/bin/bash \
-        --tmpfs /var/www:exec,uid=82,gid=82 \
+        --tmpfs /var/www/html:exec,uid=82,gid=82 \
         --tmpfs /var/www/html/data/media:exec,uid=999,gid=999 \
         -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6 \
         "${PHP_ENV[@]}" "$IMAGE" \
@@ -476,10 +477,10 @@ test_file_secrets_missing() {
 # function reaches its decision branches.
 bootstrap_prep_volume() {
     local vol="$1"
-    vol_prep "$vol" 'mkdir -p /v/html/public /v/html/data && \
+    vol_prep "$vol" 'mkdir -p /v/public /v/data && \
         echo "2.2.6" > /v/.webtrees-bundled-version && \
-        touch /v/html/public/index.php && \
-        touch /v/html/data/.htaccess'
+        touch /v/public/index.php && \
+        touch /v/data/.htaccess'
 }
 
 test_bootstrap_noop_without_admin_user() {
@@ -492,7 +493,7 @@ test_bootstrap_noop_without_admin_user() {
     local out exit_code
     set +e
     out=$(docker run --rm \
-        -v "$vol:/var/www" \
+        -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         "${PHP_ENV[@]}" \
@@ -529,7 +530,7 @@ test_bootstrap_fails_without_password() {
     local out exit_code
     set +e
     out=$(docker run --rm \
-        -v "$vol:/var/www" \
+        -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         -e WT_ADMIN_USER=admin \
@@ -559,7 +560,7 @@ test_bootstrap_sets_marker_on_success() {
     bootstrap_prep_volume "$vol"
 
     docker run --rm \
-        -v "$vol:/var/www" \
+        -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         -e WT_ADMIN_USER=admin \
@@ -599,7 +600,7 @@ test_bootstrap_respects_marker_on_second_run() {
     vol_prep "$vol" 'touch /v/.webtrees-bootstrapped'
 
     docker run --rm \
-        -v "$vol:/var/www" \
+        -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         -e WT_ADMIN_USER=admin \

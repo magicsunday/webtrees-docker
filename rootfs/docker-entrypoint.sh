@@ -124,9 +124,10 @@ setup_php() {
 # overlay compose.development.yaml sets it to false so host bind-mounts of
 # ./app are never touched).
 #
-# State machine, gated on the marker file /var/www/.webtrees-bundled-version
+# State machine, gated on the marker file /var/www/html/.webtrees-bundled-version
 # and a sanity check that the bootstrap wrapper at /var/www/html/public/index.php
-# exists:
+# exists. The marker MUST live inside the persistent volume so a container
+# recreate doesn't trigger a re-seed against an already-populated volume:
 #
 #   marker absent + tree absent  → seed, then write marker
 #   marker absent + tree present → refuse (pre-existing install, no version info)
@@ -153,7 +154,7 @@ setup_webtrees_dist() {
         return 1
     fi
 
-    local marker="/var/www/.webtrees-bundled-version"
+    local marker="/var/www/html/.webtrees-bundled-version"
     local bundled_version="$WEBTREES_VERSION"
     local front_controller="/var/www/html/public/index.php"
 
@@ -188,7 +189,7 @@ setup_webtrees_dist() {
         return 0
     fi
 
-    log_success "Seeding /var/www from bundled webtrees ${bundled_version}"
+    log_success "Seeding /var/www/html from bundled webtrees ${bundled_version}"
 
     # Copy each top-level entry from the image into /var/www/html. We loop
     # rather than cp -a /opt/webtrees-dist/. /var/www/ wholesale so a
@@ -232,8 +233,10 @@ setup_webtrees_dist() {
 
 # Headless bootstrap: when WT_ADMIN_USER is set, write config.ini.php,
 # trigger DB schema migration, create the admin user, and grant admin role.
-# Idempotent via /var/www/.webtrees-bootstrapped. Without WT_ADMIN_USER the
-# function is a no-op and the browser-side setup wizard handles things.
+# Idempotent via /var/www/html/.webtrees-bootstrapped (marker lives inside the
+# persistent volume so container recreate doesn't replay the admin-create step).
+# Without WT_ADMIN_USER the function is a no-op and the browser-side setup
+# wizard handles things.
 #
 # Inputs (env vars; *_FILE indirection already resolved by expand_file_secrets):
 #   WT_ADMIN_USER          username for the admin account
@@ -256,7 +259,7 @@ setup_webtrees_bootstrap() {
         return 1
     fi
 
-    local marker="/var/www/.webtrees-bootstrapped"
+    local marker="/var/www/html/.webtrees-bootstrapped"
     local launcher="/var/www/html/public/index.php"
 
     if [[ -f "$marker" ]]; then

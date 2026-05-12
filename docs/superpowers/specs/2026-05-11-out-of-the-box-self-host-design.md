@@ -242,7 +242,7 @@ Für CI und Skripted-Deployments unterstützt der Wizard `--non-interactive` + F
 
 ### Lebensort
 
-Im **`webtrees-php`-Image-Entrypoint** (`rootfs/docker-entrypoint.sh`), neue Funktion `setup_webtrees_bootstrap`. Marker `/var/www/.webtrees-bootstrapped`, idempotent.
+Im **`webtrees-php`-Image-Entrypoint** (`rootfs/docker-entrypoint.sh`), neue Funktion `setup_webtrees_bootstrap`. Marker `/var/www/html/.webtrees-bootstrapped` (innerhalb des persistenten Volumes, damit Container-Recreate den Hook nicht erneut auslöst), idempotent.
 
 ### Pfad A: `config.ini.php` + Webtrees-CLI
 
@@ -269,7 +269,7 @@ EOF
             --admin
     '
 
-    touch /var/www/.webtrees-bootstrapped
+    touch /var/www/html/.webtrees-bootstrapped
 fi
 ```
 
@@ -316,7 +316,7 @@ Pool-Quellen für Vor-/Nachnamen: Public-Domain-Listen, im Image als `installer/
 
 ```
 1. Wizard wartet auf nginx-Healthcheck (= phpfpm + DB ready).
-2. Wizard wartet auf Bootstrap-Marker (/var/www/.webtrees-bootstrapped).
+2. Wizard wartet auf Bootstrap-Marker (/var/www/html/.webtrees-bootstrapped).
 3. docker compose cp /work/demo.ged phpfpm:/tmp/demo.ged
 4. docker compose exec phpfpm su www-data -s /bin/sh -c \
      "php /var/www/html/index.php tree --create demo"
