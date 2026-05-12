@@ -46,8 +46,12 @@ class DevArgs:
     use_existing_db: bool
     use_external_db: bool
 
-    local_user_id: int
-    local_user_name: str
+    # Sentinels: the CLI builds DevArgs before host detection runs, so
+    # both fields default to None and run_dev fills them in via
+    # _detect_host_info(). The interactive collect_dev_inputs path
+    # supplies real values from HostInfo directly.
+    local_user_id: int | None
+    local_user_name: str | None
 
     force: bool
 
@@ -303,7 +307,7 @@ def run_dev(
     """Drive the dev-flow end to end. Returns process exit code."""
     work_dir = args.work_dir or Path("/work")
 
-    if args.local_user_id == 0 and args.local_user_name == "":
+    if args.local_user_id is None or args.local_user_name is None:
         host_info = _detect_host_info()
         args = dataclasses.replace(
             args,

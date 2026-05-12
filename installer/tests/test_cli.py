@@ -80,7 +80,32 @@ def test_parser_carries_dev_mode_and_dev_flags():
         ]
     )
     assert args.mode == "dev"
+    assert args.non_interactive is True
+    assert args.force is True
+    assert args.proxy_mode == "standalone"
     assert args.app_port == 50010
     assert args.pma_port == 50011
     assert args.dev_domain == "webtrees.localhost:50010"
     assert args.mariadb_root_password == "rootpw"
+    assert args.mariadb_database == "wt"
+    assert args.mariadb_user == "wt_user"
+    assert args.mariadb_password == "wt_pw"
+    # The two boolean toggles default to False when not on the CLI.
+    assert args.use_existing_db is False
+    assert args.use_external_db is False
+
+
+def test_parser_dev_external_db_toggles():
+    """`--use-existing-db` / `--use-external-db` flip to True; --external-db-host binds."""
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--mode", "dev",
+            "--use-existing-db",
+            "--use-external-db",
+            "--external-db-host", "external-db.local",
+        ]
+    )
+    assert args.use_existing_db is True
+    assert args.use_external_db is True
+    assert args.external_db_host == "external-db.local"

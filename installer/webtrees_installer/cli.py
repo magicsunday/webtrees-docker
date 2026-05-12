@@ -69,42 +69,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="Wizard mode: write a self-host compose.yaml (standalone) or "
              "configure the cloned repo for development (dev).",
     )
-    parser.add_argument(
+
+    dev_group = parser.add_argument_group(
+        "Dev mode (--mode dev)",
+        "Flags consumed by the dev-flow orchestrator. Ignored in standalone mode.",
+    )
+    dev_group.add_argument(
         "--pma-port",
         type=int,
         help="Host port for phpMyAdmin (dev mode, standalone proxy).",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--dev-domain",
         help="Dev-domain string (dev mode); defaults to IP:APP_PORT in standalone.",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--mariadb-root-password",
         help="MariaDB root password (dev mode).",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--mariadb-database",
         help="MariaDB database name (dev mode).",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--mariadb-user",
         help="MariaDB application user (dev mode).",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--mariadb-password",
         help="MariaDB user password (dev mode).",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--use-existing-db",
         action="store_true",
         help="Skip the schema init step in dev mode.",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--use-external-db",
         action="store_true",
         help="Skip the bundled db service in dev mode and write compose.external.yaml into the chain.",
     )
-    parser.add_argument(
+    dev_group.add_argument(
         "--external-db-host",
         help="External MariaDB host (dev mode + --use-external-db).",
     )
@@ -157,18 +162,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             mariadb_root_password=args.mariadb_root_password or "",
             use_existing_db=args.use_existing_db,
             use_external_db=args.use_external_db,
-            local_user_id=0,
-            local_user_name="",
+            local_user_id=None,
+            local_user_name=None,
             force=args.force,
         )
-        try:
-            return run_dev(dev_args, stdin=sys.stdin, stdout=sys.stdout)
-        except StackError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 3
-        except (PrereqError, PromptError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
+        return _run_with_exit_codes(
+            lambda: run_dev(dev_args, stdin=sys.stdin, stdout=sys.stdout)
+        )
 
     admin_bootstrap: bool | None
     if args.no_admin:
@@ -192,8 +192,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         no_up=args.no_up,
     )
 
+    return _run_with_exit_codes(
+        lambda: run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
+    )
+
+
+def _run_with_exit_codes(run_fn) -> int:
+    """Translate the flow-layer exceptions into the documented exit codes.
+
+    Both standalone and dev branches translate the same three exceptions
+    into the same three exit codes; keeping it in one place means Task 7
+    can wire the demo-tree --demo branch through the same translator.
+
+    Exit codes:
+      2 — PrereqError or PromptError (missing input or hostile environment)
+      3 — StackError (docker compose failed mid-flow)
+      anything else — flows return verbatim (0 success, 1 user-cancel, 4
+        pull/install failure, ...)
+    """
     try:
-        return run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
+        return run_fn()
     except StackError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
