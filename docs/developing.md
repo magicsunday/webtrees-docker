@@ -13,7 +13,7 @@ Docker images, and the compose chain. Self-hosters should follow the
 | `app/` | Bind-mounted webtrees source for `--mode dev` |
 | `setup/` | Composer manifests for the `core` and `full` editions plus webtrees patches |
 | `scripts/` | Buildbox helper scripts invoked by the make targets |
-| `Dockerfile` | Multi-stage build (php-base, php-build, php-build-full, nginx-build, installer, buildbox) |
+| `Dockerfile` | Multi-stage build (webtrees-build, webtrees-build-full, php-base, php-build, php-build-full, build-box, nginx-build); the wizard image is built separately from `installer/Dockerfile` |
 | `compose.yaml` | Base service definitions (db, phpfpm, nginx) |
 | `compose.*.yaml` | Overlays merged into the chain via `COMPOSE_FILE` (publish, traefik, development, pma, modules, external) |
 | `Make/*.mk` | Make targets grouped by topic (application, build, docker, test, helpers) |
@@ -23,22 +23,22 @@ Docker images, and the compose chain. Self-hosters should follow the
 
 ## Setup
 
-Clone the repo and run the wizard in dev mode:
+Clone the repo and run the wizard in dev mode through the bundled
+launcher — it injects `--local-user-id $(id -u)` / `--local-user-name
+$(id -un)` so the rendered `.env` carries the host UID (the wizard runs
+as root inside its container and cannot detect it otherwise):
 
 ```bash
 git clone https://github.com/magicsunday/webtrees-docker.git
 cd webtrees-docker
-docker run --rm -it \
-  -v "$PWD:/work" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/magicsunday/webtrees/installer:latest \
-  --mode dev
+./install --mode dev
 ```
 
-The wizard writes `.env` with the dev compose chain (base + development +
-publish + pma) and bind-mounts `./app` into phpfpm. Bring the stack up
-with `make up`; webtrees lives at `http://localhost:50010`, phpMyAdmin at
-`http://localhost:50011`.
+The wizard writes `.env` with the dev compose chain — `compose.yaml +
+compose.pma.yaml + compose.development.yaml`, plus
+`compose.publish.yaml` in standalone proxy mode — and bind-mounts
+`./app` into phpfpm. Bring the stack up with `make up`; webtrees lives
+at `http://localhost:50010`, phpMyAdmin at `http://localhost:50011`.
 
 ## Wizard Development
 
@@ -48,7 +48,7 @@ secrets, demo-tree generation, dev flow).
 
 ```bash
 cd installer
-pip install -e .[dev]
+pip install -e .[test]
 pytest -q
 ```
 
