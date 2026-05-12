@@ -130,6 +130,25 @@ def test_run_standalone_port_in_use_falls_back_to_8080(tmp_path: Path) -> None:
     assert "APP_PORT=8080" in (tmp_path / ".env").read_text()
 
 
+def test_run_standalone_port_8080_in_use_short_circuits_without_redundant_probe(
+    tmp_path: Path,
+) -> None:
+    """--port 8080 on a busy host raises immediately, skipping the redundant 8080 fallback probe."""
+    args = _args(work_dir=tmp_path, app_port=8080)
+
+    with patch(
+        "webtrees_installer.flow.probe_port",
+        return_value=PortStatus.IN_USE,
+    ) as probe_mock:
+        out = StringIO()
+        with pytest.raises(PrereqError, match=r"port 8080 is in use; pass --port"):
+            run_standalone(args, stdin=StringIO(), stdout=out)
+
+    assert probe_mock.call_count == 1
+    assert probe_mock.call_args.args == (8080,)
+    assert "trying 8080 instead" not in out.getvalue()
+
+
 def test_resolve_manifest_dir_raises_when_unset_and_default_missing(
     tmp_path: Path, monkeypatch
 ) -> None:

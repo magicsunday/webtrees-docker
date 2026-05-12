@@ -231,6 +231,11 @@ def _resolve_port(
             )
         return port
 
+    if port == _FALLBACK_PORT:
+        raise PrereqError(
+            f"port {port} is in use; pass --port to pick a free one"
+        )
+
     if stdout:
         print(
             f"Port {port} is in use; trying {_FALLBACK_PORT} instead.",
