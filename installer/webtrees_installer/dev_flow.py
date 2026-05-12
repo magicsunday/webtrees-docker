@@ -53,7 +53,15 @@ class DevArgs:
     local_user_id: int | None
     local_user_name: str | None
 
+    # Host-side cwd that compose bind-mounts must resolve against. Inside
+    # the installer container ${PWD} is /work, which does not exist on
+    # the host docker daemon, so compose.development.yaml's device-paths
+    # break unless the wizard writes the real host path into .env.
+    # None → run_dev() falls back to WORK_DIR env var or os.getcwd().
+    host_work_dir: str | None
+
     force: bool
+    no_up: bool
 
 
 @dataclass(frozen=True)
@@ -63,6 +71,7 @@ class HostInfo:
     uid: int
     username: str
     primary_ip: str
+    work_dir: str
 
 
 def build_compose_chain(*, proxy_mode: str, use_external_db: bool) -> str:
@@ -117,6 +126,7 @@ def render_dev_env(
         "use_existing_db": args.use_existing_db,
         "local_user_id": args.local_user_id,
         "local_user_name": args.local_user_name,
+        "work_dir": args.host_work_dir or "",
     }
 
     env_jinja = Environment(
@@ -147,6 +157,8 @@ def _validate(args: DevArgs) -> None:
         raise ValueError("standalone proxy_mode requires app_port and pma_port")
     if args.use_external_db and not args.mariadb_host:
         raise ValueError("use_external_db=True requires mariadb_host")
+    if not args.host_work_dir:
+        raise ValueError("host_work_dir must be a non-empty host-side path")
 
 
 def collect_dev_inputs(
@@ -249,7 +261,9 @@ def collect_dev_inputs(
         use_external_db=use_external_db,
         local_user_id=host_info.uid,
         local_user_name=host_info.username,
+        host_work_dir=host_info.work_dir,
         force=force,
+        no_up=False,
     )
 
 
@@ -307,12 +321,21 @@ def run_dev(
     """Drive the dev-flow end to end. Returns process exit code."""
     work_dir = args.work_dir or Path("/work")
 
-    if args.local_user_id is None or args.local_user_name is None:
+    # Detect once and reuse both for sentinel-filling and for the
+    # interactive prompt loop below. The detector reads WORK_DIR from
+    # the env (set by the launcher) so the host's cwd survives the
+    # docker-in-docker hop into the installer container.
+    if (
+        args.local_user_id is None
+        or args.local_user_name is None
+        or not args.host_work_dir
+    ):
         host_info = _detect_host_info()
         args = dataclasses.replace(
             args,
-            local_user_id=host_info.uid,
-            local_user_name=host_info.username,
+            local_user_id=args.local_user_id if args.local_user_id is not None else host_info.uid,
+            local_user_name=args.local_user_name or host_info.username,
+            host_work_dir=args.host_work_dir or host_info.work_dir,
         )
 
     check_prerequisites(work_dir=work_dir)
@@ -346,6 +369,15 @@ def run_dev(
     for relative in ("persistent/database", "persistent/media", "app"):
         (work_dir / relative).mkdir(parents=True, exist_ok=True)
 
+    # --no-up: write files + create persistent dirs, then stop. Skips
+    # the compose-pull + composer-install pair so smoke tests can verify
+    # the .env contract without paying for a 5-10 min bring-up.
+    if args.no_up:
+        if stdout:
+            print(".env written; --no-up requested, skipping compose pull + install.",
+                  file=stdout)
+        return 0
+
     pull = _compose(["compose", "pull"], cwd=work_dir)
     if pull.returncode != 0:
         # Errors route to sys.stderr so a `docker run ... | grep error`
@@ -371,12 +403,16 @@ def run_dev(
 
 
 def _detect_host_info() -> HostInfo:
-    """Read UID, username and primary IPv4 once for the prompt defaults."""
+    """Read UID, username, primary IPv4 and host work-dir for prompt defaults."""
     try:
         uid = os.geteuid()
     except AttributeError:
         uid = 0
     username = os.environ.get("USER") or os.environ.get("LOGNAME") or "developer"
+    # WORK_DIR is set by the launcher script from the host shell's $PWD;
+    # falling back to os.getcwd() keeps direct-host invocations (running
+    # the wizard outside the installer container) working.
+    work_dir = os.environ.get("WORK_DIR") or os.getcwd()
     primary_ip = "127.0.0.1"
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -387,7 +423,7 @@ def _detect_host_info() -> HostInfo:
             sock.close()
     except OSError:
         pass
-    return HostInfo(uid=uid, username=username, primary_ip=primary_ip)
+    return HostInfo(uid=uid, username=username, primary_ip=primary_ip, work_dir=work_dir)
 
 
 def _parse_env(path: Path) -> dict[str, str]:

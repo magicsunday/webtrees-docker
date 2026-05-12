@@ -6,23 +6,28 @@ volumes:
         driver: local
         driver_opts:
             type: none
-            device: ${PWD}/app
+            device: ${WORK_DIR:-${PWD}}/app
             o: bind
     # Media files volume - maps to local ./persistent/media directory.
     # Only media is bind-mounted; config.ini.php and cache stay inside the
     # app volume because they are container-internal and re-seedable.
+    # WORK_DIR is exported by the wizard's .env (set from the host's $PWD
+    # by the launcher script) so bind-mount paths resolve on the host
+    # docker daemon even when compose runs inside the installer container.
+    # Falling back to ${PWD} keeps the direct-host workflow (running
+    # compose from a shell, not through the wizard) intact.
     media:
         driver: local
         driver_opts:
             type: none
-            device: ${MEDIA_DIR:-${PWD}/persistent/media}
+            device: ${MEDIA_DIR:-${WORK_DIR:-${PWD}}/persistent/media}
             o: bind
     # Database files volume - maps to local ./persistent/database directory
     database:
         driver: local
         driver_opts:
             type: none
-            device: ${PWD}/persistent/database
+            device: ${WORK_DIR:-${PWD}}/persistent/database
             o: bind
 
 # Base configuration for buildbox services

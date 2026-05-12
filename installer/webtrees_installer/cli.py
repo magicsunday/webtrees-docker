@@ -124,6 +124,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--local-user-name",
         help="Host username to write into LOCAL_USER_NAME. Mirrors --local-user-id.",
     )
+    dev_group.add_argument(
+        "--work-dir-host",
+        dest="host_work_dir",
+        help="Host-side work directory written into WORK_DIR= in the rendered "
+             ".env. compose.development.yaml's bind-mount paths read this "
+             "variable so they resolve on the host docker daemon. Inside the "
+             "installer container the launcher exports the host $PWD via the "
+             "WORK_DIR env var; this flag is the explicit override.",
+    )
     parser.add_argument(
         "--admin-user",
         help="Username for the headless admin-bootstrap.",
@@ -186,7 +195,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             use_external_db=args.use_external_db,
             local_user_id=args.local_user_id,
             local_user_name=args.local_user_name,
+            # --work-dir-host overrides WORK_DIR env; None lets run_dev's
+            # _detect_host_info() pick up the env var (or fall back to
+            # os.getcwd() for direct-host invocations).
+            host_work_dir=args.host_work_dir,
             force=args.force,
+            no_up=args.no_up,
         )
         return _run_with_exit_codes(
             lambda: run_dev(dev_args, stdin=sys.stdin, stdout=sys.stdout)

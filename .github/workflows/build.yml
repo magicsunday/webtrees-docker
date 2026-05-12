@@ -255,11 +255,19 @@ jobs:
                       # to the dev compose chain.
                       mkdir -p "${SMOKE_DIR}/repo"
                       cp -a "$GITHUB_WORKSPACE/." "${SMOKE_DIR}/repo/"
+                      # --no-up keeps the cell fast: it only proves the
+                      # wizard renders a usable .env (incl. the new
+                      # WORK_DIR line that compose.development.yaml's
+                      # bind-mount device-paths depend on). The full
+                      # bring-up adds ~5-10 min of composer-install and
+                      # db init for diminishing return; a future cell
+                      # can cover it once the matrix budget allows.
                       docker run --rm \
+                          -e WORK_DIR="${SMOKE_DIR}/repo" \
                           -v "${SMOKE_DIR}/repo:/work" \
                           -v /var/run/docker.sock:/var/run/docker.sock \
                           "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
-                          --mode dev --non-interactive --force \
+                          --mode dev --non-interactive --force --no-up \
                           --proxy standalone --port "${SMOKE_PORT}" --pma-port 50011 \
                           --dev-domain "webtrees.localhost:${SMOKE_PORT}" \
                           --mariadb-root-password rootpw \
@@ -270,6 +278,7 @@ jobs:
                       grep -q "^ENVIRONMENT=development$" "${SMOKE_DIR}/repo/.env"
                       grep -q "^COMPOSE_FILE=compose.yaml:compose.pma.yaml:compose.development.yaml:compose.publish.yaml$" "${SMOKE_DIR}/repo/.env"
                       grep -q "^LOCAL_USER_ID=1000$" "${SMOKE_DIR}/repo/.env"
+                      grep -q "^WORK_DIR=${SMOKE_DIR}/repo$" "${SMOKE_DIR}/repo/.env"
                       echo "dev edition: .env rendered with expected dev-chain"
                       exit 0
                   fi

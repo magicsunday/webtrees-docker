@@ -19,7 +19,8 @@ from webtrees_installer.dev_flow import (
 from webtrees_installer.versions import Catalog, PhpEntry
 
 
-_HOST = HostInfo(uid=1000, username="dev", primary_ip="192.168.1.50")
+_HOST = HostInfo(uid=1000, username="dev", primary_ip="192.168.1.50",
+                 work_dir="/host/workspace")
 
 
 @pytest.fixture
@@ -48,7 +49,9 @@ def _args(**overrides) -> DevArgs:
         use_external_db=False,
         local_user_id=1000,
         local_user_name="dev",
+        host_work_dir="/host/workspace",
         force=True,
+        no_up=False,
     )
     defaults.update(overrides)
     return DevArgs(**defaults)
@@ -270,7 +273,8 @@ def silence_dev_runtime():
     with patch("webtrees_installer.dev_flow.check_prerequisites"), \
          patch("webtrees_installer.dev_flow.load_catalog", return_value=_LIVE_CATALOG), \
          patch("webtrees_installer.dev_flow._detect_host_info",
-               return_value=HostInfo(uid=1000, username="dev", primary_ip="10.0.0.5")), \
+               return_value=HostInfo(uid=1000, username="dev", primary_ip="10.0.0.5",
+                                     work_dir="/host/workspace")), \
          patch("webtrees_installer.dev_flow._compose") as compose_mock:
         compose_mock.return_value = __import__("subprocess").CompletedProcess(
             args=[], returncode=0, stdout="", stderr=""
@@ -370,3 +374,73 @@ def test_detect_host_info_falls_back_when_socket_fails() -> None:
         info = _detect_host_info()
 
     assert info.primary_ip == "127.0.0.1"
+
+
+def test_detect_host_info_reads_work_dir_env(monkeypatch) -> None:
+    """WORK_DIR env var (set by the launcher) flows into HostInfo.work_dir."""
+    from webtrees_installer.dev_flow import _detect_host_info
+
+    monkeypatch.setenv("WORK_DIR", "/srv/webtrees")
+    info = _detect_host_info()
+
+    assert info.work_dir == "/srv/webtrees"
+
+
+def test_detect_host_info_falls_back_to_cwd_without_work_dir(monkeypatch) -> None:
+    """Direct-host invocation (no WORK_DIR env) falls back to os.getcwd()."""
+    from webtrees_installer.dev_flow import _detect_host_info
+
+    monkeypatch.delenv("WORK_DIR", raising=False)
+    monkeypatch.setattr("webtrees_installer.dev_flow.os.getcwd",
+                        lambda: "/fallback/cwd")
+    info = _detect_host_info()
+
+    assert info.work_dir == "/fallback/cwd"
+
+
+def test_render_dev_env_writes_work_dir_line(tmp_path: Path, catalog: Catalog) -> None:
+    """The rendered .env carries WORK_DIR=<host-path> for compose to pick up."""
+    args = _args(work_dir=tmp_path, host_work_dir=str(tmp_path))
+    render_dev_env(args, catalog=catalog, target_dir=tmp_path,
+                   generated_at=datetime(2026, 5, 12, 12, 0, 0))
+
+    env = (tmp_path / ".env").read_text()
+    assert f"WORK_DIR={tmp_path}" in env
+
+
+def test_render_dev_env_rejects_empty_host_work_dir(tmp_path: Path, catalog: Catalog) -> None:
+    """Empty host_work_dir surfaces a ValueError, never writes the .env."""
+    args = _args(work_dir=tmp_path, host_work_dir="")
+    with pytest.raises(ValueError, match="host_work_dir"):
+        render_dev_env(args, catalog=catalog, target_dir=tmp_path,
+                       generated_at=datetime(2026, 5, 12, 12, 0, 0))
+
+
+def test_run_dev_no_up_skips_compose(tmp_path: Path, silence_dev_runtime) -> None:
+    """--no-up writes .env + persistent dirs and returns 0 without touching compose."""
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(work_dir=tmp_path, no_up=True)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    assert (tmp_path / ".env").is_file()
+    assert (tmp_path / "persistent" / "database").is_dir()
+    # Compose must never have been invoked when --no-up is set.
+    assert silence_dev_runtime.call_count == 0
+
+
+def test_run_dev_fills_host_work_dir_from_env(tmp_path: Path, monkeypatch,
+                                              silence_dev_runtime) -> None:
+    """When the CLI hands DevArgs(host_work_dir=None) the env var fills it in."""
+    from webtrees_installer.dev_flow import run_dev
+    # silence_dev_runtime patches _detect_host_info, so the env var only
+    # reaches the .env via the patched HostInfo.work_dir field — assert
+    # the wiring there.
+    args = _args(work_dir=tmp_path, host_work_dir=None, no_up=True)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    env = (tmp_path / ".env").read_text()
+    assert "WORK_DIR=/host/workspace" in env
