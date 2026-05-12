@@ -73,7 +73,12 @@ installer_args=(
 # /work, which does not exist on the host docker daemon and breaks the
 # mount. The launcher reads the path from the host shell where ${PWD} is
 # the real cwd, then the wizard writes WORK_DIR=<host-path> into .env.
-exec docker run --rm "${tty_flags[@]}" \
+#
+# --pull=always forces a freshness check against the registry on every
+# launch. The installer image ships as a rolling :latest tag; docker's
+# default --pull=missing would otherwise reuse whatever copy the user
+# pulled the first time and silently shadow later bug-fix releases.
+exec docker run --rm --pull=always "${tty_flags[@]}" \
     -e WORK_DIR="$PWD" \
     -e COMPOSE_PROJECT_NAME \
     -v "$PWD:/work" \
