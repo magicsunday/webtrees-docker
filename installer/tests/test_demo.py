@@ -36,3 +36,22 @@ def test_generate_tree_population_within_bounds() -> None:
     doc = generate_tree(seed=42, generations=GENERATIONS_DEFAULT)
     assert 100 <= len(doc.people) <= 400
     assert 30 <= len(doc.families) <= 150
+
+
+def test_generate_tree_generations_one_yields_just_the_root_couple() -> None:
+    """generations=1 stops the BFS before the first child generation."""
+    doc = generate_tree(seed=42, generations=1)
+    # The 1-generation tree is the root couple + their family link only.
+    assert len(doc.people) == 2
+    assert len(doc.families) == 1
+    assert doc.people[0].sex is Sex.MALE
+    assert doc.people[1].sex is Sex.FEMALE
+
+
+def test_generate_tree_rejects_generations_below_one() -> None:
+    """generations=0 (or negative) fails fast instead of silently producing a corpse-couple."""
+    import pytest
+    with pytest.raises(ValueError, match="generations"):
+        generate_tree(seed=42, generations=0)
+    with pytest.raises(ValueError, match="generations"):
+        generate_tree(seed=42, generations=-1)

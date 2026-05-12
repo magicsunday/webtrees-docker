@@ -9,16 +9,28 @@ marry a synthetic spouse drawn from the same name pools.
 
 from __future__ import annotations
 
+import functools
 import json
 import random
+from collections import deque
 from importlib import resources
 
 from webtrees_installer.gedcom import Family, GedcomDocument, Person, Sex
 
 
+# Public knobs — same defaults the spec calls out.
 GENERATIONS_DEFAULT = 7
 ROOT_BIRTH_YEAR_DEFAULT = 1850
 GENERATION_GAP_YEARS = 28
+
+# Tunables hoisted from the algorithm. Promoting them to module
+# constants keeps the BFS body declarative and makes test variants
+# (different fertility, different lifespan) a one-line patch.
+DEATH_RATE = 0.3                 # fraction of people who are still alive at export time
+MALE_BIRTH_RATIO = 0.51          # P(child.sex == MALE) per child
+MARRIAGE_RATE = 0.8              # P(adult child marries a synthetic spouse)
+CHILD_COUNT_RANGE = (2, 4)       # inclusive bounds for randint per couple
+LIFESPAN_RANGE = (50, 95)        # inclusive year-of-life bounds for the dead
 
 
 def generate_tree(
@@ -27,12 +39,24 @@ def generate_tree(
     generations: int = GENERATIONS_DEFAULT,
     root_birth_year: int = ROOT_BIRTH_YEAR_DEFAULT,
 ) -> GedcomDocument:
-    """Build a GedcomDocument deterministically from ``seed``."""
+    """Build a GedcomDocument deterministically from ``seed``.
+
+    ``generations`` must be at least 1; ``generations=1`` produces just
+    the root couple, ``generations=GENERATIONS_DEFAULT`` produces
+    100-400 people / 30-150 families.
+    """
+    if generations < 1:
+        raise ValueError(f"generations must be >= 1, got {generations}")
+
     rng = random.Random(seed)
     pools = _load_pools()
 
     people: list[Person] = []
     families: list[Family] = []
+    # O(1) xref → index maps so _find_person, _link_spouse and
+    # _append_child are constant-time even on a deep tree.
+    person_idx: dict[str, int] = {}
+    family_idx: dict[str, int] = {}
 
     def new_person(
         *, sex: Sex, surname: str, birth_year: int,
@@ -42,14 +66,15 @@ def generate_tree(
         pool = pools["male"] if sex is Sex.MALE else pools["female"]
         given = rng.choice(pool)
         death_year = (
-            None if rng.random() < 0.3
-            else birth_year + rng.randint(50, 95)
+            None if rng.random() < DEATH_RATE
+            else birth_year + rng.randint(*LIFESPAN_RANGE)
         )
         person = Person(
             xref=xref, given_name=given, surname=surname, sex=sex,
             birth_year=birth_year, death_year=death_year,
             parents_xref=parents_xref, spouse_xref=None,
         )
+        person_idx[xref] = len(people)
         people.append(person)
         return person
 
@@ -62,8 +87,33 @@ def generate_tree(
             marriage_year=marriage_year,
             children_xrefs=[],
         )
+        family_idx[xref] = len(families)
         families.append(family)
         return family
+
+    def find_person(xref: str) -> Person:
+        return people[person_idx[xref]]
+
+    def link_spouse(xref: str, family_xref: str) -> None:
+        idx = person_idx[xref]
+        old = people[idx]
+        people[idx] = Person(
+            xref=old.xref, given_name=old.given_name,
+            surname=old.surname, sex=old.sex,
+            birth_year=old.birth_year, death_year=old.death_year,
+            parents_xref=old.parents_xref, spouse_xref=family_xref,
+        )
+
+    def append_child(xref: str, child_xref: str) -> None:
+        idx = family_idx[xref]
+        old = families[idx]
+        families[idx] = Family(
+            xref=old.xref,
+            husband_xref=old.husband_xref,
+            wife_xref=old.wife_xref,
+            marriage_year=old.marriage_year,
+            children_xrefs=[*old.children_xrefs, child_xref],
+        )
 
     # Root couple.
     root_surname = rng.choice(pools["surnames"])
@@ -80,29 +130,31 @@ def generate_tree(
         marriage_year=root_birth_year + 24,
     )
 
-    # Mutate root_husband / root_wife to point at root_family.
-    _link_spouse(people, root_husband.xref, root_family.xref)
-    _link_spouse(people, root_wife.xref, root_family.xref)
+    link_spouse(root_husband.xref, root_family.xref)
+    link_spouse(root_wife.xref, root_family.xref)
 
-    queue: list[tuple[Family, int]] = [(root_family, 0)]
+    queue: deque[tuple[Family, int]] = deque([(root_family, 0)])
     while queue:
-        family, gen = queue.pop(0)
+        family, gen = queue.popleft()
         if gen + 1 >= generations:
             continue
-        child_count = rng.randint(2, 4)
+        child_count = rng.randint(*CHILD_COUNT_RANGE)
         child_birth = family.marriage_year + 1
         for _ in range(child_count):
             child_birth += rng.randint(1, 4)
-            sex = Sex.MALE if rng.random() < 0.51 else Sex.FEMALE
-            husband_record = _find_person(people, family.husband_xref)
+            sex = Sex.MALE if rng.random() < MALE_BIRTH_RATIO else Sex.FEMALE
+            husband_record = find_person(family.husband_xref)
             child = new_person(
                 sex=sex, surname=husband_record.surname,
                 birth_year=child_birth, parents_xref=family.xref,
             )
-            _append_child(families, family.xref, child.xref)
+            append_child(family.xref, child.xref)
 
-            # ~80 % marry a synthetic spouse.
-            if rng.random() < 0.8 and child_birth + 22 < root_birth_year + generations * GENERATION_GAP_YEARS:
+            # Some adult children marry a synthetic spouse and become
+            # the seed of a next-generation family.
+            if (rng.random() < MARRIAGE_RATE
+                    and child_birth + 22
+                    < root_birth_year + generations * GENERATION_GAP_YEARS):
                 if child.sex is Sex.MALE:
                     spouse = new_person(
                         sex=Sex.FEMALE,
@@ -125,14 +177,16 @@ def generate_tree(
                     husband=husband, wife=wife,
                     marriage_year=family_marriage,
                 )
-                _link_spouse(people, husband.xref, sub_family.xref)
-                _link_spouse(people, wife.xref, sub_family.xref)
+                link_spouse(husband.xref, sub_family.xref)
+                link_spouse(wife.xref, sub_family.xref)
                 queue.append((sub_family, gen + 1))
 
     return GedcomDocument(people=people, families=families)
 
 
+@functools.cache
 def _load_pools() -> dict[str, list[str]]:
+    """Load the bundled name pools once and cache them (data is immutable JSON)."""
     given = json.loads(
         resources.files("webtrees_installer.data").joinpath("given_names.json").read_text(),
     )
@@ -144,37 +198,3 @@ def _load_pools() -> dict[str, list[str]]:
         "female": given["female"],
         "surnames": surnames["surnames"],
     }
-
-
-def _find_person(people: list[Person], xref: str) -> Person:
-    for person in people:
-        if person.xref == xref:
-            return person
-    raise KeyError(xref)
-
-
-def _link_spouse(people: list[Person], xref: str, family_xref: str) -> None:
-    for idx, person in enumerate(people):
-        if person.xref == xref:
-            people[idx] = Person(
-                xref=person.xref, given_name=person.given_name,
-                surname=person.surname, sex=person.sex,
-                birth_year=person.birth_year, death_year=person.death_year,
-                parents_xref=person.parents_xref, spouse_xref=family_xref,
-            )
-            return
-    raise KeyError(xref)
-
-
-def _append_child(families: list[Family], xref: str, child_xref: str) -> None:
-    for idx, family in enumerate(families):
-        if family.xref == xref:
-            families[idx] = Family(
-                xref=family.xref,
-                husband_xref=family.husband_xref,
-                wife_xref=family.wife_xref,
-                marriage_year=family.marriage_year,
-                children_xrefs=[*family.children_xrefs, child_xref],
-            )
-            return
-    raise KeyError(xref)
