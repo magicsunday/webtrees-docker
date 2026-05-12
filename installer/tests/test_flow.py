@@ -91,6 +91,8 @@ def test_run_standalone_reveals_admin_password(tmp_path: Path) -> None:
     body = out.getvalue()
     assert "admin" in body
     assert re.search(r"[0-9a-f]{24}", body), body
+    assert "╔" in body and "╚" in body, "credentials should be inside an ASCII box"
+    assert "webtrees admin credentials" in body
 
 
 def test_run_standalone_writes_admin_password_to_secrets_init(tmp_path: Path) -> None:

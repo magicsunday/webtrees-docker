@@ -380,11 +380,14 @@ def _print_banner(
 
     if admin_user is not None:
         print(file=stdout)
-        print(f"Admin user:     {admin_user}", file=stdout)
-        print(f"Admin password: {admin_password}", file=stdout)
+        print("╔══════════════════════════════════════════════════════════════╗", file=stdout)
+        print("║                 webtrees admin credentials                   ║", file=stdout)
+        print("╠══════════════════════════════════════════════════════════════╣", file=stdout)
+        print(f"║  user:      {admin_user:<48} ║", file=stdout)
+        print(f"║  password:  {admin_password:<48} ║", file=stdout)
+        print("╚══════════════════════════════════════════════════════════════╝", file=stdout)
         print(
-            "(Password saved to .webtrees-admin-password for reference; "
-            "remove the file after first login.)",
+            "(Saved to .webtrees-admin-password — mode 0600. Delete after first login.)",
             file=stdout,
         )
 
