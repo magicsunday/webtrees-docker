@@ -47,6 +47,7 @@ class StandaloneArgs:
 
 _FALLBACK_PORT = 8080
 _DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
+_PROJECT_NAME = "webtrees"
 
 
 def _resolve_manifest_dir() -> Path:
@@ -276,19 +277,22 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     _write_secret_file(work_dir / ".webtrees-admin-password", password)
 
 
-_PROJECT_NAME = "webtrees"
-
-
 def _write_secret_file(path: Path, password: str) -> None:
     """Write the admin password to `path` with 0600 from the first byte.
 
     `Path.write_text` followed by `chmod` opens the file with the process
     umask (typically 0022 → 0644) and leaves a syscall window during which
     a concurrent reader could see the secret. `os.open` with the explicit
-    permission mask closes that window.
+    permission mask closes that window. If anything between `os.open` and
+    `os.fdopen` raises, the raw fd is closed explicitly so we never leak.
     """
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fp:
+    try:
+        fp = os.fdopen(fd, "w")
+    except Exception:
+        os.close(fd)
+        raise
+    with fp:
         fp.write(password + "\n")
 
 
