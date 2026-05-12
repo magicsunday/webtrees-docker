@@ -18,7 +18,7 @@ def test_check_prerequisites_ok(tmp_path: Path) -> None:
 
     with patch(
         "webtrees_installer.prereq._compose_version",
-        return_value="v2.29.7",
+        return_value="Docker Compose version v2.29.7",
     ):
         check_prerequisites(work_dir=tmp_path, docker_sock=sock)
 
@@ -67,4 +67,30 @@ def test_check_prerequisites_docker_daemon_down(tmp_path: Path) -> None:
         side_effect=subprocess.CalledProcessError(1, ["docker"], stderr="Cannot connect"),
     ):
         with pytest.raises(PrereqError, match="daemon"):
+            check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_check_prerequisites_docker_daemon_hung(tmp_path: Path) -> None:
+    """docker compose version hangs past the timeout → timeout hint."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        side_effect=subprocess.TimeoutExpired(cmd=["docker"], timeout=10),
+    ):
+        with pytest.raises(PrereqError, match="did not respond"):
+            check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_check_prerequisites_called_process_error_with_no_stderr(tmp_path: Path) -> None:
+    """CalledProcessError with stderr=None must not surface 'stderr: None'."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        side_effect=subprocess.CalledProcessError(1, ["docker"], stderr=None),
+    ):
+        with pytest.raises(PrereqError, match="<no stderr>"):
             check_prerequisites(work_dir=tmp_path, docker_sock=sock)

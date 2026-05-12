@@ -6,6 +6,9 @@ import subprocess
 from pathlib import Path
 
 
+COMPOSE_VERSION_TIMEOUT_S = 10
+
+
 class PrereqError(RuntimeError):
     """Raised when a runtime prerequisite is not satisfied."""
 
@@ -28,16 +31,24 @@ def check_prerequisites(
 
     try:
         version = _compose_version()
+    except subprocess.TimeoutExpired as exc:
+        raise PrereqError(
+            f"Docker daemon did not respond within {COMPOSE_VERSION_TIMEOUT_S}s. "
+            "Confirm the socket points at a running engine and the daemon is not stuck."
+        ) from exc
     except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip() or "<no stderr>"
         raise PrereqError(
             "Docker daemon is not reachable. Confirm the socket points at a "
             "running engine and the invoking user has permission "
-            f"(stderr: {exc.stderr!s})"
+            f"(stderr: {stderr})"
         ) from exc
 
-    if "Docker Compose version v2" not in version and not version.startswith("v2"):
-        # `docker compose version` prints e.g. 'Docker Compose version v2.29.7'.
-        # The legacy v1 standalone binary prints 'docker-compose version 1.x'.
+    # `docker compose version` prints e.g. 'Docker Compose version v2.29.7'.
+    # The legacy v1 standalone binary prints 'docker-compose version 1.x'
+    # and `docker compose` would not exist at all in that environment, so
+    # this rejects the v1 case along with any unexpected stranger format.
+    if not version.startswith("Docker Compose version v2"):
         raise PrereqError(
             f"Compose v2 required. Got: {version!r}. Update Docker Engine "
             "to a version that ships the compose plugin."
@@ -45,11 +56,17 @@ def check_prerequisites(
 
 
 def _compose_version() -> str:
-    """Return `docker compose version --short` or raise CalledProcessError."""
+    """Return the trimmed stdout of `docker compose version`.
+
+    Raises subprocess.CalledProcessError on non-zero exit (caller surfaces
+    the daemon-unreachable hint) and subprocess.TimeoutExpired when the
+    daemon hangs without responding (caller surfaces the timeout hint).
+    """
     result = subprocess.run(
         ["docker", "compose", "version"],
         capture_output=True,
         text=True,
         check=True,
+        timeout=COMPOSE_VERSION_TIMEOUT_S,
     )
     return result.stdout.strip()
