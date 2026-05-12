@@ -22,6 +22,7 @@ jobs:
             php_entries: ${{ steps.set.outputs.php_entries }}
             nginx_tag: ${{ steps.set.outputs.nginx_tag }}
             nginx_config_revision: ${{ steps.set.outputs.nginx_config_revision }}
+            installer_tag: ${{ steps.set.outputs.installer_tag }}
         steps:
             - uses: actions/checkout@v4
 
@@ -48,6 +49,8 @@ jobs:
                   echo "php_entries=$php_entries" >> "$GITHUB_OUTPUT"
                   echo "nginx_tag=$(jq -r .tag dev/nginx-version.json)" >> "$GITHUB_OUTPUT"
                   echo "nginx_config_revision=$(jq -r .config_revision dev/nginx-version.json)" >> "$GITHUB_OUTPUT"
+                  installer_tag=$(jq -r .tag dev/installer-version.json)
+                  echo "installer_tag=${installer_tag}" >> "$GITHUB_OUTPUT"
 
     build-php:
         name: php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
@@ -181,9 +184,41 @@ jobs:
                   cache-from: type=gha,scope=nginx
                   cache-to: type=gha,mode=max,scope=nginx
 
+    build-installer:
+        name: installer ${{ needs.matrix.outputs.installer_tag }}
+        needs: matrix
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: docker/setup-qemu-action@v3
+            - uses: docker/setup-buildx-action@v3
+
+            - uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Build and push
+              uses: docker/build-push-action@v5
+              with:
+                  context: .
+                  file: installer/Dockerfile
+                  platforms: linux/amd64,linux/arm64
+                  push: true
+                  tags: |
+                      ghcr.io/magicsunday/webtrees/installer:${{ needs.matrix.outputs.installer_tag }}
+                      ghcr.io/magicsunday/webtrees/installer:latest
+                  cache-from: type=gha,scope=installer
+                  cache-to: type=gha,scope=installer,mode=max
+
     smoke-test:
         name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
-        needs: [matrix, build-php, build-php-full, build-nginx]
+        needs: [matrix, build-php, build-php-full, build-nginx, build-installer]
         runs-on: ubuntu-latest
         strategy:
             fail-fast: false
@@ -193,61 +228,31 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - name: Prepare .env for smoke-test
+            - name: Run installer (non-interactive)
               env:
                   EDITION: ${{ matrix.edition }}
-                  WT_VERSION: ${{ matrix.entry.webtrees }}
-                  PHP_V: ${{ matrix.entry.php }}
-                  NGINX_TAG: ${{ needs.matrix.outputs.nginx_tag }}
+                  INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
               run: |
                   set -euo pipefail
-                  cat > .env <<EOF
-                  COMPOSE_PROJECT_NAME=webtrees-smoke
-                  COMPOSE_FILE=compose.yaml:compose.publish.yaml
-                  DOCKER_SERVER=ghcr.io/magicsunday
-                  PHP_VERSION=${PHP_V}
-                  WEBTREES_VERSION=${WT_VERSION}
-                  WEBTREES_NGINX_VERSION=${NGINX_TAG}
-                  NGINX_CONFIG_REVISION=1
-                  ENVIRONMENT=production
-                  ENFORCE_HTTPS=FALSE
-                  APP_PORT=18080
-                  MARIADB_ROOT_PASSWORD=smoke-root
-                  MARIADB_USER=webtrees
-                  MARIADB_PASSWORD=smoke-pw
-                  MARIADB_HOST=db
-                  MARIADB_DATABASE=webtrees
-                  MARIADB_PORT=3306
-                  PHP_MAX_EXECUTION_TIME=30
-                  PHP_MAX_INPUT_VARS=1000
-                  PHP_MEMORY_LIMIT=256M
-                  PHP_POST_MAX_SIZE=128M
-                  PHP_UPLOAD_MAX_FILESIZE=128M
-                  MAIL_SMTP=
-                  MAIL_DOMAIN=example.org
-                  MAIL_HOST=
-                  LOCAL_GROUP_ID=82
-                  LOCAL_GROUP_NAME=www-data
-                  WEBTREES_TABLE_PREFIX=wt_
-                  WEBTREES_REWRITE_URLS=0
-                  EOF
-
-                  # Full edition overrides the phpfpm image via compose.override.yaml
-                  if [ "${EDITION}" = "full" ]; then
-                      cat > compose.override.yaml <<EOF
-                  services:
-                      phpfpm:
-                          image: ghcr.io/magicsunday/webtrees/php-full:${WT_VERSION}-php${PHP_V}
-                  EOF
-                  fi
-
-            - name: Pull images
-              run: docker compose pull
+                  mkdir -p /tmp/smoke
+                  docker run --rm \
+                      -v /tmp/smoke:/work \
+                      -v /var/run/docker.sock:/var/run/docker.sock \
+                      "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
+                      --non-interactive \
+                      --force \
+                      --no-up \
+                      --no-admin \
+                      --edition "${EDITION}" \
+                      --proxy standalone \
+                      --port 18080
 
             - name: Up stack
+              working-directory: /tmp/smoke
               run: docker compose up -d
 
             - name: Wait for nginx healthy
+              working-directory: /tmp/smoke
               run: |
                   set -euo pipefail
                   for i in $(seq 1 60); do
@@ -263,12 +268,9 @@ jobs:
                   exit 1
 
             - name: Probe HTTP
+              working-directory: /tmp/smoke
               run: |
                   set -euo pipefail
-                  # -f makes curl exit non-zero on HTTP >= 400 so we don't
-                  # silently accept stack-trace bodies that happen to mention
-                  # 'webtrees'. -L follows the setup-wizard redirect chain
-                  # webtrees emits when no admin user exists yet.
                   body=$(curl -fsSL http://localhost:18080/)
                   echo "$body" | head -50
                   echo "$body" | grep -qi "webtrees" || {
@@ -278,4 +280,5 @@ jobs:
 
             - name: Tear down
               if: always()
+              working-directory: /tmp/smoke
               run: docker compose down -v
