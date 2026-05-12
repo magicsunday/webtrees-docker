@@ -14,6 +14,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from webtrees_installer._io import atomic_write
 from webtrees_installer.versions import Catalog
 
 
@@ -45,7 +46,13 @@ class DevArgs:
 
 
 def build_compose_chain(*, proxy_mode: str, use_external_db: bool) -> str:
-    """Return the COMPOSE_FILE colon-chain for the chosen dev flavour."""
+    """Return the COMPOSE_FILE colon-chain for the chosen dev flavour.
+
+    Single source of truth for the proxy-mode validation: the chain
+    assembler raises ValueError on an unknown mode and the caller
+    (``render_dev_env`` via ``_validate``) leans on that instead of
+    re-checking the same condition.
+    """
     chain = ["compose.yaml", "compose.pma.yaml", "compose.development.yaml"]
     if proxy_mode == "standalone":
         chain.append("compose.publish.yaml")
@@ -96,18 +103,24 @@ def render_dev_env(
         loader=PackageLoader("webtrees_installer", "templates"),
         undefined=StrictUndefined,
         keep_trailing_newline=True,
+        trim_blocks=False,
+        lstrip_blocks=False,
     )
     rendered = env_jinja.get_template("env.dev.j2").render(**context)
 
+    if target_dir.exists() and not target_dir.is_dir():
+        raise NotADirectoryError(
+            f"target_dir {target_dir} exists but is not a directory"
+        )
     target_dir.mkdir(parents=True, exist_ok=True)
-    (target_dir / ".env").write_text(rendered)
+    atomic_write(target_dir / ".env", rendered)
 
 
 def _validate(args: DevArgs) -> None:
-    if args.proxy_mode not in {"standalone", "traefik"}:
-        raise ValueError(
-            f"proxy_mode must be 'standalone' or 'traefik', got {args.proxy_mode!r}"
-        )
+    # proxy_mode is validated by build_compose_chain when render_dev_env
+    # invokes it; calling it here once keeps the check authoritative
+    # without duplicating the message string.
+    build_compose_chain(proxy_mode=args.proxy_mode, use_external_db=args.use_external_db)
     if args.proxy_mode == "traefik" and not args.dev_domain:
         raise ValueError("traefik proxy_mode requires non-empty dev_domain")
     if args.proxy_mode == "standalone" and (args.app_port is None or args.pma_port is None):

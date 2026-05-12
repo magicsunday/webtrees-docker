@@ -8,6 +8,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from webtrees_installer._io import atomic_write
 from webtrees_installer.versions import Catalog
 
 
@@ -81,15 +82,8 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
             f"target_dir {target_dir} exists but is not a directory"
         )
     target_dir.mkdir(parents=True, exist_ok=True)
-    _atomic_write(target_dir / "compose.yaml", compose_text)
-    _atomic_write(target_dir / ".env", env_text)
-
-
-def _atomic_write(path: Path, content: str) -> None:
-    """Write content to path via a sibling .tmp file + os.replace swap."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content)
-    tmp.replace(path)
+    atomic_write(target_dir / "compose.yaml", compose_text)
+    atomic_write(target_dir / ".env", env_text)
 
 
 def _validate(input_model: RenderInput) -> None:
