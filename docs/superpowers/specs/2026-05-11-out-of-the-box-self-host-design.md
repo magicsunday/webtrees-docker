@@ -217,13 +217,13 @@ Setzt voraus, dass `/work` ein geklontes `webtrees-docker`-Repo ist (Sanity-Chec
    - External-DB? Falls ja: `MARIADB_HOST`
    - DB-Creds (Root-PW, DB-Name, User, User-PW)
    - PMA einschließen? (default y)
-3. **`.env` schreiben**: COMPOSE_FILE-Chain, DB-Vars, `LOCAL_USER_ID`/`LOCAL_USER_NAME` (siehe Einschränkung weiter unten), `APP_PORT`/`PMA_PORT`, `DEV_DOMAIN`.
+3. **`.env` schreiben**: COMPOSE_FILE-Chain, DB-Vars, `LOCAL_USER_ID`/`LOCAL_USER_NAME`, `APP_PORT`/`PMA_PORT`, `DEV_DOMAIN`.
 4. **Persistent-Verzeichnisse anlegen** (`persistent/database`, `persistent/media`, `app/`).
 5. **Image-Pull** (`docker compose pull`).
 6. **App-Bootstrap** (Composer-Install im Buildbox, entspricht heutigem `make install`).
 7. **Banner** mit `make up`/`docker compose up -d` als nächste Schritte.
 
-> **Bekannte Einschränkung Phase 2b:** `LOCAL_USER_ID`/`LOCAL_USER_NAME` werden via `os.geteuid()` ermittelt. Weil der Wizard innerhalb eines Containers als Root läuft, schreibt er `LOCAL_USER_ID=0` in die `.env` — die echte Host-UID ist von innen nicht sichtbar. Bis Phase 3 einen `--local-user-id`/`--local-user-name`-Flag nachzieht (oder eine `HOST_UID`-Env-Variable honoriert), muss der Dev-Mode-User den Wert nach dem Render manuell auf `$(id -u)`/`$(id -un)` setzen.
+`LOCAL_USER_ID`/`LOCAL_USER_NAME` werden über die CLI-Flags `--local-user-id`/`--local-user-name` gesetzt. Der `install`-Launcher prependet automatisch `--local-user-id $(id -u)` und `--local-user-name $(id -un)` vor den User-Argumenten, sodass der typische `curl | bash`-Aufruf die echte Host-UID einsetzt. Wer das Installer-Image direkt per `docker run` startet, muss die beiden Flags selbst übergeben — sonst landet `LOCAL_USER_ID=0` in der `.env` und das Buildbox-User-Mapping ist gebrochen.
 
 Edition-Wahl entfällt im Dev-Modus — die Edition ist durch `setup/composer.json` bestimmt.
 

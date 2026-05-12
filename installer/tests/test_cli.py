@@ -77,6 +77,8 @@ def test_parser_carries_dev_mode_and_dev_flags():
             "--mariadb-database", "wt",
             "--mariadb-user", "wt_user",
             "--mariadb-password", "wt_pw",
+            "--local-user-id", "1000",
+            "--local-user-name", "rico",
         ]
     )
     assert args.mode == "dev"
@@ -90,6 +92,8 @@ def test_parser_carries_dev_mode_and_dev_flags():
     assert args.mariadb_database == "wt"
     assert args.mariadb_user == "wt_user"
     assert args.mariadb_password == "wt_pw"
+    assert args.local_user_id == 1000
+    assert args.local_user_name == "rico"
     # The two boolean toggles default to False when not on the CLI.
     assert args.use_existing_db is False
     assert args.use_external_db is False

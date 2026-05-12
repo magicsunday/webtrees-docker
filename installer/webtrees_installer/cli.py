@@ -113,6 +113,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--external-db-host",
         help="External MariaDB host (dev mode + --use-external-db).",
     )
+    dev_group.add_argument(
+        "--local-user-id",
+        type=int,
+        help="Host UID to write into LOCAL_USER_ID. Inside the installer container "
+             "the wizard cannot see the host UID; the launcher script passes "
+             "$(id -u) automatically.",
+    )
+    dev_group.add_argument(
+        "--local-user-name",
+        help="Host username to write into LOCAL_USER_NAME. Mirrors --local-user-id.",
+    )
     parser.add_argument(
         "--admin-user",
         help="Username for the headless admin-bootstrap.",
@@ -173,8 +184,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             mariadb_root_password=args.mariadb_root_password or "",
             use_existing_db=args.use_existing_db,
             use_external_db=args.use_external_db,
-            local_user_id=None,
-            local_user_name=None,
+            local_user_id=args.local_user_id,
+            local_user_name=args.local_user_name,
             force=args.force,
         )
         return _run_with_exit_codes(

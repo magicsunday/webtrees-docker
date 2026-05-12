@@ -38,7 +38,16 @@ if [[ -t 0 && -t 1 ]]; then
     tty_flags=(-it)
 fi
 
+# Inject host UID/name before user args so --mode dev gets the real values.
+# (Inside the container os.geteuid() returns 0; the wizard cannot see them.
+# Standalone mode ignores both flags. User-supplied values still override.)
+installer_args=(
+    --local-user-id "$(id -u)"
+    --local-user-name "$(id -un)"
+    "$@"
+)
+
 exec docker run --rm "${tty_flags[@]}" \
     -v "$PWD:/work" \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    "$INSTALLER_IMAGE" "$@"
+    "$INSTALLER_IMAGE" "${installer_args[@]}"
