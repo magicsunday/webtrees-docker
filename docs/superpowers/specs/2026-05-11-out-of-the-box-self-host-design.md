@@ -198,7 +198,7 @@ Optionaler Bash-Wrapper im Repo unter `install` (~10 Zeilen, ruft den `docker ru
 4. **Reverse-Proxy-Wahl**: Standalone / Traefik (default Standalone).
 5. **Port- oder Domain-Eingabe**: bei Standalone Port (default 80, Live-Check via Alpine-Container, Fallback 8080); bei Traefik Domain (pflicht).
 6. **Admin-Bootstrap**: y/N (default y). Bei y: Username, Email. Passwort wird vom Wizard via `secrets.token_hex(12)` (24 hex chars, 96 bit) generiert und nach Stack-Start ausgegeben.
-7. **Demo-Tree-Größe** (nur bei Demo-Edition): Anzahl Personen (default 200).
+7. **Demo-Tree-Seed** (nur bei Demo-Edition, optional): `--demo-seed <int>` (default 42). Die Baumgröße ist implizit (7 Generationen × Kinderzahl-Range ≈ 100–400 Personen pro Seed); ein expliziter Population-Knopf wird aktuell nicht angeboten — Seed-Variation reicht für Demo-Zwecke.
 8. **Zusammenfassung + Bestätigung**.
 9. **Files schreiben**: `compose.yaml` (Jinja) und `.env` (Architektur-Werte: COMPOSE_PROJECT_NAME, WEBTREES_VERSION, PHP_VERSION, WEBTREES_NGINX_VERSION, im Standalone-Modus zusätzlich APP_PORT). Phase 2b: `demo.ged` bei Demo-Edition.
 10. **Admin-Passwort persistieren** (nur bei Admin-Bootstrap): Wizard legt das `webtrees_secrets`-Volume mit `docker volume create` an und schreibt das generierte Passwort über einen kurzlebigen Alpine-Container nach `/secrets/wt_admin_password` (chmod 444). Parallel dazu wird `.webtrees-admin-password` im Work-Dir mit Mode 0600 abgelegt, damit der User es nach dem ersten Login löschen kann. Der `init`-Service findet die Datei beim Stack-Start gefüllt und überschreibt sie nicht.
@@ -217,17 +217,19 @@ Setzt voraus, dass `/work` ein geklontes `webtrees-docker`-Repo ist (Sanity-Chec
    - External-DB? Falls ja: `MARIADB_HOST`
    - DB-Creds (Root-PW, DB-Name, User, User-PW)
    - PMA einschließen? (default y)
-3. **`.env` schreiben**: COMPOSE_FILE-Chain, DB-Vars, `LOCAL_USER_ID`/`LOCAL_USER_NAME` auto-detect, `APP_PORT`/`PMA_PORT`, `DEV_DOMAIN`.
+3. **`.env` schreiben**: COMPOSE_FILE-Chain, DB-Vars, `LOCAL_USER_ID`/`LOCAL_USER_NAME` (siehe Einschränkung weiter unten), `APP_PORT`/`PMA_PORT`, `DEV_DOMAIN`.
 4. **Persistent-Verzeichnisse anlegen** (`persistent/database`, `persistent/media`, `app/`).
 5. **Image-Pull** (`docker compose pull`).
 6. **App-Bootstrap** (Composer-Install im Buildbox, entspricht heutigem `make install`).
 7. **Banner** mit `make up`/`docker compose up -d` als nächste Schritte.
 
+> **Bekannte Einschränkung Phase 2b:** `LOCAL_USER_ID`/`LOCAL_USER_NAME` werden via `os.geteuid()` ermittelt. Weil der Wizard innerhalb eines Containers als Root läuft, schreibt er `LOCAL_USER_ID=0` in die `.env` — die echte Host-UID ist von innen nicht sichtbar. Bis Phase 3 einen `--local-user-id`/`--local-user-name`-Flag nachzieht (oder eine `HOST_UID`-Env-Variable honoriert), muss der Dev-Mode-User den Wert nach dem Render manuell auf `$(id -u)`/`$(id -un)` setzen.
+
 Edition-Wahl entfällt im Dev-Modus — die Edition ist durch `setup/composer.json` bestimmt.
 
 ### Non-Interactive-Modus
 
-Für CI und Skripted-Deployments unterstützt der Wizard `--non-interactive` + Flags für jeden Prompt: `--edition core|full`, `--proxy standalone|traefik`, `--port <int>` (Standalone), `--domain <host>` (Traefik), `--admin-user`, `--admin-email`, `--no-admin`, `--no-up`, `--force` (überschreibt vorhandene `compose.yaml` / `.env` ohne Prompt). Phase 2b ergänzt `--no-demo` und `--mode dev`.
+Für CI und Skripted-Deployments unterstützt der Wizard `--non-interactive` + Flags für jeden Prompt: `--edition core|full`, `--proxy standalone|traefik`, `--port <int>` (Standalone), `--domain <host>` (Traefik), `--admin-user`, `--admin-email`, `--no-admin`, `--no-up`, `--force` (überschreibt vorhandene `compose.yaml` / `.env` ohne Prompt). Phase 2b ergänzt `--demo` (opt-in, generiert ein 7-Generationen-GEDCOM und importiert es bei aktivem Stack), `--demo-seed <int>` und `--mode dev`.
 
 ### Edge-Cases
 
@@ -380,29 +382,15 @@ Mehrere parallele `latest-*`-Spuren (`latest-legacy`, `latest-beta`) bleiben Clu
 
 Matrix-Job über `versions.json`-Einträge × Editionen (`core`, `full`). Pro Kombination:
 
-```bash
-docker run --rm -v "$PWD/smoke:/work" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/magicsunday/webtrees-installer:${{ inputs.installer_tag }} \
-  --non-interactive --mode standalone --edition ${{ matrix.edition }} \
-  --proxy standalone --port 8080 --no-admin --no-demo --no-up
+Die Smoke-Test-Matrix lebt in `.github/workflows/build.yml` (Job `smoke-test`). Sie deckt drei Editionen pro PHP-Version ab:
 
-cd smoke
-docker compose up -d
+| Edition | Wizard-Aufruf | Probe |
+|---|---|---|
+| `core` | `--edition core --no-admin --no-up --proxy standalone --port 18080` | Stack hoch, `curl localhost:18080` enthält `webtrees`, dann teardown. |
+| `full` | `--edition full --no-admin --no-up --proxy standalone --port 18080` | wie `core`. |
+| `demo` | `--edition full --demo --demo-seed 42 --no-admin --no-up --proxy standalone --port 18080` | `demo.ged` existiert + `^2 VERS 5.5.1$` matched; Stack-Hochfahren entfällt. |
 
-# Wait für Healthcheck mit Timeout
-for i in $(seq 1 60); do
-  status=$(docker compose ps --format json | jq -r '.[] | select(.Service=="nginx") | .Health')
-  [ "$status" = "healthy" ] && break
-  sleep 1
-done
-
-# Probe
-curl -fsS http://localhost:8080/ | grep -q "webtrees"
-
-# Teardown
-docker compose down -v
-```
+Die Folge-Steps (`Up stack`, `Wait for nginx healthy`, `Probe HTTP`, `Tear down`) springen bei `EDITION=demo` per Guard früh raus, weil die `demo`-Zelle den Stack nicht hochfährt (Demo-Import braucht eine laufende DB und gehört in den lokalen E2E-Run).
 
 Smoke-Test deckt **nicht** ab: Demo-Tree-Import, Admin-Bootstrap (separater E2E-Test, wird ergänzt sobald Pfad A validiert ist).
 
@@ -412,13 +400,15 @@ Bleibt für Cluster C: Docker-Hub-Mirror, Nightly-Build-Workflow, PHP-Version-Po
 
 ## Doku
 
-### Drei Dateien
+### Drei Dateien (Phase 2b liefert nur die erste)
 
 | Pfad | Zielgruppe | Umfang |
 |---|---|---|
 | `README.md` | Self-Hoster | ~100 Zeilen |
 | `docs/developing.md` | Modul-Entwickler | heutige README, ohne Self-Host-Quickstart, ohne `make enable-dev-mode` |
 | `docs/customizing.md` | beide | ~80 Zeilen, `compose.override.yaml`-Patterns |
+
+**Phase 2b liefert nur `README.md`.** `docs/developing.md` und `docs/customizing.md` sind Phase-3-Liefergegenstände; bis dahin verweist die README in einer kurzen Notiz auf den künftigen Customising-Guide und enthält am Ende eine sechszeilige `--mode dev`-Invocation für Modul-Entwickler.
 
 ### `README.md`-Gliederung
 
