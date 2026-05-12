@@ -1,18 +1,24 @@
 name: Check for new webtrees versions
 
-# Polls fisharebest/webtrees once a day and opens an issue per release
-# that is strictly newer than the highest version in dev/versions.json.
+# Polls fisharebest/webtrees once a day. For every release strictly newer
+# than the highest version in dev/versions.json the workflow:
+#   1. opens a PR that bumps dev/versions.json (rolling tags follow the
+#      new version, older rows keep only their version-pinned slots),
+#   2. enables auto-merge on that PR (squash) so a green CI flips it in,
+#   3. dispatches the build workflow for the new version,
+#   4. opens a tracking issue pointing at the PR + dispatched run.
 # Older missing entries (e.g. 2.0.x while we ship only 2.2.x) are
-# deliberately ignored — the build workflow stays manual, a human
-# reviews the issue and updates versions.json + triggers the build.
+# deliberately ignored.
 on:
     schedule:
         - cron: '0 12 * * *'
     workflow_dispatch:
 
 permissions:
-    contents: read
+    contents: write
     issues: write
+    pull-requests: write
+    actions: write
 
 jobs:
     check:
@@ -48,20 +54,107 @@ jobs:
                       echo 'EOF'
                   } >> "$GITHUB_OUTPUT"
 
-            - name: Open issues for new versions
+            - name: Bump dev/versions.json, open PR, dispatch build, file issue
               if: steps.find.outputs.new != ''
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
+                  # The bot identity that authors the auto-bump commit; matches
+                  # the actor github-actions uses for API calls so the commit
+                  # links to the workflow run in the UI.
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
                   while IFS= read -r version; do
                       [ -z "$version" ] && continue
-                      title="Webtrees $version released — bump dev/versions.json"
-                      if gh issue list --state all --search "$title in:title" --json number --jq 'length' | grep -q '^0$'; then
+                      branch="auto-bump/webtrees-${version}"
+                      title="Bump dev/versions.json for webtrees ${version}"
+                      issue_title="Webtrees ${version} released — bump dev/versions.json"
+
+                      # Skip the version entirely if its bump branch already
+                      # exists on the remote; the previous cron iteration
+                      # already opened the PR (and possibly the issue).
+                      if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+                          echo "Branch $branch already exists on origin — skipping $version"
+                          continue
+                      fi
+
+                      # Snapshot the rolling-tag bundle and the PHP slot that
+                      # currently carries `latest` BEFORE mutating the file.
+                      # The new row inherits the bundle; the previous holder
+                      # loses it. If no row carries `latest` something is off
+                      # with versions.json — bail loud rather than silently
+                      # shipping a release without rolling tags.
+                      rolling=$(jq -c '[.[] | select(.tags | index("latest")) | .tags[]] | unique' dev/versions.json)
+                      canonical_php=$(jq -r '.[] | select(.tags | index("latest")) | .php' dev/versions.json)
+                      [ -n "$canonical_php" ] || { echo "::error::no row in dev/versions.json carries 'latest'"; exit 1; }
+
+                      # Re-render in the project's compact one-row-per-line
+                      # style: `jq -c` packs without spaces, then sed restores
+                      # the `": "` / `, "` separators so the diff stays minimal.
+                      # The new entry opens three PHP rows (8.3/8.4/8.5) to
+                      # mirror the existing matrix; the row at canonical_php
+                      # carries the rolling bundle.
+                      new_rows=$(jq -c --arg ver "$version" --arg php "$canonical_php" --argjson rolling "$rolling" '
+                          (map(.tags -= $rolling)
+                           + ([["8.3"], ["8.4"], ["8.5"]]
+                              | map(.[0] as $p | {webtrees: $ver, php: $p, tags: (if $p == $php then $rolling else [] end)})))
+                          | .[]
+                      ' dev/versions.json \
+                          | sed -e 's/":"/": "/g' -e 's/":\[/": [/g' -e 's/,"/, "/g')
+                      {
+                          printf '[\n'
+                          n=$(printf '%s\n' "$new_rows" | wc -l)
+                          i=0
+                          while IFS= read -r row; do
+                              i=$((i + 1))
+                              if [ "$i" -lt "$n" ]; then
+                                  printf '    %s,\n' "$row"
+                              else
+                                  printf '    %s\n' "$row"
+                              fi
+                          done <<< "$new_rows"
+                          printf ']\n'
+                      } > dev/versions.json.new
+                      mv dev/versions.json.new dev/versions.json
+
+                      git checkout -b "$branch"
+                      git add dev/versions.json
+                      git commit -m "$title"
+                      git push origin "$branch"
+
+                      pr_url=$(gh pr create \
+                          --title "$title" \
+                          --body "Auto-detected new upstream release \`${version}\`. The rolling \`latest\`/major/minor tags move to the new row on PHP ${canonical_php}; older rows keep only their version-pinned slot. The build workflow has already been dispatched against this branch so images start baking in parallel with the review; auto-merge (squash) is enabled so a green CI flips this PR in." \
+                          --base main \
+                          --head "$branch")
+                      gh pr merge --auto --squash "$pr_url" || echo "::warning::auto-merge could not be enabled on $pr_url"
+
+                      # Build workflow only fires on tag-push or
+                      # workflow_dispatch — kick it off explicitly so the new
+                      # image starts baking in parallel with the PR review.
+                      # Dispatch is pinned to the bump branch (not `main`),
+                      # otherwise the build's matrix step reads the still
+                      # unbumped versions.json on main and errors with
+                      # "webtrees X not present in dev/versions.json".
+                      gh workflow run build.yml --ref "$branch" -f webtrees_version="$version" \
+                          || echo "::warning::build.yml dispatch for $version failed"
+
+                      # Tracking issue keeps the daily-cron signal visible in
+                      # the issue tracker. Skip re-creating if a prior run
+                      # already filed one.
+                      if gh issue list --state all --search "$issue_title in:title" --json number --jq 'length' | grep -q '^0$'; then
                           gh issue create \
-                              --title "$title" \
-                              --body $'Upstream released webtrees `'"$version"$'`.\n\nTo build and push:\n1. Add an entry to `dev/versions.json` for this version.\n2. Trigger the **Build and push image** workflow with the version as input.'
+                              --title "$issue_title" \
+                              --body "Upstream released webtrees \`${version}\`. Auto-bump PR: ${pr_url}. Build workflow was dispatched against \`main\` with input \`webtrees_version=${version}\`; track the run in the Actions tab."
                       else
                           echo "Issue for $version already exists — skipping"
                       fi
+
+                      # Return to main so the next loop iteration starts from
+                      # the unbumped manifest (each version gets its own
+                      # branch + PR).
+                      git checkout main
+                      git reset --hard origin/main
                   done <<< "${{ steps.find.outputs.new }}"
