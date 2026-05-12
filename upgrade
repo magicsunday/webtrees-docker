@@ -20,6 +20,14 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
+# `docker compose down` needs a compose.yaml in the working directory. If
+# the user piped curl into bash from the wrong cwd (typically $HOME), the
+# error would be cryptic — fail loud with a path hint instead.
+if [ ! -f compose.yaml ] && [ ! -f docker-compose.yaml ]; then
+    echo "no compose.yaml in $(pwd); cd into your webtrees stack directory first" >&2
+    exit 1
+fi
+
 # No args → use the README quickstart defaults so the typical
 # `curl ... | bash` invocation just works. Anything passed on the command
 # line overrides; --force is always appended so the wizard does not stop
