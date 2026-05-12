@@ -76,6 +76,10 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
     compose_text = env_jinja.get_template(compose_template).render(**context)
     env_text = env_jinja.get_template("env.j2").render(**context)
 
+    if target_dir.exists() and not target_dir.is_dir():
+        raise NotADirectoryError(
+            f"target_dir {target_dir} exists but is not a directory"
+        )
     target_dir.mkdir(parents=True, exist_ok=True)
     _atomic_write(target_dir / "compose.yaml", compose_text)
     _atomic_write(target_dir / ".env", env_text)

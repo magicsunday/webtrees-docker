@@ -190,3 +190,12 @@ def test_render_leaves_no_tmp_files(tmp_path: Path, standalone_core: RenderInput
 
     leftovers = sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp"))
     assert leftovers == []
+
+
+def test_render_rejects_file_at_target_dir(tmp_path: Path, standalone_core: RenderInput) -> None:
+    """target_dir pointing at a regular file → clear NotADirectoryError."""
+    file_target = tmp_path / "not-a-dir"
+    file_target.write_text("oops")
+
+    with pytest.raises(NotADirectoryError, match="not a directory"):
+        render_files(input_model=standalone_core, target_dir=file_target)
