@@ -131,6 +131,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write files but do not run `docker compose up -d`.",
     )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Generate a 7-generation synthetic family tree and (when the stack is up) import it.",
+    )
+    parser.add_argument(
+        "--demo-seed",
+        type=int,
+        default=42,
+        help="RNG seed for the demo tree (default: 42; same seed -> same tree).",
+    )
     return parser
 
 
@@ -188,6 +199,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         admin_bootstrap=admin_bootstrap,
         admin_user=args.admin_user,
         admin_email=args.admin_email,
+        demo=args.demo,
+        demo_seed=args.demo_seed,
         force=args.force,
         no_up=args.no_up,
     )

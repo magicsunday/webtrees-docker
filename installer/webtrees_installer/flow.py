@@ -42,6 +42,9 @@ class StandaloneArgs:
     admin_user: str | None
     admin_email: str | None
 
+    demo: bool
+    demo_seed: int
+
     force: bool
     no_up: bool
 
@@ -175,11 +178,21 @@ def run_standalone(
         no_up=args.no_up,
     )
 
+    demo_gedcom: Path | None = None
+    if args.demo:
+        demo_gedcom = _write_demo_gedcom(work_dir=work_dir, seed=args.demo_seed)
+        if stdout:
+            print(f"Demo GEDCOM written to {demo_gedcom}", file=stdout)
+
     if not args.no_up:
         # bring_up may raise StackError; let it bubble. The CLI layer
         # catches it and returns exit code 3 so the error goes through
         # the same stderr channel as PrereqError / PromptError.
         bring_up(work_dir=work_dir)
+        if demo_gedcom is not None:
+            _import_demo_tree(work_dir=work_dir, gedcom_path=demo_gedcom)
+            if stdout:
+                print("Demo tree imported into the `demo` tree.", file=stdout)
 
     return 0
 
@@ -336,3 +349,40 @@ def _print_banner(
     else:
         print("Starting the stack now (docker compose up -d).", file=stdout)
     print(bar, file=stdout)
+
+
+def _write_demo_gedcom(*, work_dir: Path, seed: int) -> Path:
+    """Generate the demo GEDCOM and write it next to compose.yaml."""
+    from webtrees_installer.demo import generate_tree
+    from webtrees_installer.gedcom import serialize
+    doc = generate_tree(seed=seed)
+    out = work_dir / "demo.ged"
+    out.write_text(serialize(doc, submitter="webtrees-installer demo"))
+    return out
+
+
+def _import_demo_tree(*, work_dir: Path, gedcom_path: Path) -> None:
+    """Copy the GEDCOM into the phpfpm container and run tree-import.
+
+    Mirrors the spec's Demo-Tree import flow:
+        docker compose cp demo.ged phpfpm:/tmp/demo.ged
+        docker compose exec phpfpm sh -c "php /var/www/html/index.php tree --create demo"
+        docker compose exec phpfpm sh -c "... tree-import demo /tmp/demo.ged"
+    """
+    import_steps = [
+        ["compose", "cp", str(gedcom_path), "phpfpm:/tmp/demo.ged"],
+        ["compose", "exec", "-T", "phpfpm", "su", "www-data", "-s", "/bin/sh", "-c",
+         "php /var/www/html/index.php tree --create demo"],
+        ["compose", "exec", "-T", "phpfpm", "su", "www-data", "-s", "/bin/sh", "-c",
+         "php /var/www/html/index.php tree-import demo /tmp/demo.ged"],
+    ]
+    for step in import_steps:
+        result = subprocess.run(
+            ["docker", *step],
+            cwd=work_dir, capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            raise StackError(
+                f"demo-tree import step failed: docker {' '.join(step)}\n"
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )

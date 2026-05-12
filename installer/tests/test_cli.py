@@ -109,3 +109,13 @@ def test_parser_dev_external_db_toggles():
     assert args.use_existing_db is True
     assert args.use_external_db is True
     assert args.external_db_host == "external-db.local"
+
+
+def test_parser_carries_demo_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--non-interactive", "--no-admin", "--edition", "full",
+        "--proxy", "standalone", "--port", "8080", "--demo", "--demo-seed", "7",
+    ])
+    assert args.demo is True
+    assert args.demo_seed == 7

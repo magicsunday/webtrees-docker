@@ -60,6 +60,8 @@ def _args(**overrides) -> StandaloneArgs:
         admin_bootstrap=True,
         admin_user="admin",
         admin_email="admin@example.org",
+        demo=False,
+        demo_seed=42,
         force=True,
         no_up=True,
     )
@@ -178,3 +180,36 @@ def test_run_standalone_propagates_stack_error(tmp_path: Path) -> None:
          patch("webtrees_installer.flow.bring_up", side_effect=StackError("boom")):
         with pytest.raises(StackError, match="boom"):
             run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+
+def test_run_standalone_writes_demo_gedcom_when_demo_set(tmp_path: Path) -> None:
+    """--demo true -> demo.ged is written next to compose.yaml."""
+    args = _args(work_dir=tmp_path, demo=True, demo_seed=42)
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE):
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    gedcom = tmp_path / "demo.ged"
+    assert gedcom.is_file()
+    content = gedcom.read_text()
+    assert content.startswith("0 HEAD")
+    assert "2 VERS 5.5.1" in content
+
+
+def test_run_standalone_skips_demo_when_demo_unset(tmp_path: Path) -> None:
+    args = _args(work_dir=tmp_path, demo=False, demo_seed=42)
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE):
+        run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert not (tmp_path / "demo.ged").exists()
+
+
+def test_run_standalone_imports_demo_when_not_no_up(tmp_path: Path) -> None:
+    """no_up=False + --demo -> wizard calls _import_demo_tree."""
+    args = _args(work_dir=tmp_path, demo=True, demo_seed=42, no_up=False)
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow.bring_up"), \
+         patch("webtrees_installer.flow._import_demo_tree") as import_mock:
+        run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    import_mock.assert_called_once()
