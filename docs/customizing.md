@@ -104,9 +104,13 @@ including the ones the image used to provide.
 ### Daily snapshot
 
 ```bash
-# Database (single transaction, no table locks)
-docker compose exec -T db mariadb-dump \
-    --all-databases --single-transaction --quick \
+# Database (single transaction, no table locks). The bundled `db`
+# service authenticates root from /secrets/mariadb_root_password,
+# which is mounted read-only inside the container — so the dump must
+# read the password from there rather than relying on socket auth.
+docker compose exec -T db sh -c \
+    'mariadb-dump -uroot -p"$(cat /secrets/mariadb_root_password)" \
+        --all-databases --single-transaction --quick' \
     | gzip > "backup-$(date +%F).sql.gz"
 
 # Media files (read-only mount, host writes the tarball)
@@ -124,9 +128,10 @@ The wizard names volumes `webtrees_database`, `webtrees_media` and
 ### Restore
 
 ```bash
-# Database
+# Database (same secret-file dance as the backup direction)
 gunzip < backup-2026-05-12.sql.gz \
-    | docker compose exec -T db mariadb
+    | docker compose exec -T db sh -c \
+        'mariadb -uroot -p"$(cat /secrets/mariadb_root_password)"'
 
 # Media
 docker run --rm \
