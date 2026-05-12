@@ -1,0 +1,99 @@
+name: Check for PHP updates
+
+# Polls Docker Hub once a day at 12:30 UTC:
+#   - For every PHP minor in dev/versions.json, compare the current
+#     library/php:X.Y-fpm-alpine digest against dev/php_digests.lock.
+#     Any change (e.g. 8.5.6 → 8.5.7 patch release) triggers a
+#     full-matrix rebuild + lockfile bump.
+#   - Separately, scan Docker Hub for PHP minor tags newer than
+#     max(versions.json's PHP entries). New minors (8.6, 9.0, …) need
+#     a human review for breaking changes; the workflow only opens an
+#     issue rather than touching versions.json.
+
+on:
+    schedule:
+        - cron: '30 12 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    issues: write
+    actions: write
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Probe current PHP digests
+              id: digests
+              run: |
+                  set -euo pipefail
+                  # Pull every distinct PHP minor from versions.json.
+                  versions=$(jq -r '.[].php' dev/versions.json | sort -u)
+                  changes=""
+                  : > /tmp/new_digests
+                  for ver in $versions; do
+                      # docker buildx imagetools inspect emits a multi-arch
+                      # index digest; that's stable across architectures
+                      # and is what we want to detect rolling-tag movement.
+                      current=$(docker buildx imagetools inspect \
+                          "docker.io/library/php:${ver}-fpm-alpine" \
+                          --format '{{ .Manifest.Digest }}' 2>/dev/null)
+                      [ -n "$current" ] || { echo "::error::failed to read digest for php:${ver}-fpm-alpine"; exit 1; }
+                      echo "${ver}=${current}" >> /tmp/new_digests
+                      previous=$(grep "^${ver}=" dev/php_digests.lock 2>/dev/null | cut -d= -f2- || echo "")
+                      if [ "$current" != "$previous" ]; then
+                          changes="${changes}${ver} ($previous → $current)\n"
+                      fi
+                  done
+                  sort /tmp/new_digests > /tmp/new_digests.sorted
+                  mv /tmp/new_digests.sorted /tmp/new_digests
+                  if [ -n "$changes" ]; then
+                      {
+                          echo "changes<<EOF"
+                          printf '%b' "$changes"
+                          echo "EOF"
+                      } >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Update lockfile + dispatch rebuild
+              if: steps.digests.outputs.changes != ''
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  mv /tmp/new_digests dev/php_digests.lock
+                  git add dev/php_digests.lock
+                  git commit -m "Update dev/php_digests.lock for PHP patch-level rebuild"
+                  git push origin main
+                  gh workflow run build.yml --ref main \
+                      || echo "::warning::build.yml dispatch failed"
+
+            - name: Scan for new PHP minor
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  max_known=$(jq -r '.[].php' dev/versions.json | sort -V | tail -1)
+                  # Hub returns up to page_size results; X.Y-fpm-alpine
+                  # tags are sparse so 100 is plenty.
+                  available=$(curl -sf "https://hub.docker.com/v2/repositories/library/php/tags/?name=-fpm-alpine&page_size=100" \
+                      | jq -r '.results[].name' \
+                      | grep -E '^[0-9]+\.[0-9]+-fpm-alpine$' \
+                      | sed 's/-fpm-alpine$//' \
+                      | sort -uV)
+                  for ver in $available; do
+                      if printf '%s\n%s\n' "$max_known" "$ver" | sort -V | head -1 | grep -qF "$max_known" \
+                          && [ "$ver" != "$max_known" ]; then
+                          title="PHP ${ver} available — consider adding to dev/versions.json"
+                          if gh issue list --state all --search "$title in:title" --json number --jq 'length' | grep -q '^0$'; then
+                              gh issue create \
+                                  --title "$title" \
+                                  --body "Docker Hub ships a \`php:${ver}-fpm-alpine\` tag that is newer than the highest version currently tracked (\`${max_known}\`). Adding it to dev/versions.json bumps the build matrix to cover the new minor. Review for breaking changes before merging."
+                          fi
+                      fi
+                  done
