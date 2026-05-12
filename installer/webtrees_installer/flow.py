@@ -185,12 +185,10 @@ def run_standalone(
     )
 
     if not args.no_up:
-        try:
-            bring_up(work_dir=work_dir)
-        except StackError as exc:
-            if stdout:
-                print(f"error: {exc}", file=stdout)
-            return 3
+        # bring_up may raise StackError; let it bubble. The CLI layer
+        # catches it and returns exit code 3 so the error goes through
+        # the same stderr channel as PrereqError / PromptError.
+        bring_up(work_dir=work_dir)
 
     return 0
 

@@ -11,6 +11,7 @@ from webtrees_installer import __version__
 from webtrees_installer.flow import StandaloneArgs, run_standalone
 from webtrees_installer.prereq import PrereqError
 from webtrees_installer.prompts import PromptError
+from webtrees_installer.stack import StackError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,6 +118,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         return run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
+    except StackError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
     except (PrereqError, PromptError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

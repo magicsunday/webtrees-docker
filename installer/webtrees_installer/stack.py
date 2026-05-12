@@ -17,7 +17,19 @@ def bring_up(
     timeout_s: float = 120.0,
     poll_interval_s: float = 2.0,
 ) -> None:
-    """Run `docker compose up -d` and block until nginx is healthy."""
+    """Run `docker compose up -d` and block until nginx is healthy.
+
+    Polls ``docker compose ps --format {{.Health}} nginx`` every
+    ``poll_interval_s`` seconds. The first poll is preceded by a sleep so
+    the container has time to register a health state instead of the
+    guaranteed-empty first read.
+
+    Raises:
+        StackError: when ``docker compose up -d`` fails (with the stderr/
+            stdout blob) or when nginx is still not healthy after
+            ``timeout_s`` seconds (with the ``compose logs --tail=200``
+            output appended for diagnosis).
+    """
     up = _compose(["compose", "up", "-d"], cwd=work_dir)
     if up.returncode != 0:
         raise StackError(
@@ -26,6 +38,7 @@ def bring_up(
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        time.sleep(poll_interval_s)
         inspect = _compose(
             [
                 "compose", "ps", "--format",
@@ -37,12 +50,12 @@ def bring_up(
         status = (inspect.stdout or "").strip().lower()
         if status == "healthy":
             return
-        time.sleep(poll_interval_s)
 
     logs = _compose(["compose", "logs", "--tail=200"], cwd=work_dir)
+    tail = logs.stdout.strip() or logs.stderr.strip() or "(no output)"
     raise StackError(
         "nginx did not become healthy within "
-        f"{timeout_s:.0f}s. Last logs:\n{logs.stdout}"
+        f"{timeout_s:.0f}s. Last logs:\n{tail}"
     )
 
 

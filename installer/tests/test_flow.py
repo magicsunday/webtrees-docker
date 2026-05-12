@@ -159,3 +159,19 @@ def test_run_standalone_invokes_bring_up_when_not_no_up(tmp_path: Path) -> None:
     assert exit_code == 0
     bring_up_mock.assert_called_once()
     assert bring_up_mock.call_args.kwargs["work_dir"] == tmp_path
+
+
+def test_run_standalone_propagates_stack_error(tmp_path: Path) -> None:
+    """bring_up raising StackError bubbles out of run_standalone unmodified.
+
+    The CLI layer is what catches StackError and converts it to exit 3 +
+    stderr; the flow itself must not swallow the error and return 3, since
+    that would force every caller (including future Phase 2b dev-flow) to
+    re-implement the stderr routing.
+    """
+    from webtrees_installer.stack import StackError
+    args = _args(work_dir=tmp_path, no_up=False)
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow.bring_up", side_effect=StackError("boom")):
+        with pytest.raises(StackError, match="boom"):
+            run_standalone(args, stdin=StringIO(), stdout=StringIO())
