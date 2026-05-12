@@ -225,6 +225,14 @@ jobs:
             matrix:
                 edition: [core, full]
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+        # The smoke-test runs on a fresh ubuntu-latest VM per matrix cell, so
+        # /tmp/smoke is naturally isolated; the matrix-derived suffix is
+        # belt-and-braces for any future migration to self-hosted runners
+        # that reuse the workspace. SMOKE_PORT is the single source of truth
+        # for both the installer's --port flag and the curl probe URL.
+        env:
+            SMOKE_DIR: /tmp/smoke-${{ matrix.edition }}-${{ matrix.entry.php }}
+            SMOKE_PORT: 18080
         steps:
             - uses: actions/checkout@v4
 
@@ -234,9 +242,9 @@ jobs:
                   INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
               run: |
                   set -euo pipefail
-                  mkdir -p /tmp/smoke
+                  mkdir -p "${SMOKE_DIR}"
                   docker run --rm \
-                      -v /tmp/smoke:/work \
+                      -v "${SMOKE_DIR}:/work" \
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
                       --non-interactive \
@@ -245,14 +253,14 @@ jobs:
                       --no-admin \
                       --edition "${EDITION}" \
                       --proxy standalone \
-                      --port 18080
+                      --port "${SMOKE_PORT}"
 
             - name: Up stack
-              working-directory: /tmp/smoke
+              working-directory: ${{ env.SMOKE_DIR }}
               run: docker compose up -d
 
             - name: Wait for nginx healthy
-              working-directory: /tmp/smoke
+              working-directory: ${{ env.SMOKE_DIR }}
               run: |
                   set -euo pipefail
                   for i in $(seq 1 60); do
@@ -268,10 +276,10 @@ jobs:
                   exit 1
 
             - name: Probe HTTP
-              working-directory: /tmp/smoke
+              working-directory: ${{ env.SMOKE_DIR }}
               run: |
                   set -euo pipefail
-                  body=$(curl -fsSL http://localhost:18080/)
+                  body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/")
                   echo "$body" | head -50
                   echo "$body" | grep -qi "webtrees" || {
                       echo "::error::response body does not mention 'webtrees'"
@@ -280,5 +288,5 @@ jobs:
 
             - name: Tear down
               if: always()
-              working-directory: /tmp/smoke
+              working-directory: ${{ env.SMOKE_DIR }}
               run: docker compose down -v
