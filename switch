@@ -83,22 +83,24 @@ if [ -f compose.yaml ]; then
 fi
 
 # Heads-up: the database backend differs between modes. Dev mode bind-mounts
-# ./persistent/database/, standalone mode uses the named volume
-# webtrees_database. Switching modes does NOT migrate the data — the
-# orphaned store stays on disk until manually inspected / removed.
+# ./persistent/database/, standalone mode uses a named volume named
+# <project>_database (the project is the cwd basename). Switching modes
+# does NOT migrate the data — the orphaned store stays on disk until
+# manually inspected / removed.
+project="$(basename "$(pwd)")"
 if [ "$current" = "dev" ] && [ "$target" = "standalone" ]; then
     echo "WARNING: dev mode stored its database under ./persistent/database/"
     echo "         (bind-mount). Standalone mode uses the named volume"
-    echo "         webtrees_database instead — your dev DB is NOT carried"
+    echo "         ${project}_database instead — your dev DB is NOT carried"
     echo "         across. Recover it from ./persistent/database/ if needed."
     echo ""
 fi
 if [ "$current" = "standalone" ] && [ "$target" = "dev" ]; then
     echo "WARNING: standalone mode stored its database in the named volume"
-    echo "         webtrees_database. Dev mode uses ./persistent/database/"
+    echo "         ${project}_database. Dev mode uses ./persistent/database/"
     echo "         instead — your standalone DB is NOT carried across."
     echo "         The volume stays on disk; inspect with"
-    echo "         'docker volume inspect webtrees_database'."
+    echo "         'docker volume inspect ${project}_database'."
     echo ""
 fi
 

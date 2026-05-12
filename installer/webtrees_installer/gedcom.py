@@ -77,7 +77,7 @@ def _render_header(*, submitter: str) -> list[str]:
         "0 HEAD",
         "1 SOUR webtrees-installer",
         "2 NAME Webtrees Installer Demo Generator",
-        "2 VERS 0.1.0",
+        "2 VERS 1.0.0",
         "1 GEDC",
         "2 VERS 5.5.1",
         "2 FORM LINEAGE-LINKED",

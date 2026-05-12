@@ -113,17 +113,21 @@ docker compose exec -T db sh -c \
         --all-databases --single-transaction --quick' \
     | gzip > "backup-$(date +%F).sql.gz"
 
-# Media files (read-only mount, host writes the tarball)
+# Media files (read-only mount, host writes the tarball).
+# Substitute "$(basename "$PWD")_media" for the volume name in any
+# other install directory — compose derives the project from the cwd.
 docker run --rm \
-    -v webtrees_media:/m:ro \
+    -v "$(basename "$PWD")_media:/m:ro" \
     -v "$PWD:/host" \
     alpine:3.20 \
     tar -C /m -czf "/host/media-$(date +%F).tar.gz" .
 ```
 
-The wizard names volumes `webtrees_database`, `webtrees_media` and
-`webtrees_app`. Only `webtrees_media` and the SQL dump need a backup —
-`webtrees_app` is re-seeded from the image on every fresh boot.
+The wizard names volumes `<project>_database`, `<project>_media` and
+`<project>_app`, where `<project>` is the cwd basename (`webtrees` for
+the canonical install path). Only `<project>_media` and the SQL dump
+need a backup — `<project>_app` is re-seeded from the image on every
+fresh boot.
 
 ### Restore
 
@@ -135,7 +139,7 @@ gunzip < backup-2026-05-12.sql.gz \
 
 # Media
 docker run --rm \
-    -v webtrees_media:/m \
+    -v "$(basename "$PWD")_media:/m" \
     -v "$PWD:/host" \
     alpine:3.20 \
     sh -c "cd /m && tar -xzf /host/media-2026-05-12.tar.gz"

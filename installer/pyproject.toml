@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtrees-installer"
-version = "0.1.0"
+version = "1.0.0"
 description = "Out-of-the-box installer wizard for self-hosted webtrees"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -78,8 +78,10 @@ to also seed the demo tree.
 - **`compose.override.yaml`** — your own additions to the stack (e.g. PHP
   limits, custom nginx snippets). See `docs/customizing.md`.
 - **Named volumes** — Docker-managed storage that survives container
-  restarts. Your stack has `webtrees_database`, `webtrees_media`,
-  `webtrees_app`, `webtrees_secrets`.
+  restarts. Each volume is prefixed with your stack's project name (the
+  directory basename — `webtrees` for the canonical install path), so
+  your stack has `<project>_database`, `<project>_media`,
+  `<project>_app`, `<project>_secrets`.
 - **GHCR** — GitHub Container Registry. All images are pulled from
   `ghcr.io/magicsunday/webtrees/...`.
 
@@ -103,16 +105,18 @@ Your current directory after the wizard runs:
 └── (optional) compose.override.yaml   # your customisations
 ```
 
-Container data lives in Docker-managed volumes:
+Container data lives in Docker-managed volumes (each prefixed with your
+stack's project name — the directory basename, `webtrees` for the
+canonical install path):
 
 ```text
-webtrees_database   ~50 MB+   MariaDB data files
-webtrees_media      depends   uploaded photos / documents
-webtrees_app        ~80 MB+   webtrees source + vendor (re-seeded on upgrade)
-webtrees_secrets    ~1 KB     auto-generated DB + admin passwords
+<project>_database   ~50 MB+   MariaDB data files
+<project>_media      depends   uploaded photos / documents
+<project>_app        ~80 MB+   webtrees source + vendor (re-seeded on upgrade)
+<project>_secrets    ~1 KB     auto-generated DB + admin passwords
 ```
 
-Inspect with `docker volume ls | grep webtrees`.
+Inspect with `docker volume ls`.
 
 ## Customising
 
@@ -126,18 +130,18 @@ external database, third-party modules) plus Backup / Restore.
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/upgrade | bash
 ```
 
-The `upgrade` launcher stops the stack, drops `webtrees_app` so the
-new image can re-seed it, and re-runs the installer with `--force`.
-`webtrees_database` and `webtrees_media` survive the upgrade. Pass
-custom flags via `bash -s -- --port 8443` if you deviate from the
-quickstart defaults.
+The `upgrade` launcher stops the stack, drops the `<project>_app`
+volume so the new image can re-seed it, and re-runs the installer
+with `--force`. The `<project>_database` and `<project>_media` volumes
+survive the upgrade. Pass custom flags via `bash -s -- --port 8443`
+if you deviate from the quickstart defaults.
 
 If you prefer to step through manually (audit each command before
 it runs, or tweak individual steps):
 
 ```bash
 docker compose down
-docker volume rm webtrees_app
+docker volume rm "$(basename "$PWD")_app"
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
   | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 8080 --force
 docker compose pull
@@ -199,9 +203,9 @@ Full procedure (DB dump, media tar, restore, scheduling): see
   authentication in your environment, run `docker login ghcr.io`
   before the wizard.
 - **webtrees lost my data after upgrade** — you removed too many
-  volumes. Only `webtrees_app` is safe to drop on upgrade;
-  `webtrees_database` and `webtrees_media` hold your trees and uploads
-  and must be preserved. Restore from your latest backup.
+  volumes. Only the `<project>_app` volume is safe to drop on upgrade;
+  `<project>_database` and `<project>_media` hold your trees and
+  uploads and must be preserved. Restore from your latest backup.
 
 ## For module developers
 

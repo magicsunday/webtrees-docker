@@ -6,10 +6,13 @@
 #   curl -fsSL .../upgrade | bash -s -- --port 8443        # override defaults
 #   ./upgrade [--edition core ...]
 #
-# Stops the running stack, drops the webtrees_app volume so the new image
+# Stops the running stack, drops the <project>_app volume so the new image
 # can re-seed it, then re-runs install with --force so the wizard rewrites
 # compose.yaml + .env and brings the stack up against the latest pinned
-# release. webtrees_database and webtrees_media survive the upgrade.
+# release. The <project>_database and <project>_media volumes survive the
+# upgrade. The <project> prefix is the cwd basename, matching how
+# compose derives its project name when neither compose.yaml nor .env
+# pins it.
 
 set -o errexit -o nounset -o pipefail
 
@@ -39,8 +42,9 @@ fi
 echo "→ Stopping existing stack..."
 docker compose down
 
-echo "→ Removing webtrees_app volume so the new image re-seeds it..."
-docker volume rm -f webtrees_app
+project="$(basename "$(pwd)")"
+echo "→ Removing ${project}_app volume so the new image re-seeds it..."
+docker volume rm -f "${project}_app"
 
 echo "→ Re-running install with --force..."
 curl -fsSL "$INSTALLER_REMOTE" | bash -s -- "$@" --force

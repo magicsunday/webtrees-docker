@@ -54,7 +54,6 @@ class StandaloneArgs:
 
 
 _FALLBACK_PORT = 8080
-_PROJECT_NAME = "webtrees"
 
 # Test-patch seam: existing tests patch
 # ``webtrees_installer.flow._resolve_manifest_dir``. The thin alias keeps
@@ -255,12 +254,14 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
 
     The init container's command checks `[ -s "/secrets/wt_admin_password" ]`
     and only generates a fresh password if the file is empty. By creating the
-    project-scoped volume (`webtrees_secrets`) up-front and writing the
-    password through an ephemeral alpine container, the init step finds the
-    file already populated and leaves it alone — which means the password the
-    wizard shows in the banner is the one the bootstrap hook will use.
+    project-scoped volume (`<project>_secrets`, where `<project>` is the cwd
+    basename — the same name compose derives when neither compose.yaml nor
+    .env pins it) up-front and writing the password through an ephemeral
+    alpine container, the init step finds the file already populated and
+    leaves it alone — which means the password the wizard shows in the
+    banner is the one the bootstrap hook will use.
     """
-    volume = f"{_PROJECT_NAME}_secrets"
+    volume = f"{work_dir.resolve().name}_secrets"
 
     subprocess.run(
         ["docker", "volume", "create", volume],

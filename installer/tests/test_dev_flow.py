@@ -85,7 +85,7 @@ def test_render_dev_env_writes_full_env(tmp_path: Path, catalog: Catalog) -> Non
 
     env = (tmp_path / ".env").read_text()
     assert "ENVIRONMENT=development" in env
-    assert "COMPOSE_PROJECT_NAME=webtrees" in env
+    assert "COMPOSE_PROJECT_NAME=" not in env
     assert "PHP_VERSION=8.5" in env
     assert "WEBTREES_VERSION=2.2.6" in env
     assert "WEBTREES_NGINX_VERSION=1.28-r1" in env

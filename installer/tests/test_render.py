@@ -48,7 +48,6 @@ def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) ->
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
     env = (tmp_path / ".env").read_text()
 
-    assert compose["name"] == "webtrees"
     phpfpm = compose["services"]["phpfpm"]
     assert "php-full" not in phpfpm["image"]
     assert phpfpm["image"].endswith(":2.2.6-php8.5")
@@ -58,7 +57,61 @@ def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) ->
     assert any("8080" in p for p in nginx_ports)
 
     assert "APP_PORT=8080" in env
-    assert "COMPOSE_PROJECT_NAME=webtrees" in env
+
+
+def test_render_omits_project_name(tmp_path: Path, standalone_core: RenderInput) -> None:
+    """A hardcoded `name:` in compose.yaml or `COMPOSE_PROJECT_NAME=` in .env
+    collides on the same host when two installs sit in different directories
+    — compose would treat them as the same project and recreate the live
+    stack with the sibling's image set. Letting compose derive the project
+    from the cwd basename keeps the canonical install identical and gives
+    every other directory its own isolated stack.
+    """
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    env_text = (tmp_path / ".env").read_text()
+
+    for line in compose_text.splitlines():
+        assert not line.lower().startswith("name:"), (
+            f"compose.yaml must not declare a project name; found: {line!r}"
+        )
+
+    compose = yaml.safe_load(compose_text)
+    assert "name" not in compose
+
+    for line in env_text.splitlines():
+        assert not line.startswith("COMPOSE_PROJECT_NAME="), (
+            f".env must not pin COMPOSE_PROJECT_NAME; found: {line!r}"
+        )
+
+
+def test_render_traefik_omits_project_name(tmp_path: Path, catalog: Catalog) -> None:
+    """Traefik variant must also rely on cwd-derived project naming."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="traefik",
+        app_port=None,
+        domain="webtrees.example.com",
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    env_text = (tmp_path / ".env").read_text()
+
+    for line in compose_text.splitlines():
+        assert not line.lower().startswith("name:"), (
+            f"compose.yaml must not declare a project name; found: {line!r}"
+        )
+    for line in env_text.splitlines():
+        assert not line.startswith("COMPOSE_PROJECT_NAME="), (
+            f".env must not pin COMPOSE_PROJECT_NAME; found: {line!r}"
+        )
 
 
 def test_init_command_escapes_shell_vars(tmp_path: Path, standalone_core: RenderInput) -> None:
