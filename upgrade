@@ -10,9 +10,8 @@
 # can re-seed it, then re-runs install with --force so the wizard rewrites
 # compose.yaml + .env and brings the stack up against the latest pinned
 # release. The <project>_database and <project>_media volumes survive the
-# upgrade. The <project> prefix is the cwd basename, matching how
-# compose derives its project name when neither compose.yaml nor .env
-# pins it.
+# upgrade. The <project> prefix mirrors compose's own project-name
+# derivation when neither compose.yaml nor .env pins it.
 
 set -o errexit -o nounset -o pipefail
 
@@ -42,7 +41,16 @@ fi
 echo "→ Stopping existing stack..."
 docker compose down
 
-project="$(basename "$(pwd)")"
+# Mirror docker compose v2's project-name normalization: honour
+# COMPOSE_PROJECT_NAME if set, else lowercase the cwd basename and
+# strip every char that isn't [a-z0-9_-]. A naive `basename` would
+# desync the volume names we touch from the volumes compose actually
+# mounts whenever the cwd has uppercase letters or special chars.
+if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    project=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+else
+    project=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+fi
 echo "→ Removing ${project}_app volume so the new image re-seeds it..."
 docker volume rm -f "${project}_app"
 

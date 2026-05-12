@@ -232,3 +232,37 @@ def test_run_standalone_imports_demo_when_not_no_up(tmp_path: Path) -> None:
         run_standalone(args, stdin=StringIO(), stdout=StringIO())
 
     import_mock.assert_called_once()
+
+
+def test_compose_project_name_lowercases_and_strips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Normalisation matches docker compose v2's project-name rules."""
+    from webtrees_installer.flow import _compose_project_name
+
+    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+
+    # Canonical install path stays unchanged.
+    canonical = tmp_path / "webtrees"
+    canonical.mkdir()
+    assert _compose_project_name(canonical) == "webtrees"
+
+    # Mixed case + dots collapse to a compose-legal bucket.
+    weird = tmp_path / "My.Webtrees"
+    weird.mkdir()
+    assert _compose_project_name(weird) == "mywebtrees"
+
+    # Underscores and hyphens survive the strip pass.
+    mixed = tmp_path / "Foo-Bar_baz"
+    mixed.mkdir()
+    assert _compose_project_name(mixed) == "foo-bar_baz"
+
+
+def test_compose_project_name_honours_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """COMPOSE_PROJECT_NAME env wins over cwd basename and still normalises."""
+    from webtrees_installer.flow import _compose_project_name
+
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "Some.Custom-Name")
+    assert _compose_project_name(tmp_path) == "somecustom-name"

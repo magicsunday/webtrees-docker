@@ -84,10 +84,19 @@ fi
 
 # Heads-up: the database backend differs between modes. Dev mode bind-mounts
 # ./persistent/database/, standalone mode uses a named volume named
-# <project>_database (the project is the cwd basename). Switching modes
-# does NOT migrate the data — the orphaned store stays on disk until
-# manually inspected / removed.
-project="$(basename "$(pwd)")"
+# <project>_database. Switching modes does NOT migrate the data — the
+# orphaned store stays on disk until manually inspected / removed.
+#
+# Mirror docker compose v2's project-name normalization: honour
+# COMPOSE_PROJECT_NAME if set, else lowercase the cwd basename and
+# strip every char that isn't [a-z0-9_-]. A naive `basename` would
+# desync the volume names we mention from the volumes compose actually
+# mounts whenever the cwd has uppercase letters or special chars.
+if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    project=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+else
+    project=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+fi
 if [ "$current" = "dev" ] && [ "$target" = "standalone" ]; then
     echo "WARNING: dev mode stored its database under ./persistent/database/"
     echo "         (bind-mount). Standalone mode uses the named volume"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -249,19 +250,35 @@ def _resolve_port(
     )
 
 
+def _compose_project_name(work_dir: Path) -> str:
+    """Mirror docker compose v2's project-name derivation: honour
+    `COMPOSE_PROJECT_NAME` if set, else lowercase the cwd basename and
+    strip every char that isn't `[a-z0-9_-]`.
+
+    Used to align the wizard's pre-seeded secrets volume with the volume
+    compose actually mounts at runtime — a custom derivation would land
+    in a different bucket whenever the cwd had uppercase letters or
+    special chars.
+    """
+    env_name = os.environ.get("COMPOSE_PROJECT_NAME")
+    if env_name:
+        return re.sub(r"[^a-z0-9_-]", "", env_name.lower())
+    basename = work_dir.resolve().name
+    return re.sub(r"[^a-z0-9_-]", "", basename.lower())
+
+
 def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     """Pre-seed the secrets volume with the wizard's admin password.
 
     The init container's command checks `[ -s "/secrets/wt_admin_password" ]`
     and only generates a fresh password if the file is empty. By creating the
-    project-scoped volume (`<project>_secrets`, where `<project>` is the cwd
-    basename — the same name compose derives when neither compose.yaml nor
-    .env pins it) up-front and writing the password through an ephemeral
-    alpine container, the init step finds the file already populated and
-    leaves it alone — which means the password the wizard shows in the
-    banner is the one the bootstrap hook will use.
+    project-scoped volume (`<project>_secrets`, where `<project>` mirrors
+    compose's own project-name derivation) up-front and writing the password
+    through an ephemeral alpine container, the init step finds the file
+    already populated and leaves it alone — which means the password the
+    wizard shows in the banner is the one the bootstrap hook will use.
     """
-    volume = f"{work_dir.resolve().name}_secrets"
+    volume = f"{_compose_project_name(work_dir)}_secrets"
 
     subprocess.run(
         ["docker", "volume", "create", volume],
