@@ -346,10 +346,12 @@ RUN mkdir -p /etc/nginx/conf.d/custom
 #      $enforce_https resolves to an unknown variable.
 #   2. Stub the `phpfpm` upstream to loopback. nginx -t resolves upstream
 #      hostnames; the build network has no DNS for the compose service name.
-#      Docker overrides /etc/hosts at runtime with the real network entry,
-#      so the layer-baked stub is invisible once the container starts.
-RUN echo "127.0.0.1 phpfpm" >> /etc/hosts \
- && ENFORCE_HTTPS=FALSE /docker-entrypoint.d/20-envsubst-on-templates.sh \
+#      The stub is supplied by the CI build step as a buildx --add-host
+#      (`add-hosts: phpfpm=127.0.0.1`), which buildkit injects into the
+#      RUN sandbox's /etc/hosts without making the file writable. Docker
+#      overrides /etc/hosts at runtime with the real network entry, so the
+#      build-time stub never reaches a running container.
+RUN ENFORCE_HTTPS=FALSE /docker-entrypoint.d/20-envsubst-on-templates.sh \
  && nginx -t -c /etc/nginx/nginx.conf 2>&1 | tee /tmp/nginx-t.log \
  && grep -q "syntax is ok" /tmp/nginx-t.log \
  && grep -q "test is successful" /tmp/nginx-t.log \
