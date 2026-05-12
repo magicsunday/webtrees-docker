@@ -133,6 +133,10 @@ jobs:
             - name: Open tracking issue
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # gh CLI auto-detects the repo via `git remote get-url`,
+                  # which fails without an actions/checkout step on this job.
+                  # GH_REPO short-circuits the detection.
+                  GH_REPO: ${{ github.repository }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
               run: |
                   set -euo pipefail
