@@ -503,7 +503,7 @@ main() {
         log_success "No ENVIRONMENT specified, defaulting to production"
     fi
 
-    # Remap www-data UID/GID to match host user (set by scripts/setup.sh).
+    # Remap www-data UID/GID to match host user (set by the installer wizard).
     # Required on NAS systems where bind-mounted directories enforce host permissions.
     # Skip when user-entrypoint.sh follows (buildbox) to avoid UID collision.
     if [[ -n "${LOCAL_USER_ID:-}" ]] && [[ "${LOCAL_USER_ID}" != "0" ]] \

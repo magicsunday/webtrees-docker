@@ -53,7 +53,7 @@ services:
             - ENVIRONMENT
             # Whether to enforce HTTPS (TRUE/FALSE)
             - ENFORCE_HTTPS
-            # UID/GID for media file ownership (set by scripts/setup.sh, optional)
+            # UID/GID for media file ownership (set by the installer wizard, optional)
             - LOCAL_USER_ID=${LOCAL_USER_ID:-}
             - LOCAL_GROUP_ID=${LOCAL_GROUP_ID:-}
             # Seed /var/www from bundled webtrees release on first run.
