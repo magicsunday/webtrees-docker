@@ -75,6 +75,8 @@ docker compose up -d
 
 ## For module developers
 
+Comprehensive guide: [`docs/developing.md`](docs/developing.md).
+
 Module developers run the wizard in `--mode dev` against a `git clone`
 of this repo:
 
