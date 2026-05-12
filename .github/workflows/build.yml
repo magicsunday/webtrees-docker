@@ -484,6 +484,11 @@ jobs:
             - name: Open tracking issue
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # gh CLI needs to know the repo. Without `actions/checkout`
+                  # there is no .git in $PWD, so gh's auto-detection ("git
+                  # remote get-url origin") fails with "not a git repository".
+                  # GH_REPO short-circuits the detection.
+                  GH_REPO: ${{ github.repository }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
               run: |
                   set -euo pipefail
