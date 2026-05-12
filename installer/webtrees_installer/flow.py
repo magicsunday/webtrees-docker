@@ -50,13 +50,13 @@ _FALLBACK_PORT = 8080
 _PROJECT_NAME = "webtrees"
 
 # Test-patch seam: existing tests patch
-# ``webtrees_installer.flow._resolve_manifest_dir`` and
-# ``webtrees_installer.flow._DEFAULT_MANIFEST_DIR``. Thin aliases keep
-# those patch paths working while the implementation lives in
-# ``webtrees_installer.versions`` so a future bake-location change is a
-# one-file edit.
+# ``webtrees_installer.flow._resolve_manifest_dir``. The thin alias keeps
+# that patch path working while the implementation lives in
+# ``webtrees_installer.versions``. Tests that want to override the
+# bake-location patch ``webtrees_installer.versions.DEFAULT_MANIFEST_DIR``
+# directly — a flow-level alias on the constant would silently no-op
+# because resolve_manifest_dir reads versions.DEFAULT_MANIFEST_DIR.
 from webtrees_installer.versions import (  # noqa: E402
-    DEFAULT_MANIFEST_DIR as _DEFAULT_MANIFEST_DIR,
     resolve_manifest_dir as _resolve_manifest_dir,
 )
 

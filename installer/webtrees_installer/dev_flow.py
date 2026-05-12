@@ -282,12 +282,13 @@ def _ask_port(
 
 
 # Test-patch seam: tests can patch
-# ``webtrees_installer.dev_flow._resolve_manifest_dir`` (and the matching
-# _DEFAULT_MANIFEST_DIR symbol). The implementation lives in
-# webtrees_installer.versions so a future bake-location change is a
-# one-file edit shared with flow.py.
+# ``webtrees_installer.dev_flow._resolve_manifest_dir``. The implementation
+# lives in webtrees_installer.versions so a future bake-location change is
+# a one-file edit shared with flow.py. To override the bake location
+# itself, patch ``webtrees_installer.versions.DEFAULT_MANIFEST_DIR``
+# directly — a local alias here would silently no-op because the
+# resolver reads versions.DEFAULT_MANIFEST_DIR.
 from webtrees_installer.versions import (  # noqa: E402
-    DEFAULT_MANIFEST_DIR as _DEFAULT_MANIFEST_DIR,
     resolve_manifest_dir as _resolve_manifest_dir,
 )
 

@@ -131,10 +131,13 @@ def test_run_standalone_port_in_use_falls_back_to_8080(tmp_path: Path) -> None:
 def test_resolve_manifest_dir_raises_when_unset_and_default_missing(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """No env var + no /opt/installer/versions → PrereqError with actionable hint."""
+    """No env var + no in-image bake location → PrereqError with actionable hint."""
     monkeypatch.delenv("WEBTREES_INSTALLER_MANIFEST_DIR", raising=False)
+    # Patch the canonical source of truth in versions.py; the flow.py
+    # alias is a re-export, not a separate value, so patching it would
+    # be a no-op.
     monkeypatch.setattr(
-        "webtrees_installer.flow._DEFAULT_MANIFEST_DIR",
+        "webtrees_installer.versions.DEFAULT_MANIFEST_DIR",
         tmp_path / "definitely-missing",
     )
     from webtrees_installer.flow import _resolve_manifest_dir
