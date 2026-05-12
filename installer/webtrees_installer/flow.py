@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
+from webtrees_installer._docker import run_docker
+from webtrees_installer.demo import generate_tree
+from webtrees_installer.gedcom import serialize
 from webtrees_installer.ports import PortStatus, probe_port
 from webtrees_installer.prereq import (
     PrereqError,
@@ -353,8 +357,6 @@ def _print_banner(
 
 def _write_demo_gedcom(*, work_dir: Path, seed: int) -> Path:
     """Generate the demo GEDCOM and write it next to compose.yaml."""
-    from webtrees_installer.demo import generate_tree
-    from webtrees_installer.gedcom import serialize
     doc = generate_tree(seed=seed)
     out = work_dir / "demo.ged"
     out.write_text(serialize(doc, submitter="webtrees-installer demo"))
@@ -377,12 +379,12 @@ def _import_demo_tree(*, work_dir: Path, gedcom_path: Path) -> None:
          "php /var/www/html/index.php tree-import demo /tmp/demo.ged"],
     ]
     for step in import_steps:
-        result = subprocess.run(
-            ["docker", *step],
-            cwd=work_dir, capture_output=True, text=True, check=False,
-        )
+        result = run_docker(step, cwd=work_dir)
         if result.returncode != 0:
+            # `shlex.join` keeps the quoting intact so a user copy-pasting
+            # the failing command runs exactly what the wizard tried,
+            # rather than a flattened bag of tokens.
             raise StackError(
-                f"demo-tree import step failed: docker {' '.join(step)}\n"
+                f"demo-tree import step failed: {shlex.join(['docker', *step])}\n"
                 f"{result.stderr.strip() or result.stdout.strip()}"
             )
