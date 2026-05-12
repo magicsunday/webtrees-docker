@@ -20,8 +20,14 @@ fi
 
 target="${1:-}"
 if [ -z "$target" ]; then
-    # Interactive prompt
-    read -r -p "Target mode [dev|standalone]: " target
+    if [[ -t 0 && -t 1 ]]; then
+        # Interactive prompt
+        read -r -p "Target mode [dev|standalone]: " target
+    else
+        echo "Usage: ./switch <dev|standalone>" >&2
+        echo "(pipe-bash invocation has no TTY for interactive prompt)" >&2
+        exit 1
+    fi
 fi
 case "$target" in
     dev|standalone) ;;
@@ -53,8 +59,14 @@ fi
 # not blow them away. Each variable has a sensible default if the .env
 # is silent on it (first-time install path).
 env_value() {
+    local v
     [ -f .env ] || { echo "$2"; return; }
-    grep "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || echo "$2"
+    v=$(grep "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"')
+    if [ -n "$v" ]; then
+        echo "$v"
+    else
+        echo "$2"
+    fi
 }
 
 port=$(env_value APP_PORT 8080)
@@ -68,6 +80,26 @@ mariadb_pw=$(env_value MARIADB_PASSWORD devpw)
 if [ -f compose.yaml ]; then
     echo "→ Stopping existing $current stack..."
     docker compose down
+fi
+
+# Heads-up: the database backend differs between modes. Dev mode bind-mounts
+# ./persistent/database/, standalone mode uses the named volume
+# webtrees_database. Switching modes does NOT migrate the data — the
+# orphaned store stays on disk until manually inspected / removed.
+if [ "$current" = "dev" ] && [ "$target" = "standalone" ]; then
+    echo "WARNING: dev mode stored its database under ./persistent/database/"
+    echo "         (bind-mount). Standalone mode uses the named volume"
+    echo "         webtrees_database instead — your dev DB is NOT carried"
+    echo "         across. Recover it from ./persistent/database/ if needed."
+    echo ""
+fi
+if [ "$current" = "standalone" ] && [ "$target" = "dev" ]; then
+    echo "WARNING: standalone mode stored its database in the named volume"
+    echo "         webtrees_database. Dev mode uses ./persistent/database/"
+    echo "         instead — your standalone DB is NOT carried across."
+    echo "         The volume stays on disk; inspect with"
+    echo "         'docker volume inspect webtrees_database'."
+    echo ""
 fi
 
 echo "→ Switching $current → $target..."
