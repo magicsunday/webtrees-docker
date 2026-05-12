@@ -99,9 +99,8 @@ def confirm_overwrite(
         if force:
             return True
         raise PrereqError(
-            "Refusing to overwrite "
-            + ", ".join(conflicts)
-            + " in non-interactive mode without --force."
+            f"{', '.join(conflicts)} already exist in {work_dir}; "
+            "pass --force to overwrite."
         )
 
     stdin = stdin or sys.stdin

@@ -145,3 +145,15 @@ def test_confirm_overwrite_noninteractive_with_force(tmp_path: Path) -> None:
     (tmp_path / "compose.yaml").write_text("# existing")
     (tmp_path / ".env").write_text("X=1")
     assert confirm_overwrite(work_dir=tmp_path, interactive=False, force=True) is True
+
+
+def test_confirm_overwrite_interactive_eof_preserves_files(tmp_path: Path) -> None:
+    """Closed/EOF stdin yields the empty reply, which must default to No."""
+    (tmp_path / "compose.yaml").write_text("# existing")
+    answer = confirm_overwrite(
+        work_dir=tmp_path,
+        interactive=True,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+    )
+    assert answer is False
