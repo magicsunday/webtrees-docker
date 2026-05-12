@@ -24,9 +24,14 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
-                  upstream=$(gh api repos/fisharebest/webtrees/releases --jq '.[].tag_name' | head -50 | sort -V)
-                  known=$(jq -r '.[].webtrees' dev/versions.json | sort -V)
-                  new=$(comm -23 <(printf '%s\n' "$upstream") <(printf '%s\n' "$known") | head -20)
+                  # `comm` requires lexically-sorted inputs, but `sort -V` orders 2.2.10 after
+                  # 2.2.6, which `comm` then rejects with "not in sorted order". Skip `comm`
+                  # entirely: load the known list once and filter upstream with `grep -vxFf`.
+                  upstream=$(gh api repos/fisharebest/webtrees/releases --jq '.[].tag_name' | head -50)
+                  known_file=$(mktemp)
+                  trap 'rm -f "$known_file"' EXIT
+                  jq -r '.[].webtrees' dev/versions.json > "$known_file"
+                  new=$(printf '%s\n' "$upstream" | grep -vxFf "$known_file" | sort -V | head -20)
                   {
                       echo 'new<<EOF'
                       printf '%s\n' "$new"
