@@ -11,10 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import IO
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._io import atomic_write
+from webtrees_installer.prompts import ask_text, ask_yesno
 from webtrees_installer.versions import Catalog
 
 
@@ -127,3 +129,116 @@ def _validate(args: DevArgs) -> None:
         raise ValueError("standalone proxy_mode requires app_port and pma_port")
     if args.use_external_db and not args.mariadb_host:
         raise ValueError("use_external_db=True requires mariadb_host")
+
+
+@dataclass(frozen=True)
+class HostInfo:
+    """Host-side facts the dev flow needs (UID, username, server IP)."""
+
+    uid: int
+    username: str
+    primary_ip: str
+
+
+def collect_dev_inputs(
+    *,
+    work_dir: Path,
+    force: bool,
+    existing: dict[str, str],
+    host_info: HostInfo,
+    stdin: IO[str] | None = None,
+    stdout: IO[str] | None = None,
+) -> DevArgs:
+    """Drive the dev-flow prompts. `existing` carries values from a previous .env."""
+
+    use_traefik = ask_yesno(
+        "Is a Traefik reverse proxy available?",
+        default=False,
+        stdin=stdin, stdout=stdout,
+    )
+    proxy_mode = "traefik" if use_traefik else "standalone"
+
+    app_port: int | None = None
+    pma_port: int | None = None
+    if proxy_mode == "standalone":
+        app_port_default = int(existing.get("APP_PORT", "50010") or "50010")
+        pma_port_default = int(existing.get("PMA_PORT", "50011") or "50011")
+        app_port = int(ask_text(
+            "Host port for Webtrees (maps to container 80)",
+            default=str(app_port_default),
+            stdin=stdin, stdout=stdout,
+        ))
+        pma_port = int(ask_text(
+            "Host port for phpMyAdmin (maps to container 80)",
+            default=str(pma_port_default),
+            stdin=stdin, stdout=stdout,
+        ))
+        default_domain = existing.get("DEV_DOMAIN") or f"{host_info.primary_ip}:{app_port}"
+    else:
+        default_domain = existing.get("DEV_DOMAIN") or "webtrees.example.org"
+
+    dev_domain = ask_text(
+        "Domain under which the dev system should be reachable",
+        default=default_domain,
+        stdin=stdin, stdout=stdout,
+    )
+
+    use_existing_db = ask_yesno(
+        "Use an existing, already-initialised database?",
+        default=False,
+        stdin=stdin, stdout=stdout,
+    )
+    use_external_db = ask_yesno(
+        "Use an external database?",
+        default=False,
+        stdin=stdin, stdout=stdout,
+    )
+
+    if use_external_db:
+        mariadb_host = ask_text(
+            "External MariaDB host (network name or DNS)",
+            default=existing.get("MARIADB_HOST", "external-db.local") or "external-db.local",
+            stdin=stdin, stdout=stdout,
+        )
+    else:
+        mariadb_host = "db"
+
+    mariadb_root_password = ask_text(
+        "MariaDB root password",
+        default=existing.get("MARIADB_ROOT_PASSWORD", ""),
+        stdin=stdin, stdout=stdout,
+    )
+    mariadb_database = ask_text(
+        "MariaDB database name",
+        default=existing.get("MARIADB_DATABASE", "webtrees") or "webtrees",
+        stdin=stdin, stdout=stdout,
+    )
+    mariadb_user = ask_text(
+        "MariaDB username",
+        default=existing.get("MARIADB_USER", "webtrees") or "webtrees",
+        stdin=stdin, stdout=stdout,
+    )
+    mariadb_password = ask_text(
+        "MariaDB user password",
+        default=existing.get("MARIADB_PASSWORD", ""),
+        stdin=stdin, stdout=stdout,
+    )
+
+    return DevArgs(
+        work_dir=work_dir,
+        interactive=True,
+        proxy_mode=proxy_mode,
+        dev_domain=dev_domain,
+        app_port=app_port,
+        pma_port=pma_port,
+        mariadb_host=mariadb_host,
+        mariadb_database=mariadb_database,
+        mariadb_user=mariadb_user,
+        mariadb_password=mariadb_password,
+        mariadb_root_password=mariadb_root_password,
+        use_existing_db=use_existing_db,
+        use_external_db=use_external_db,
+        local_user_id=host_info.uid,
+        local_user_name=host_info.username,
+        force=force,
+    )

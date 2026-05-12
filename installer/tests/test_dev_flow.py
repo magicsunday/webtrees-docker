@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 import pytest
 
-from webtrees_installer.dev_flow import DevArgs, build_compose_chain, render_dev_env
+from webtrees_installer.dev_flow import (
+    DevArgs,
+    HostInfo,
+    build_compose_chain,
+    collect_dev_inputs,
+    render_dev_env,
+)
 from webtrees_installer.versions import Catalog, PhpEntry
+
+
+_HOST = HostInfo(uid=1000, username="dev", primary_ip="192.168.1.50")
 
 
 @pytest.fixture
@@ -117,3 +127,89 @@ def test_render_dev_env_rejects_traefik_without_domain(tmp_path: Path, catalog: 
     with pytest.raises(ValueError, match="dev_domain"):
         render_dev_env(args, catalog=catalog, target_dir=tmp_path,
                        generated_at=datetime(2026, 5, 12, 12, 0, 0))
+
+
+def test_collect_dev_inputs_standalone_default_path() -> None:
+    """All defaults accepted via empty stdin lines -> returns a populated DevArgs."""
+    # Order of prompts: traefik? -> app_port -> pma_port -> dev_domain -> use_existing_db
+    # -> use_external_db -> mariadb_root_password -> mariadb_database -> mariadb_user
+    # -> mariadb_password
+    stdin = StringIO("\n" * 16)  # 16 newlines covers every prompt with the default
+    stdout = StringIO()
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={},
+        host_info=_HOST,
+        stdin=stdin, stdout=stdout,
+    )
+    assert args.proxy_mode == "standalone"
+    assert args.app_port == 50010
+    assert args.pma_port == 50011
+    assert args.dev_domain == "192.168.1.50:50010"
+    assert args.use_existing_db is False
+    assert args.use_external_db is False
+    assert args.mariadb_host == "db"
+    assert args.local_user_id == 1000
+    assert args.local_user_name == "dev"
+
+
+def test_collect_dev_inputs_traefik_uses_dev_domain() -> None:
+    """traefik branch skips port prompts and uses dev_domain only."""
+    # Prompts after traefik=Y: dev_domain -> use_existing -> use_external -> 4x db creds.
+    stdin = StringIO("y\nwebtrees.example.com\n\n\nrootpw\nwt\nwt_user\nwt_pw\n")
+    stdout = StringIO()
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={},
+        host_info=_HOST,
+        stdin=stdin, stdout=stdout,
+    )
+    assert args.proxy_mode == "traefik"
+    assert args.dev_domain == "webtrees.example.com"
+    assert args.app_port is None
+    assert args.pma_port is None
+    assert args.mariadb_root_password == "rootpw"
+    assert args.mariadb_user == "wt_user"
+
+
+def test_collect_dev_inputs_external_db_asks_host() -> None:
+    """use_external_db=Y triggers the mariadb_host prompt."""
+    # Standalone, defaults for ports + domain, default no on existing-db,
+    # YES on external-db, host=external-db.local, then 4x db creds.
+    stdin = StringIO(
+        "\n"                            # traefik? N
+        "\n\n\n"                        # app/pma/dev_domain defaults
+        "\n"                            # use_existing_db default N
+        "y\n"                           # use_external_db Y
+        "external-db.local\n"           # mariadb_host
+        "rootpw\nwt\nwt_user\nwt_pw\n"  # creds
+    )
+    stdout = StringIO()
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={},
+        host_info=_HOST,
+        stdin=stdin, stdout=stdout,
+    )
+    assert args.use_external_db is True
+    assert args.mariadb_host == "external-db.local"
+
+
+def test_collect_dev_inputs_uses_existing_env_values() -> None:
+    """If a previous .env exists, its values become the defaults."""
+    existing = {
+        "APP_PORT": "55555",
+        "MARIADB_PASSWORD": "old-secret",
+        "MARIADB_USER": "old_user",
+    }
+    stdin = StringIO("\n" * 16)
+    stdout = StringIO()
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing=existing,
+        host_info=_HOST,
+        stdin=stdin, stdout=stdout,
+    )
+    assert args.app_port == 55555
+    assert args.mariadb_password == "old-secret"
+    assert args.mariadb_user == "old_user"
