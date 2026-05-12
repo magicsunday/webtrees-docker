@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Webtrees self-host installer launcher.
+#
+# Usage: curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install | bash
+#
+# Mounts the current directory as /work inside the installer image and exposes
+# the docker socket so the wizard can probe ports and bring the stack up.
+
+set -o errexit -o nounset -o pipefail
+
+INSTALLER_IMAGE="${INSTALLER_IMAGE:-ghcr.io/magicsunday/webtrees/installer:latest}"
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "docker is not on PATH. Install Docker Engine first: https://docs.docker.com/engine/install/" >&2
+    exit 1
+fi
+
+exec docker run --rm -it \
+    -v "$PWD:/work" \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    "$INSTALLER_IMAGE" "$@"

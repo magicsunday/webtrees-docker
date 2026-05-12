@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webtrees-installer"
+version = "0.1.0"
+description = "Out-of-the-box installer wizard for self-hosted webtrees"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "Jinja2>=3.1,<4",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+webtrees-installer = "webtrees_installer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["webtrees_installer*"]
+
+[tool.setuptools.package-data]
+webtrees_installer = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
