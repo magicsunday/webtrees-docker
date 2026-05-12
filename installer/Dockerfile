@@ -7,8 +7,8 @@ LABEL org.opencontainers.image.description="Wizard for setting up a self-hosted 
 LABEL org.opencontainers.image.licenses="MIT"
 
 # docker CLI client is required so the wizard can invoke `docker compose up`
-# and port-conflict probes from inside the container. docker-compose-plugin
-# pulls the v2 plugin alongside the static CLI.
+# and port-conflict probes from inside the container. docker-cli-compose
+# provides the v2 compose subcommand.
 RUN apk add --no-cache docker-cli docker-cli-compose
 
 WORKDIR /opt/installer

@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Webtrees self-host installer launcher.
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install | bash
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install | bash
+#   ./install [--non-interactive --edition core --proxy standalone --port 8080 ...]
 #
 # Mounts the current directory as /work inside the installer image and exposes
 # the docker socket so the wizard can probe ports and bring the stack up.
+# Assumes Linux Docker Engine with a daemon socket at /var/run/docker.sock;
+# Docker Desktop on macOS/Windows needs the equivalent context to be the
+# default.
 
 set -o errexit -o nounset -o pipefail
 
@@ -15,7 +20,20 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-exec docker run --rm -it \
+if [[ ! -S /var/run/docker.sock ]]; then
+    echo "warning: /var/run/docker.sock is not a socket; the wizard may not reach the daemon" >&2
+fi
+
+# Allocate a TTY only when stdin and stdout are terminals — `curl ... | bash`
+# pipes stdin through a fifo, so `-it` would die with 'the input device is
+# not a TTY' and the wizard's non-interactive mode (--non-interactive) is
+# what the user is expected to combine with the curl one-liner.
+tty_flags=()
+if [[ -t 0 && -t 1 ]]; then
+    tty_flags=(-it)
+fi
+
+exec docker run --rm "${tty_flags[@]}" \
     -v "$PWD:/work" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     "$INSTALLER_IMAGE" "$@"
