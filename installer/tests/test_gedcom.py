@@ -64,3 +64,24 @@ def test_serialize_is_deterministic() -> None:
                parents_xref=None, spouse_xref=None)
     doc = GedcomDocument(people=[p], families=[])
     assert serialize(doc, submitter="Test") == serialize(doc, submitter="Test")
+
+
+def test_serialize_rejects_slash_in_name() -> None:
+    """A '/' inside given_name or surname slips past GEDCOM name parsing."""
+    import pytest
+
+    bad_surname = Person(
+        xref="I1", given_name="John", surname="O/Brien", sex=Sex.MALE,
+        birth_year=1900, death_year=None,
+        parents_xref=None, spouse_xref=None,
+    )
+    with pytest.raises(ValueError, match="GEDCOM names must not contain"):
+        serialize(GedcomDocument(people=[bad_surname], families=[]), submitter="Test")
+
+    bad_given = Person(
+        xref="I2", given_name="Jane/Eyre", surname="Rochester", sex=Sex.FEMALE,
+        birth_year=1900, death_year=None,
+        parents_xref=None, spouse_xref=None,
+    )
+    with pytest.raises(ValueError, match="GEDCOM names must not contain"):
+        serialize(GedcomDocument(people=[bad_given], families=[]), submitter="Test")

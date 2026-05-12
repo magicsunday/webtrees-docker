@@ -1,4 +1,10 @@
-"""GEDCOM 5.5.1 serializer (write-only, eigenbau)."""
+"""GEDCOM 5.5.1 serializer (write-only, hand-rolled).
+
+Public surface: ``Sex``, ``Person``, ``Family``, ``GedcomDocument``,
+``serialize``. The demo-tree generator builds a ``GedcomDocument``
+in memory and the wizard writes the serialized output to
+``/work/demo.ged``; webtrees-CLI's ``tree-import`` then loads it.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +13,22 @@ from dataclasses import dataclass, field
 
 
 class Sex(enum.Enum):
+    """Sex marker for GEDCOM ``1 SEX`` records. Webtrees accepts M / F."""
+
     MALE = "M"
     FEMALE = "F"
 
 
 @dataclass(frozen=True)
 class Person:
+    """One ``INDI`` record.
+
+    ``parents_xref`` becomes a ``FAMC`` pointer (Family-as-Child);
+    ``spouse_xref`` becomes a ``FAMS`` pointer (Family-as-Spouse).
+    ``death_year`` is optional so living people render without a
+    DEAT block.
+    """
+
     xref: str
     given_name: str
     surname: str
@@ -25,6 +41,8 @@ class Person:
 
 @dataclass(frozen=True)
 class Family:
+    """One ``FAM`` record linking a husband, a wife and their children."""
+
     xref: str
     husband_xref: str
     wife_xref: str
@@ -34,6 +52,8 @@ class Family:
 
 @dataclass(frozen=True)
 class GedcomDocument:
+    """Top-level container of people + families ready for ``serialize``."""
+
     people: list[Person]
     families: list[Family]
 
@@ -67,6 +87,15 @@ def _render_header(*, submitter: str) -> list[str]:
 
 
 def _render_person(person: Person) -> list[str]:
+    # GEDCOM names use `/...../` to delimit the surname. A literal `/`
+    # inside either component would slip past the parser and silently
+    # corrupt the import, so fail fast at serialisation time.
+    if "/" in person.given_name or "/" in person.surname:
+        raise ValueError(
+            f"GEDCOM names must not contain '/': "
+            f"given={person.given_name!r} surname={person.surname!r}"
+        )
+
     out = [
         f"0 @{person.xref}@ INDI",
         f"1 NAME {person.given_name} /{person.surname}/",
