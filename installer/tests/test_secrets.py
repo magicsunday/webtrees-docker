@@ -14,4 +14,4 @@ def test_generate_password_length() -> None:
 
 
 def test_generate_password_custom_length() -> None:
-    assert len(generate_password(length=32)) == 32
+    assert len(generate_password(hex_chars=32)) == 32

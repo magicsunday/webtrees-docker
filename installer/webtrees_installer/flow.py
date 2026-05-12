@@ -46,9 +46,26 @@ class StandaloneArgs:
 
 
 _FALLBACK_PORT = 8080
-_MANIFEST_DIR = Path(
-    os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR", "/opt/installer/versions")
-)
+_DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
+
+
+def _resolve_manifest_dir() -> Path:
+    """Locate the bundled image catalog at run-time, never at import-time.
+
+    Prefers ``WEBTREES_INSTALLER_MANIFEST_DIR`` if set, else falls back to the
+    in-image bake location. Raising here (instead of at import) lets tests
+    monkey-patch ``load_catalog`` without first having to set the env var.
+    """
+    env_value = os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR")
+    if env_value:
+        return Path(env_value)
+    if _DEFAULT_MANIFEST_DIR.is_dir():
+        return _DEFAULT_MANIFEST_DIR
+    raise PrereqError(
+        "WEBTREES_INSTALLER_MANIFEST_DIR is not set and the bundled image "
+        f"manifest directory {_DEFAULT_MANIFEST_DIR} is missing. Are you "
+        "running the wizard outside the installer image?"
+    )
 
 
 def run_standalone(
@@ -137,7 +154,7 @@ def run_standalone(
         )
         admin_password = generate_password()
 
-    catalog = load_catalog(_MANIFEST_DIR)
+    catalog = load_catalog(_resolve_manifest_dir())
     render_input = RenderInput(
         edition=edition,
         proxy_mode=proxy_mode,
@@ -222,36 +239,57 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     file already populated and leaves it alone — which means the password the
     wizard shows in the banner is the one the bootstrap hook will use.
     """
-    project = _project_name(work_dir)
-    volume = f"{project}_secrets"
+    volume = f"{_PROJECT_NAME}_secrets"
 
     subprocess.run(
         ["docker", "volume", "create", volume],
         check=True, capture_output=True, text=True,
     )
-    subprocess.run(
-        [
-            "docker", "run", "--rm", "-i",
-            "-v", f"{volume}:/secrets",
-            "alpine:3.20",
-            "sh", "-ec",
-            "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
-        ],
-        input=password,
-        check=True, capture_output=True, text=True,
-    )
-
-    secret_file = work_dir / ".webtrees-admin-password"
-    secret_file.write_text(password + "\n")
     try:
-        secret_file.chmod(0o600)
-    except OSError:
-        pass
+        subprocess.run(
+            [
+                "docker", "run", "--rm", "-i",
+                "--pull=missing", "--quiet",
+                "-v", f"{volume}:/secrets",
+                "alpine:3.20",
+                "sh", "-ec",
+                "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
+            ],
+            input=password,
+            check=True, capture_output=True, text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        # Pre-seeding into the volume failed; the volume itself was either
+        # just created or already existed but is now in an indeterminate
+        # state (alpine may have partially written the file). Drop it so
+        # the next run starts clean, then re-raise as PrereqError so the
+        # CLI surfaces a clean message instead of a Python traceback.
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", volume],
+            check=False, capture_output=True, text=True,
+        )
+        stderr = (exc.stderr or "").strip() or "<no stderr>"
+        raise PrereqError(
+            f"failed to pre-seed admin password into {volume}: {stderr}"
+        ) from exc
+
+    _write_secret_file(work_dir / ".webtrees-admin-password", password)
 
 
-def _project_name(work_dir: Path) -> str:
-    """Mirror the COMPOSE_PROJECT_NAME the wizard writes into .env (always 'webtrees')."""
-    return "webtrees"
+_PROJECT_NAME = "webtrees"
+
+
+def _write_secret_file(path: Path, password: str) -> None:
+    """Write the admin password to `path` with 0600 from the first byte.
+
+    `Path.write_text` followed by `chmod` opens the file with the process
+    umask (typically 0022 → 0644) and leaves a syscall window during which
+    a concurrent reader could see the secret. `os.open` with the explicit
+    permission mask closes that window.
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fp:
+        fp.write(password + "\n")
 
 
 def _print_banner(
