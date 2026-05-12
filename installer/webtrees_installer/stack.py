@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-import subprocess
 import time
 from pathlib import Path
+
+# Test-patch seam kept as a thin alias so existing test patches on
+# ``webtrees_installer.stack._compose`` keep working. New call sites
+# import `run_docker` from `webtrees_installer._docker` directly.
+from webtrees_installer._docker import run_docker as _compose
 
 
 class StackError(RuntimeError):
@@ -59,11 +63,3 @@ def bring_up(
     )
 
 
-def _compose(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )

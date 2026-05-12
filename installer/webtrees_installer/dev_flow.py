@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import socket
-import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -281,20 +281,15 @@ def _ask_port(
         ) from exc
 
 
-_DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
-
-
-def _resolve_manifest_dir() -> Path:
-    """Locate the bundled image catalog at run-time, never at import-time."""
-    env_value = os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR")
-    if env_value:
-        return Path(env_value)
-    if _DEFAULT_MANIFEST_DIR.is_dir():
-        return _DEFAULT_MANIFEST_DIR
-    raise PrereqError(
-        "WEBTREES_INSTALLER_MANIFEST_DIR is not set and the bundled image "
-        f"manifest directory {_DEFAULT_MANIFEST_DIR} is missing."
-    )
+# Test-patch seam: tests can patch
+# ``webtrees_installer.dev_flow._resolve_manifest_dir`` (and the matching
+# _DEFAULT_MANIFEST_DIR symbol). The implementation lives in
+# webtrees_installer.versions so a future bake-location change is a
+# one-file edit shared with flow.py.
+from webtrees_installer.versions import (  # noqa: E402
+    DEFAULT_MANIFEST_DIR as _DEFAULT_MANIFEST_DIR,
+    resolve_manifest_dir as _resolve_manifest_dir,
+)
 
 
 def run_dev(
@@ -339,9 +334,11 @@ def run_dev(
 
     pull = _compose(["compose", "pull"], cwd=work_dir)
     if pull.returncode != 0:
-        if stdout:
-            print(f"error: docker compose pull failed: {pull.stderr.strip()}",
-                  file=stdout)
+        # Errors route to sys.stderr so a `docker run ... | grep error`
+        # in CI picks them up, matching how PrereqError / PromptError /
+        # StackError get surfaced by the CLI's outer handler.
+        print(f"error: docker compose pull failed: {pull.stderr.strip() or pull.stdout.strip()}",
+              file=sys.stderr)
         return 4
 
     install = _compose(
@@ -350,9 +347,8 @@ def run_dev(
         cwd=work_dir,
     )
     if install.returncode != 0:
-        if stdout:
-            print(f"error: composer install failed: {install.stderr.strip()}",
-                  file=stdout)
+        print(f"error: composer install failed: {install.stderr.strip() or install.stdout.strip()}",
+              file=sys.stderr)
         return 4
 
     if stdout:
@@ -393,15 +389,10 @@ def _parse_env(path: Path) -> dict[str, str]:
     return out
 
 
-def _compose(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    """Run `docker <args>` in `cwd`, capturing output. Never raises on non-zero."""
-    return subprocess.run(
-        ["docker", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+# Test-patch seam kept as a thin alias so existing test patches on
+# ``webtrees_installer.dev_flow._compose`` keep working. The shared
+# helper in ``webtrees_installer._docker`` is the single implementation.
+from webtrees_installer._docker import run_docker as _compose  # noqa: E402
 
 
 def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:

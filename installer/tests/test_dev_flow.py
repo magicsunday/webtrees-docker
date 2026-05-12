@@ -250,10 +250,23 @@ _LIVE_CATALOG = Catalog(
 
 
 @pytest.fixture(autouse=True)
-def silence_dev_runtime(tmp_path_factory, monkeypatch):
-    """Stub the host-facing bits so dev-flow tests stay hermetic."""
+def _manifest_env(tmp_path_factory, monkeypatch):
+    """Always-on: point WEBTREES_INSTALLER_MANIFEST_DIR at a real (empty) dir.
+
+    Resolver tests (and the host-info helper test) inherit just this so
+    `resolve_manifest_dir` succeeds without populating the env outside.
+    """
     fake_manifest = tmp_path_factory.mktemp("manifest")
     monkeypatch.setenv("WEBTREES_INSTALLER_MANIFEST_DIR", str(fake_manifest))
+
+
+@pytest.fixture
+def silence_dev_runtime():
+    """Opt-in: stub everything an orchestrator test needs.
+
+    Tests that exercise `_detect_host_info` directly skip this fixture
+    so they hit the real implementation.
+    """
     with patch("webtrees_installer.dev_flow.check_prerequisites"), \
          patch("webtrees_installer.dev_flow.load_catalog", return_value=_LIVE_CATALOG), \
          patch("webtrees_installer.dev_flow._detect_host_info",
@@ -265,7 +278,9 @@ def silence_dev_runtime(tmp_path_factory, monkeypatch):
         yield compose_mock
 
 
-def test_run_dev_non_interactive_writes_env_and_pulls(tmp_path: Path) -> None:
+def test_run_dev_non_interactive_writes_env_and_pulls(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
     from webtrees_installer.dev_flow import run_dev
     args = _args(work_dir=tmp_path)
 
@@ -278,19 +293,16 @@ def test_run_dev_non_interactive_writes_env_and_pulls(tmp_path: Path) -> None:
     assert (tmp_path / "app").is_dir()
 
 
-def test_run_dev_invokes_compose_pull_and_install(tmp_path: Path) -> None:
+def test_run_dev_invokes_compose_pull_and_install(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
+    """Accept the autouse compose_mock directly instead of re-patching."""
     from webtrees_installer.dev_flow import run_dev
     args = _args(work_dir=tmp_path)
 
-    # Reach into the autouse fixture's compose mock.
-    with patch("webtrees_installer.dev_flow._compose") as compose_mock:
-        import subprocess as _sp
-        compose_mock.return_value = _sp.CompletedProcess(
-            args=[], returncode=0, stdout="", stderr=""
-        )
-        run_dev(args, stdin=StringIO(), stdout=StringIO())
+    run_dev(args, stdin=StringIO(), stdout=StringIO())
 
-    invocations = [c.args[0] for c in compose_mock.call_args_list]
+    invocations = [c.args[0] for c in silence_dev_runtime.call_args_list]
     assert ["compose", "pull"] in invocations
     assert any(
         inv[:3] == ["compose", "run", "--rm"] and "buildbox" in inv
@@ -298,23 +310,63 @@ def test_run_dev_invokes_compose_pull_and_install(tmp_path: Path) -> None:
     )
 
 
-def test_run_dev_fails_cleanly_when_compose_pull_breaks(tmp_path: Path) -> None:
+def test_run_dev_fails_cleanly_when_compose_pull_breaks(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
+    """Pull fails with rc=1 + stderr → exit 4 (install branch never runs)."""
+    import subprocess as _sp
     from webtrees_installer.dev_flow import run_dev
+
+    silence_dev_runtime.side_effect = [
+        _sp.CompletedProcess(args=[], returncode=1, stdout="", stderr="pull error"),
+    ]
     args = _args(work_dir=tmp_path)
-    with patch("webtrees_installer.dev_flow._compose") as compose_mock:
-        import subprocess as _sp
-        compose_mock.return_value = _sp.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="pull error",
-        )
-        exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
 
     assert exit_code == 4
+    invocations = [c.args[0] for c in silence_dev_runtime.call_args_list]
+    assert invocations == [["compose", "pull"]]
 
 
-def test_run_dev_aborts_on_existing_files_without_force(tmp_path: Path) -> None:
+def test_run_dev_fails_cleanly_when_install_breaks(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
+    """Pull succeeds, install returns rc=1 → exit 4 (separate branch coverage)."""
+    import subprocess as _sp
+    from webtrees_installer.dev_flow import run_dev
+
+    silence_dev_runtime.side_effect = [
+        _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        _sp.CompletedProcess(args=[], returncode=1, stdout="", stderr="install boom"),
+    ]
+    args = _args(work_dir=tmp_path)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 4
+    invocations = [c.args[0] for c in silence_dev_runtime.call_args_list]
+    assert invocations[0] == ["compose", "pull"]
+    assert invocations[1][:3] == ["compose", "run", "--rm"]
+
+
+def test_run_dev_aborts_on_existing_files_without_force(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
     from webtrees_installer.dev_flow import run_dev
     (tmp_path / ".env").write_text("X=1")
     args = _args(work_dir=tmp_path, force=False)
     from webtrees_installer.prereq import PrereqError
     with pytest.raises(PrereqError):
         run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+
+def test_detect_host_info_falls_back_when_socket_fails() -> None:
+    """No-network host → primary_ip falls back to 127.0.0.1 without raising."""
+    from webtrees_installer.dev_flow import _detect_host_info
+
+    with patch("webtrees_installer.dev_flow.socket.socket") as sock_factory:
+        sock_factory.return_value.connect.side_effect = OSError("network unreachable")
+        info = _detect_host_info()
+
+    assert info.primary_ip == "127.0.0.1"

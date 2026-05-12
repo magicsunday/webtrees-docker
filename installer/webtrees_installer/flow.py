@@ -47,27 +47,18 @@ class StandaloneArgs:
 
 
 _FALLBACK_PORT = 8080
-_DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
 _PROJECT_NAME = "webtrees"
 
-
-def _resolve_manifest_dir() -> Path:
-    """Locate the bundled image catalog at run-time, never at import-time.
-
-    Prefers ``WEBTREES_INSTALLER_MANIFEST_DIR`` if set, else falls back to the
-    in-image bake location. Raising here (instead of at import) lets tests
-    monkey-patch ``load_catalog`` without first having to set the env var.
-    """
-    env_value = os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR")
-    if env_value:
-        return Path(env_value)
-    if _DEFAULT_MANIFEST_DIR.is_dir():
-        return _DEFAULT_MANIFEST_DIR
-    raise PrereqError(
-        "WEBTREES_INSTALLER_MANIFEST_DIR is not set and the bundled image "
-        f"manifest directory {_DEFAULT_MANIFEST_DIR} is missing. Are you "
-        "running the wizard outside the installer image?"
-    )
+# Test-patch seam: existing tests patch
+# ``webtrees_installer.flow._resolve_manifest_dir`` and
+# ``webtrees_installer.flow._DEFAULT_MANIFEST_DIR``. Thin aliases keep
+# those patch paths working while the implementation lives in
+# ``webtrees_installer.versions`` so a future bake-location change is a
+# one-file edit.
+from webtrees_installer.versions import (  # noqa: E402
+    DEFAULT_MANIFEST_DIR as _DEFAULT_MANIFEST_DIR,
+    resolve_manifest_dir as _resolve_manifest_dir,
+)
 
 
 def run_standalone(

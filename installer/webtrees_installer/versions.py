@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
+"""Where the installer image bakes the catalog. Overridden by the
+``WEBTREES_INSTALLER_MANIFEST_DIR`` env var when running tests or
+out-of-image debugging."""
 
 
 @dataclass(frozen=True)
@@ -72,3 +79,29 @@ def _read_json(path: Path) -> Any:
     if not path.exists():
         raise FileNotFoundError(f"Missing manifest: {path.name}")
     return json.loads(path.read_text())
+
+
+def resolve_manifest_dir() -> Path:
+    """Locate the bundled image catalog at run-time.
+
+    Prefers the ``WEBTREES_INSTALLER_MANIFEST_DIR`` env var (set by tests
+    and by the build pipeline), else falls back to the in-image bake
+    location. Raising here (instead of at import) keeps the failure mode
+    in the flow layer where it can be translated into a clean CLI error
+    instead of an opaque ImportError.
+    """
+    # PrereqError is imported lazily so versions.py stays free of cross-
+    # module dependencies at import time (handy for `python -c "from
+    # webtrees_installer.versions import load_catalog"` smoke tests).
+    from webtrees_installer.prereq import PrereqError
+
+    env_value = os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR")
+    if env_value:
+        return Path(env_value)
+    if DEFAULT_MANIFEST_DIR.is_dir():
+        return DEFAULT_MANIFEST_DIR
+    raise PrereqError(
+        "WEBTREES_INSTALLER_MANIFEST_DIR is not set and the bundled image "
+        f"manifest directory {DEFAULT_MANIFEST_DIR} is missing. Are you "
+        "running the wizard outside the installer image?"
+    )
