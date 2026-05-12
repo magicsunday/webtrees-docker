@@ -23,6 +23,7 @@ from webtrees_installer.prompts import (
 )
 from webtrees_installer.render import RenderInput, render_files
 from webtrees_installer.secrets import generate_password
+from webtrees_installer.stack import StackError, bring_up
 from webtrees_installer.versions import load_catalog
 
 
@@ -182,6 +183,14 @@ def run_standalone(
         admin_password=admin_password,
         no_up=args.no_up,
     )
+
+    if not args.no_up:
+        try:
+            bring_up(work_dir=work_dir)
+        except StackError as exc:
+            if stdout:
+                print(f"error: {exc}", file=stdout)
+            return 3
 
     return 0
 

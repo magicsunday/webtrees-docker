@@ -147,3 +147,15 @@ def test_resolve_manifest_dir_honours_env_var(monkeypatch, tmp_path: Path) -> No
     monkeypatch.setenv("WEBTREES_INSTALLER_MANIFEST_DIR", str(tmp_path))
     from webtrees_installer.flow import _resolve_manifest_dir
     assert _resolve_manifest_dir() == tmp_path
+
+
+def test_run_standalone_invokes_bring_up_when_not_no_up(tmp_path: Path) -> None:
+    """no_up=False → flow calls stack.bring_up."""
+    args = _args(work_dir=tmp_path, no_up=False)
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow.bring_up") as bring_up_mock:
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    bring_up_mock.assert_called_once()
+    assert bring_up_mock.call_args.kwargs["work_dir"] == tmp_path
