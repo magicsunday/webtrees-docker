@@ -25,7 +25,7 @@ fi
 # ssh contexts surface via $DOCKER_HOST and don't need a unix socket at all.
 if [[ -z "${DOCKER_HOST:-}" \
       && ! -S /var/run/docker.sock \
-      && ! -S "${XDG_RUNTIME_DIR:-/run/user/0}/docker.sock" ]]; then
+      && ! -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock" ]]; then
     echo "warning: no docker socket found at /var/run/docker.sock or \$XDG_RUNTIME_DIR/docker.sock; set DOCKER_HOST or check your daemon" >&2
 fi
 

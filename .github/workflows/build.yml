@@ -25,6 +25,14 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            - name: License drift guard
+              run: |
+                  # installer/LICENSE is a copy of the repo-root LICENSE (the
+                  # symlink approach is not feasible because Docker COPY refuses
+                  # symlinks pointing outside the build context).  Fail fast if
+                  # they have drifted instead of shipping a stale wheel.
+                  cmp LICENSE installer/LICENSE
+
             - id: set
               run: |
                   set -euo pipefail
