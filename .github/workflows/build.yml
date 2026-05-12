@@ -249,7 +249,12 @@ jobs:
                   set -euo pipefail
                   mkdir -p "${SMOKE_DIR}"
                   if [ "${EDITION}" = "dev" ]; then
-                      git clone --depth 1 https://github.com/magicsunday/webtrees-docker.git "${SMOKE_DIR}/repo"
+                      # Use the workspace that actions/checkout placed at
+                      # $GITHUB_WORKSPACE — a fresh `git clone` would always
+                      # pull `main` and skip any branch-under-test changes
+                      # to the dev compose chain.
+                      mkdir -p "${SMOKE_DIR}/repo"
+                      cp -a "$GITHUB_WORKSPACE/." "${SMOKE_DIR}/repo/"
                       docker run --rm \
                           -v "${SMOKE_DIR}/repo:/work" \
                           -v /var/run/docker.sock:/var/run/docker.sock \
