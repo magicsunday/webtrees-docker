@@ -257,7 +257,11 @@ jobs:
             - name: Probe HTTP
               run: |
                   set -euo pipefail
-                  body=$(curl -sS http://localhost:18080/)
+                  # -f makes curl exit non-zero on HTTP >= 400 so we don't
+                  # silently accept stack-trace bodies that happen to mention
+                  # 'webtrees'. -L follows the setup-wizard redirect chain
+                  # webtrees emits when no admin user exists yet.
+                  body=$(curl -fsSL http://localhost:18080/)
                   echo "$body" | head -50
                   echo "$body" | grep -qi "webtrees" || {
                       echo "::error::response body does not mention 'webtrees'"
