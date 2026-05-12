@@ -472,6 +472,9 @@ jobs:
 
     notify-on-failure:
         name: Notify on workflow failure
+        # IMPORTANT: keep this `needs:` list in sync with every other job
+        # in the workflow. GHA has no glob for `needs:`, so a missing entry
+        # silently disables failure notification for that job.
         needs: [matrix, build-php, build-php-full, build-nginx, build-installer, smoke-test, demo-import-e2e]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
@@ -487,13 +490,15 @@ jobs:
                   title="CI failure: ${{ github.workflow }} (run ${{ github.run_number }})"
                   failed_jobs=$(gh run view ${{ github.run_id }} --json jobs \
                       --jq '.jobs[] | select(.conclusion == "failure") | "- \(.name): \(.url)"')
-                  body="Workflow **${{ github.workflow }}** failed. Triggered by \`${{ github.event_name }}\` on \`${{ github.ref_name }}\`.
+                  body=$(cat <<BODY_END
+                  Workflow **${{ github.workflow }}** failed. Triggered by \`${{ github.event_name }}\` on \`${{ github.ref_name }}\`.
 
                   Run: ${RUN_URL}
 
                   Failed jobs:
                   ${failed_jobs}
 
-                  Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed."
-                  gh issue create --title "$title" --body "$body" \
-                      || echo "::warning::issue creation failed; check token permissions"
+                  Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed.
+                  BODY_END
+                  )
+                  gh issue create --title "$title" --body "$body"

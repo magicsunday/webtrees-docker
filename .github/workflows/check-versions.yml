@@ -176,13 +176,15 @@ jobs:
                   title="CI failure: ${{ github.workflow }} (run ${{ github.run_number }})"
                   failed_jobs=$(gh run view ${{ github.run_id }} --json jobs \
                       --jq '.jobs[] | select(.conclusion == "failure") | "- \(.name): \(.url)"')
-                  body="Workflow **${{ github.workflow }}** failed. Triggered by \`${{ github.event_name }}\` on \`${{ github.ref_name }}\`.
+                  body=$(cat <<BODY_END
+                  Workflow **${{ github.workflow }}** failed. Triggered by \`${{ github.event_name }}\` on \`${{ github.ref_name }}\`.
 
                   Run: ${RUN_URL}
 
                   Failed jobs:
                   ${failed_jobs}
 
-                  Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed."
-                  gh issue create --title "$title" --body "$body" \
-                      || echo "::warning::issue creation failed; check token permissions"
+                  Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed.
+                  BODY_END
+                  )
+                  gh issue create --title "$title" --body "$body"
