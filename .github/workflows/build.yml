@@ -363,3 +363,96 @@ jobs:
                           ;;
                   esac
                   docker compose down -v
+
+    demo-import-e2e:
+        name: demo-import E2E
+        needs: [matrix, smoke-test]
+        runs-on: ubuntu-latest
+        # The smoke-test matrix's demo cell only proves the wizard emits
+        # demo.ged with the right GEDCOM header; the actual tree-import CLI
+        # path needs a running stack with a healthy DB and a populated
+        # data/config.ini.php (which only the admin-bootstrap writes).
+        # E2E_PORT is the single source of truth for both the installer's
+        # --port flag and the published listener.
+        env:
+            E2E_DIR: /tmp/demo-import-e2e
+            E2E_PORT: 18181
+            INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Render stack via wizard (full + demo + admin-bootstrap)
+              run: |
+                  set -euo pipefail
+                  mkdir -p "${E2E_DIR}"
+                  # Admin-bootstrap is required: without WT_ADMIN_USER the
+                  # phpfpm entrypoint does not write data/config.ini.php, and
+                  # the webtrees CLI cannot reach the database without it.
+                  docker run --rm \
+                      -v "${E2E_DIR}:/work" \
+                      -v /var/run/docker.sock:/var/run/docker.sock \
+                      "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
+                      --non-interactive --force --no-up \
+                      --edition full --demo --demo-seed 42 \
+                      --proxy standalone --port "${E2E_PORT}" \
+                      --admin-user e2e --admin-email e2e@example.org
+                  test -f "${E2E_DIR}/demo.ged"
+
+            - name: Bring stack up
+              working-directory: ${{ env.E2E_DIR }}
+              run: docker compose up -d
+
+            - name: Wait for db + phpfpm healthy (120s budget)
+              working-directory: ${{ env.E2E_DIR }}
+              run: |
+                  set -euo pipefail
+                  # mariadb takes ~30-60s to finish first-boot schema init;
+                  # phpfpm waits for db-healthy then runs the admin-bootstrap
+                  # (config-ini + schema migration + user-create). Nginx is
+                  # intentionally NOT gated on here: until a tree is imported
+                  # webtrees returns 404 on /, so the nginx healthcheck stays
+                  # unhealthy even when the stack is fully usable for CLI.
+                  for i in $(seq 1 120); do
+                      db_h=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q db)" 2>/dev/null || echo starting)
+                      phpfpm_h=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q phpfpm)" 2>/dev/null || echo starting)
+                      if [ "$db_h" = "healthy" ] && [ "$phpfpm_h" = "healthy" ]; then
+                          echo "stack ready after ${i}s (db + phpfpm healthy)"
+                          exit 0
+                      fi
+                      sleep 1
+                  done
+                  echo "::error::stack did not become ready within 120s (db=$db_h phpfpm=$phpfpm_h)"
+                  docker compose logs --tail=200
+                  exit 1
+
+            - name: Copy GEDCOM + create + import demo tree
+              working-directory: ${{ env.E2E_DIR }}
+              run: |
+                  set -euo pipefail
+                  docker compose cp demo.ged phpfpm:/tmp/demo.ged
+                  # `tree --create` requires --title; the launcher lives at
+                  # public/index.php and must be invoked as www-data so it can
+                  # read data/config.ini.php (mode 0640, owner www-data).
+                  docker compose exec -T phpfpm su www-data -s /bin/sh -c \
+                      "cd /var/www/html && php public/index.php tree --create demo --title 'Demo Tree'"
+                  docker compose exec -T phpfpm su www-data -s /bin/sh -c \
+                      "cd /var/www/html && php public/index.php tree-import demo /tmp/demo.ged"
+
+            - name: Assert demo tree imported
+              working-directory: ${{ env.E2E_DIR }}
+              run: |
+                  set -euo pipefail
+                  # tree-list renders a Symfony-Console ASCII table; the demo
+                  # row starts `| demo ` once import is complete.
+                  output=$(docker compose exec -T phpfpm su www-data -s /bin/sh -c \
+                      "cd /var/www/html && php public/index.php tree-list")
+                  printf '%s\n' "$output"
+                  if ! grep -q '^| demo ' <<< "$output"; then
+                      echo "::error::tree-list output does not contain a row for 'demo'"
+                      exit 1
+                  fi
+
+            - name: Tear down
+              if: always()
+              working-directory: ${{ env.E2E_DIR }}
+              run: docker compose down -v
