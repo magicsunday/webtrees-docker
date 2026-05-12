@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from webtrees_installer.prereq import (
     COMPOSE_VERSION_TIMEOUT_S,
     PrereqError,
     check_prerequisites,
+    confirm_overwrite,
 )
 
 
@@ -100,3 +102,46 @@ def test_check_prerequisites_called_process_error_with_no_stderr(tmp_path: Path)
     ):
         with pytest.raises(PrereqError, match="<no stderr>"):
             check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_confirm_overwrite_no_conflict(tmp_path: Path) -> None:
+    """Clean /work → no prompt, returns True."""
+    assert confirm_overwrite(work_dir=tmp_path, interactive=True) is True
+
+
+def test_confirm_overwrite_prompts_when_compose_exists(tmp_path: Path) -> None:
+    """compose.yaml present + user replies 'n' → returns False."""
+    (tmp_path / "compose.yaml").write_text("# existing")
+    answer = confirm_overwrite(
+        work_dir=tmp_path,
+        interactive=True,
+        stdin=StringIO("n\n"),
+        stdout=StringIO(),
+    )
+    assert answer is False
+
+
+def test_confirm_overwrite_prompts_when_compose_exists_yes(tmp_path: Path) -> None:
+    """compose.yaml present + user replies 'y' → returns True."""
+    (tmp_path / "compose.yaml").write_text("# existing")
+    answer = confirm_overwrite(
+        work_dir=tmp_path,
+        interactive=True,
+        stdin=StringIO("y\n"),
+        stdout=StringIO(),
+    )
+    assert answer is True
+
+
+def test_confirm_overwrite_noninteractive_without_force(tmp_path: Path) -> None:
+    """Non-interactive + conflict + no force flag → PrereqError."""
+    (tmp_path / "compose.yaml").write_text("# existing")
+    with pytest.raises(PrereqError, match=r"--force"):
+        confirm_overwrite(work_dir=tmp_path, interactive=False, force=False)
+
+
+def test_confirm_overwrite_noninteractive_with_force(tmp_path: Path) -> None:
+    """Non-interactive + force=True → returns True regardless of files."""
+    (tmp_path / "compose.yaml").write_text("# existing")
+    (tmp_path / ".env").write_text("X=1")
+    assert confirm_overwrite(work_dir=tmp_path, interactive=False, force=True) is True

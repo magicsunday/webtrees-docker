@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+from typing import IO
 
 
 COMPOSE_VERSION_TIMEOUT_S = 10
@@ -72,3 +74,42 @@ def _compose_version() -> str:
         timeout=COMPOSE_VERSION_TIMEOUT_S,
     )
     return result.stdout.strip()
+
+
+def confirm_overwrite(
+    *,
+    work_dir: Path,
+    interactive: bool,
+    force: bool = False,
+    stdin: IO[str] | None = None,
+    stdout: IO[str] | None = None,
+) -> bool:
+    """Check /work for existing compose.yaml / .env and confirm overwrite.
+
+    Returns True if the wizard may proceed with writing, False otherwise.
+    Raises PrereqError in non-interactive mode when a conflict exists and
+    --force was not passed.
+    """
+    conflicts = [
+        name for name in ("compose.yaml", ".env") if (work_dir / name).exists()
+    ]
+    if not conflicts:
+        return True
+    if not interactive:
+        if force:
+            return True
+        raise PrereqError(
+            "Refusing to overwrite "
+            + ", ".join(conflicts)
+            + " in non-interactive mode without --force."
+        )
+
+    stdin = stdin or sys.stdin
+    stdout = stdout or sys.stdout
+    print(
+        f"{', '.join(conflicts)} already exist in {work_dir}.",
+        file=stdout,
+    )
+    print("Overwrite? [y/N] ", end="", file=stdout, flush=True)
+    reply = stdin.readline().strip().lower()
+    return reply in {"y", "yes"}
