@@ -1,0 +1,110 @@
+{# Traefik (reverse-proxy) compose layout. -#}
+name: webtrees
+
+volumes:
+    secrets:
+    database:
+    app:
+    media:
+
+networks:
+    default:
+    traefik:
+        external: true
+
+services:
+    init:
+        image: alpine:3.20
+        restart: "no"
+        volumes:
+            - secrets:/secrets
+        command:
+            - sh
+            - -ec
+            - |
+                umask 077
+                apk add --no-cache openssl >/dev/null
+                for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
+                  [ -s "/secrets/$name" ] || openssl rand -hex 24 > "/secrets/$name"
+                done
+                chmod 444 /secrets/*
+
+    db:
+        image: mariadb:11.7
+        depends_on:
+            init:
+                condition: service_completed_successfully
+        restart: unless-stopped
+        environment:
+            MARIADB_ROOT_PASSWORD_FILE: /secrets/mariadb_root_password
+            MARIADB_USER: webtrees
+            MARIADB_PASSWORD_FILE: /secrets/mariadb_password
+            MARIADB_DATABASE: webtrees
+        volumes:
+            - secrets:/secrets:ro
+            - database:/var/lib/mysql
+        healthcheck:
+            test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+
+    phpfpm:
+        image: ghcr.io/magicsunday/webtrees/php{% if edition == "full" %}-full{% endif %}:{{ webtrees_version }}-php{{ php_version }}
+        depends_on:
+            db:
+                condition: service_healthy
+        restart: unless-stopped
+        environment:
+            ENVIRONMENT: production
+            ENFORCE_HTTPS: "TRUE"
+            WEBTREES_VERSION: "{{ webtrees_version }}"
+            WEBTREES_AUTO_SEED: "true"
+            MARIADB_HOST: db
+            MARIADB_USER: webtrees
+            MARIADB_PASSWORD_FILE: /secrets/mariadb_password
+            MARIADB_DATABASE: webtrees
+{%- if admin_bootstrap %}
+            WT_ADMIN_USER: "{{ admin_user }}"
+            WT_ADMIN_EMAIL: "{{ admin_email }}"
+            WT_ADMIN_PASSWORD_FILE: /secrets/wt_admin_password
+{%- endif %}
+        healthcheck:
+            test: ["CMD-SHELL", "pgrep php-fpm > /dev/null || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 3
+            start_period: 5s
+        volumes:
+            - secrets:/secrets:ro
+            - app:/var/www/html
+            - media:/var/www/html/data/media
+
+    nginx:
+        image: ghcr.io/magicsunday/webtrees/nginx:{{ nginx_tag }}
+        depends_on:
+            phpfpm:
+                condition: service_healthy
+        restart: unless-stopped
+        environment:
+            ENFORCE_HTTPS: "TRUE"
+        networks:
+            - default
+            - traefik
+        labels:
+            traefik.enable: "true"
+            traefik.docker.network: "traefik"
+            traefik.http.routers.webtrees.rule: "Host(`{{ domain }}`)"
+            traefik.http.routers.webtrees.entrypoints: "websecure"
+            traefik.http.routers.webtrees.tls: "true"
+            traefik.http.services.webtrees.loadbalancer.server.port: "80"
+        healthcheck:
+            test: ["CMD-SHELL", "curl -sf http://localhost/ -o /dev/null || exit 1"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 5s
+        volumes:
+            - app:/var/www/html:ro
+            - media:/var/www/html/data/media:ro
