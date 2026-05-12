@@ -20,7 +20,7 @@ brings the stack up via `docker compose up -d`. Visit `http://localhost:8080/`.
 | Edition | Image | Contains |
 |---|---|---|
 | Core | `webtrees/php` | Plain webtrees release |
-| Full (default) | `webtrees/php-full` | + Magic-Sunday charts |
+| Full (default) | `webtrees/php-full` | + Magic-Sunday charts: [fan](https://github.com/magicsunday/webtrees-fan-chart), [pedigree](https://github.com/magicsunday/webtrees-pedigree-chart), [descendants](https://github.com/magicsunday/webtrees-descendants-chart) |
 | Full + Demo | same as Full | + a 7-generation synthetic family tree imported on first boot |
 
 `--edition core` / `full` selects between the first two; add `--demo`
@@ -50,6 +50,19 @@ external database, third-party modules) plus Backup / Restore.
 ## Updating to a new webtrees release
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/upgrade | bash
+```
+
+The `upgrade` launcher stops the stack, drops `webtrees_app` so the
+new image can re-seed it, and re-runs the installer with `--force`.
+`webtrees_database` and `webtrees_media` survive the upgrade. Pass
+custom flags via `bash -s -- --port 8443` if you deviate from the
+quickstart defaults.
+
+If you prefer to step through manually (audit each command before
+it runs, or tweak individual steps):
+
+```bash
 docker compose down
 docker volume rm webtrees_app
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
@@ -58,13 +71,10 @@ docker compose pull
 docker compose up -d
 ```
 
-`webtrees_database` and `webtrees_media` survive the upgrade; the
-`webtrees_app` volume is re-seeded on first boot.
-
 ## Backup
 
-- DB: `docker compose exec db mariadb-dump --all-databases --single-transaction > backup.sql`.
-- Media: `docker run --rm -v webtrees_media:/m -v "$PWD":/host alpine tar -C /m -czf /host/media.tar.gz .`.
+Full procedure (DB dump, media tar, restore, scheduling): see
+[`docs/customizing.md`](docs/customizing.md#backup).
 
 ## Troubleshooting
 
