@@ -8,6 +8,7 @@ values so `make up` succeeds without further editing.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import socket
 import sys
@@ -301,6 +302,14 @@ def run_dev(
 ) -> int:
     """Drive the dev-flow end to end. Returns process exit code."""
     work_dir = args.work_dir or Path("/work")
+
+    if args.local_user_id == 0 and args.local_user_name == "":
+        host_info = _detect_host_info()
+        args = dataclasses.replace(
+            args,
+            local_user_id=host_info.uid,
+            local_user_name=host_info.username,
+        )
 
     check_prerequisites(work_dir=work_dir)
 

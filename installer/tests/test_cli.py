@@ -60,3 +60,27 @@ def test_parser_carries_all_non_interactive_flags():
     assert args.edition == "core"
     assert args.proxy_mode == "standalone"
     assert args.app_port == 8080
+
+
+def test_parser_carries_dev_mode_and_dev_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--mode", "dev",
+            "--non-interactive",
+            "--force",
+            "--proxy", "standalone",
+            "--port", "50010",
+            "--pma-port", "50011",
+            "--dev-domain", "webtrees.localhost:50010",
+            "--mariadb-root-password", "rootpw",
+            "--mariadb-database", "wt",
+            "--mariadb-user", "wt_user",
+            "--mariadb-password", "wt_pw",
+        ]
+    )
+    assert args.mode == "dev"
+    assert args.app_port == 50010
+    assert args.pma_port == 50011
+    assert args.dev_domain == "webtrees.localhost:50010"
+    assert args.mariadb_root_password == "rootpw"
