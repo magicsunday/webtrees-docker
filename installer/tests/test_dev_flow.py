@@ -213,3 +213,29 @@ def test_collect_dev_inputs_uses_existing_env_values() -> None:
     assert args.app_port == 55555
     assert args.mariadb_password == "old-secret"
     assert args.mariadb_user == "old_user"
+
+
+def test_collect_dev_inputs_rejects_non_numeric_port_in_env() -> None:
+    """A legacy .env with APP_PORT=abc surfaces a PromptError, not a stack trace."""
+    from webtrees_installer.prompts import PromptError
+    existing = {"APP_PORT": "not-a-port"}
+    with pytest.raises(PromptError, match="APP_PORT"):
+        collect_dev_inputs(
+            work_dir=Path("/work"), force=False,
+            existing=existing,
+            host_info=_HOST,
+            stdin=StringIO("\n" * 16), stdout=StringIO(),
+        )
+
+
+def test_collect_dev_inputs_rejects_non_numeric_port_at_prompt() -> None:
+    """Garbage at the port prompt surfaces a PromptError."""
+    from webtrees_installer.prompts import PromptError
+    stdin = StringIO("\nbananas\n")
+    with pytest.raises(PromptError, match="not a number"):
+        collect_dev_inputs(
+            work_dir=Path("/work"), force=False,
+            existing={},
+            host_info=_HOST,
+            stdin=stdin, stdout=StringIO(),
+        )
