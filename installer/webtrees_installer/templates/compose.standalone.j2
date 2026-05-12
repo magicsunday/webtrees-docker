@@ -19,7 +19,9 @@ services:
             - |
                 umask 077
                 for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
-                  [ -s "/secrets/$name" ] || openssl rand -hex 24 > "/secrets/$name"
+                  if [ ! -s "/secrets/$name" ]; then
+                    head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/secrets/$name"
+                  fi
                 done
                 chmod 444 /secrets/*
 
