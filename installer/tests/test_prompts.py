@@ -101,6 +101,15 @@ def test_ask_choice_rejects_unknown_value() -> None:
         )
 
 
+def test_ask_choice_rejects_empty_choices() -> None:
+    """An empty choices sequence fails fast instead of crashing in I/O."""
+    with pytest.raises(PromptError, match="no choices provided"):
+        ask_choice(
+            "Edition", choices=[], default="full",
+            stdin=None, stdout=None,
+        )
+
+
 def test_ask_yesno_default_yes_on_empty() -> None:
     assert ask_yesno(
         "Bootstrap?", default=True,

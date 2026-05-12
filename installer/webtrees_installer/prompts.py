@@ -1,4 +1,12 @@
-"""Interactive prompt helpers with non-interactive overrides."""
+"""Interactive prompt helpers with non-interactive overrides.
+
+Stdin contract: an empty reply (``""``, also what a closed stdin yields on
+``readline()``) is intentionally treated as "accept the default" for both
+``ask_text`` and ``ask_choice``. A missing default raises ``PromptError``.
+``ask_yesno`` likewise returns ``default`` on empty input. Callers that
+need fail-fast behaviour without a TTY should pass the answer via the
+``value`` kwarg, which short-circuits the prompt entirely.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +17,12 @@ from typing import IO
 
 
 class PromptError(ValueError):
-    """Raised when prompt input is missing or unparseable in non-interactive mode."""
+    """Raised when prompt input is missing or unparseable.
+
+    Inherits from ``ValueError`` (not ``RuntimeError`` like ``PrereqError``)
+    because the failure mode is a malformed or missing user value rather
+    than a broken runtime environment.
+    """
 
 
 @dataclass(frozen=True)
@@ -58,6 +71,8 @@ def ask_choice(
     stdout: IO[str] | None = None,
 ) -> str:
     """Read one selection from `choices` by 1-based index. Returns the value."""
+    if not choices:
+        raise PromptError(f"{question}: no choices provided")
     valid = {c.value for c in choices}
     if default not in valid:
         raise PromptError(f"default {default!r} is not in choices")
