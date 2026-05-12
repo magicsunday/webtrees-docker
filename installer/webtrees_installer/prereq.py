@@ -48,6 +48,8 @@ def check_prerequisites(
     # The legacy v1 standalone binary prints 'docker-compose version 1.x'
     # and `docker compose` would not exist at all in that environment, so
     # this rejects the v1 case along with any unexpected stranger format.
+    # Banner format observed on Compose 2.20–2.29; revisit when Compose 3
+    # ships in case the leading "v" or the "v2" prefix changes.
     if not version.startswith("Docker Compose version v2"):
         raise PrereqError(
             f"Compose v2 required. Got: {version!r}. Update Docker Engine "

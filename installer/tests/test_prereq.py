@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
-from webtrees_installer.prereq import PrereqError, check_prerequisites
+from webtrees_installer.prereq import (
+    COMPOSE_VERSION_TIMEOUT_S,
+    PrereqError,
+    check_prerequisites,
+)
 
 
 def test_check_prerequisites_ok(tmp_path: Path) -> None:
@@ -77,7 +81,9 @@ def test_check_prerequisites_docker_daemon_hung(tmp_path: Path) -> None:
 
     with patch(
         "webtrees_installer.prereq._compose_version",
-        side_effect=subprocess.TimeoutExpired(cmd=["docker"], timeout=10),
+        side_effect=subprocess.TimeoutExpired(
+            cmd=["docker"], timeout=COMPOSE_VERSION_TIMEOUT_S,
+        ),
     ):
         with pytest.raises(PrereqError, match="did not respond"):
             check_prerequisites(work_dir=tmp_path, docker_sock=sock)
