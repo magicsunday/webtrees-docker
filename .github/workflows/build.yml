@@ -307,8 +307,11 @@ jobs:
                   fi
                   set -euo pipefail
                   body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/")
-                  echo "$body" | head -50
-                  echo "$body" | grep -qi "webtrees" || {
+                  # head -50 closes the pipe after the 50th line; without the
+                  # `|| true` the resulting SIGPIPE on `echo` would trip
+                  # `set -o pipefail` and fail the step before grep even runs.
+                  printf '%s\n' "$body" | head -50 || true
+                  printf '%s\n' "$body" | grep -qi "webtrees" || {
                       echo "::error::response body does not mention 'webtrees'"
                       exit 1
                   }
