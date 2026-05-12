@@ -223,7 +223,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                edition: [core, full]
+                edition: [core, full, demo]
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         # The smoke-test runs on a fresh ubuntu-latest VM per matrix cell, so
         # /tmp/smoke is naturally isolated; the matrix-derived suffix is
@@ -233,35 +233,53 @@ jobs:
         env:
             SMOKE_DIR: /tmp/smoke-${{ matrix.edition }}-${{ matrix.entry.php }}
             SMOKE_PORT: 18080
+            EDITION: ${{ matrix.edition }}
         steps:
             - uses: actions/checkout@v4
 
             - name: Run installer (non-interactive)
               env:
-                  EDITION: ${{ matrix.edition }}
                   INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
               run: |
                   set -euo pipefail
                   mkdir -p "${SMOKE_DIR}"
+                  if [ "${EDITION}" = "demo" ]; then
+                      docker run --rm \
+                          -v "${SMOKE_DIR}:/work" \
+                          -v /var/run/docker.sock:/var/run/docker.sock \
+                          "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
+                          --non-interactive --force --no-up --no-admin \
+                          --edition full --demo --demo-seed 42 \
+                          --proxy standalone --port "${SMOKE_PORT}"
+                      test -f "${SMOKE_DIR}/demo.ged"
+                      head -5 "${SMOKE_DIR}/demo.ged"
+                      grep -q "^2 VERS 5.5.1$" "${SMOKE_DIR}/demo.ged"
+                      echo "demo edition: demo.ged emitted (skip stack-up)"
+                      exit 0
+                  fi
                   docker run --rm \
                       -v "${SMOKE_DIR}:/work" \
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
-                      --non-interactive \
-                      --force \
-                      --no-up \
-                      --no-admin \
-                      --edition "${EDITION}" \
-                      --proxy standalone \
-                      --port "${SMOKE_PORT}"
+                      --non-interactive --force --no-up --no-admin \
+                      --edition "${EDITION}" --proxy standalone --port "${SMOKE_PORT}"
 
             - name: Up stack
               working-directory: ${{ env.SMOKE_DIR }}
-              run: docker compose up -d
+              run: |
+                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
+                      echo "demo edition: Up stack step skipped"
+                      exit 0
+                  fi
+                  docker compose up -d
 
             - name: Wait for nginx healthy
               working-directory: ${{ env.SMOKE_DIR }}
               run: |
+                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
+                      echo "demo edition: Wait for nginx healthy step skipped"
+                      exit 0
+                  fi
                   set -euo pipefail
                   for i in $(seq 1 60); do
                       health=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q nginx)" 2>/dev/null || echo starting)
@@ -278,6 +296,10 @@ jobs:
             - name: Probe HTTP
               working-directory: ${{ env.SMOKE_DIR }}
               run: |
+                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
+                      echo "demo edition: Probe HTTP step skipped"
+                      exit 0
+                  fi
                   set -euo pipefail
                   body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/")
                   echo "$body" | head -50
@@ -289,4 +311,9 @@ jobs:
             - name: Tear down
               if: always()
               working-directory: ${{ env.SMOKE_DIR }}
-              run: docker compose down -v
+              run: |
+                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
+                      echo "demo edition: Tear down step skipped"
+                      exit 0
+                  fi
+                  docker compose down -v
