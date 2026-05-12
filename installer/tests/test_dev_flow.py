@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -239,3 +240,81 @@ def test_collect_dev_inputs_rejects_non_numeric_port_at_prompt() -> None:
             host_info=_HOST,
             stdin=stdin, stdout=StringIO(),
         )
+
+
+_LIVE_CATALOG = Catalog(
+    php_entries=(PhpEntry(webtrees="2.2.6", php="8.5", tags=("latest",)),),
+    nginx_tag="1.28-r1",
+    installer_version="0.1.0",
+)
+
+
+@pytest.fixture(autouse=True)
+def silence_dev_runtime(tmp_path_factory, monkeypatch):
+    """Stub the host-facing bits so dev-flow tests stay hermetic."""
+    fake_manifest = tmp_path_factory.mktemp("manifest")
+    monkeypatch.setenv("WEBTREES_INSTALLER_MANIFEST_DIR", str(fake_manifest))
+    with patch("webtrees_installer.dev_flow.check_prerequisites"), \
+         patch("webtrees_installer.dev_flow.load_catalog", return_value=_LIVE_CATALOG), \
+         patch("webtrees_installer.dev_flow._detect_host_info",
+               return_value=HostInfo(uid=1000, username="dev", primary_ip="10.0.0.5")), \
+         patch("webtrees_installer.dev_flow._compose") as compose_mock:
+        compose_mock.return_value = __import__("subprocess").CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        yield compose_mock
+
+
+def test_run_dev_non_interactive_writes_env_and_pulls(tmp_path: Path) -> None:
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(work_dir=tmp_path)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    assert (tmp_path / ".env").is_file()
+    assert (tmp_path / "persistent" / "database").is_dir()
+    assert (tmp_path / "persistent" / "media").is_dir()
+    assert (tmp_path / "app").is_dir()
+
+
+def test_run_dev_invokes_compose_pull_and_install(tmp_path: Path) -> None:
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(work_dir=tmp_path)
+
+    # Reach into the autouse fixture's compose mock.
+    with patch("webtrees_installer.dev_flow._compose") as compose_mock:
+        import subprocess as _sp
+        compose_mock.return_value = _sp.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    invocations = [c.args[0] for c in compose_mock.call_args_list]
+    assert ["compose", "pull"] in invocations
+    assert any(
+        inv[:3] == ["compose", "run", "--rm"] and "buildbox" in inv
+        for inv in invocations
+    )
+
+
+def test_run_dev_fails_cleanly_when_compose_pull_breaks(tmp_path: Path) -> None:
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(work_dir=tmp_path)
+    with patch("webtrees_installer.dev_flow._compose") as compose_mock:
+        import subprocess as _sp
+        compose_mock.return_value = _sp.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="pull error",
+        )
+        exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 4
+
+
+def test_run_dev_aborts_on_existing_files_without_force(tmp_path: Path) -> None:
+    from webtrees_installer.dev_flow import run_dev
+    (tmp_path / ".env").write_text("X=1")
+    args = _args(work_dir=tmp_path, force=False)
+    from webtrees_installer.prereq import PrereqError
+    with pytest.raises(PrereqError):
+        run_dev(args, stdin=StringIO(), stdout=StringIO())

@@ -8,16 +8,20 @@ values so `make up` succeeds without further editing.
 
 from __future__ import annotations
 
+import os
+import socket
+import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._io import atomic_write
+from webtrees_installer.prereq import PrereqError, check_prerequisites, confirm_overwrite
 from webtrees_installer.prompts import PromptError, ask_text, ask_yesno
-from webtrees_installer.versions import Catalog
+from webtrees_installer.versions import Catalog, load_catalog
 
 
 @dataclass(frozen=True)
@@ -275,3 +279,143 @@ def _ask_port(
         raise PromptError(
             f"{question}: not a number: {reply!r}"
         ) from exc
+
+
+_DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
+
+
+def _resolve_manifest_dir() -> Path:
+    """Locate the bundled image catalog at run-time, never at import-time."""
+    env_value = os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR")
+    if env_value:
+        return Path(env_value)
+    if _DEFAULT_MANIFEST_DIR.is_dir():
+        return _DEFAULT_MANIFEST_DIR
+    raise PrereqError(
+        "WEBTREES_INSTALLER_MANIFEST_DIR is not set and the bundled image "
+        f"manifest directory {_DEFAULT_MANIFEST_DIR} is missing."
+    )
+
+
+def run_dev(
+    args: DevArgs,
+    *,
+    stdin: IO[str] | None = None,
+    stdout: IO[str] | None = None,
+) -> int:
+    """Drive the dev-flow end to end. Returns process exit code."""
+    work_dir = args.work_dir or Path("/work")
+
+    check_prerequisites(work_dir=work_dir)
+
+    if not confirm_overwrite(
+        work_dir=work_dir,
+        interactive=args.interactive,
+        force=args.force,
+        stdin=stdin, stdout=stdout,
+    ):
+        if stdout:
+            print("Aborted (existing files preserved).", file=stdout)
+        return 1
+
+    if args.interactive:
+        host_info = _detect_host_info()
+        existing = _parse_env(work_dir / ".env")
+        args = collect_dev_inputs(
+            work_dir=work_dir, force=args.force,
+            existing=existing,
+            host_info=host_info,
+            stdin=stdin, stdout=stdout,
+        )
+
+    catalog = load_catalog(_resolve_manifest_dir())
+    render_dev_env(
+        args, catalog=catalog, target_dir=work_dir,
+        generated_at=datetime.now(tz=timezone.utc),
+    )
+
+    for relative in ("persistent/database", "persistent/media", "app"):
+        (work_dir / relative).mkdir(parents=True, exist_ok=True)
+
+    pull = _compose(["compose", "pull"], cwd=work_dir)
+    if pull.returncode != 0:
+        if stdout:
+            print(f"error: docker compose pull failed: {pull.stderr.strip()}",
+                  file=stdout)
+        return 4
+
+    install = _compose(
+        ["compose", "run", "--rm", "-e", "COMPOSER_AUTH", "buildbox",
+         "./scripts/install-application.sh"],
+        cwd=work_dir,
+    )
+    if install.returncode != 0:
+        if stdout:
+            print(f"error: composer install failed: {install.stderr.strip()}",
+                  file=stdout)
+        return 4
+
+    if stdout:
+        _print_dev_banner(stdout=stdout, args=args)
+    return 0
+
+
+def _detect_host_info() -> HostInfo:
+    """Read UID, username and primary IPv4 once for the prompt defaults."""
+    try:
+        uid = os.geteuid()
+    except AttributeError:
+        uid = 0
+    username = os.environ.get("USER") or os.environ.get("LOGNAME") or "developer"
+    primary_ip = "127.0.0.1"
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("1.1.1.1", 80))
+            primary_ip = sock.getsockname()[0]
+        finally:
+            sock.close()
+    except OSError:
+        pass
+    return HostInfo(uid=uid, username=username, primary_ip=primary_ip)
+
+
+def _parse_env(path: Path) -> dict[str, str]:
+    """Best-effort .env reader for prompt defaults."""
+    if not path.is_file():
+        return {}
+    out: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        out[key.strip()] = value.strip()
+    return out
+
+
+def _compose(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run `docker <args>` in `cwd`, capturing output. Never raises on non-zero."""
+    return subprocess.run(
+        ["docker", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
+    """Print the post-install summary block with URLs and next steps."""
+    bar = "-" * 60
+    print(bar, file=stdout)
+    print("Webtrees dev environment ready.", file=stdout)
+    print(bar, file=stdout)
+    if args.proxy_mode == "standalone":
+        print(f"Webtrees URL: http://{args.dev_domain}/", file=stdout)
+        print(f"phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
+              file=stdout)
+    else:
+        print(f"Webtrees URL: https://{args.dev_domain}/", file=stdout)
+    print(file=stdout)
+    print("Next: make up", file=stdout)
+    print(bar, file=stdout)
