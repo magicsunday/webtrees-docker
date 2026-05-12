@@ -10,7 +10,7 @@ You need a host with Docker Engine installed:
 - **Linux**: follow <https://docs.docker.com/engine/install/> for your distro
   (Ubuntu/Debian/Fedora/Arch all supported). Add your user to the `docker`
   group so you can run `docker` without `sudo`.
-- **Synology / Ugreen / NAS**: install the Docker / Container Manager
+- **Synology / QNAP / generic NAS appliances**: install the Docker / Container Manager
   package from your NAS app store. The wizard binds the docker socket
   at `/var/run/docker.sock` — make sure that's reachable.
 - **Docker Desktop (Mac / Windows)**: works for trying it out, but for
@@ -36,9 +36,9 @@ brings the stack up via `docker compose up -d`. Visit `http://localhost:8080/`.
 
 When you run the one-liner, the wizard:
 
-1. Pulls the wizard image (~30 MB, one-time).
+1. Pulls the wizard image (~55 MB compressed, ~165 MB on-disk, one-time).
 2. Renders `compose.yaml` and `.env` into your current directory.
-3. Pulls the application images (~600 MB total, one-time).
+3. Pulls the application images (~260 MB download, ~765 MB on-disk, one-time).
 4. Starts the stack via `docker compose up -d`.
 5. Prints the URL plus admin credentials (if you chose `--admin-user`).
 
@@ -89,7 +89,7 @@ to also seed the demo tree.
 - `.env` — image tags + (standalone) the host port override.
 - `.webtrees-admin-password` — only when `--admin-user` is set; mode 0600.
 
-Subsequent `docker compose pull && up -d` re-uses the same files.
+Subsequent `docker compose pull && docker compose up -d` re-uses the same files.
 
 ## What gets installed where
 
@@ -108,7 +108,7 @@ Container data lives in Docker-managed volumes:
 ```text
 webtrees_database   ~50 MB+   MariaDB data files
 webtrees_media      depends   uploaded photos / documents
-webtrees_app        ~200 MB   webtrees source + vendor (re-seeded on image upgrade)
+webtrees_app        ~80 MB+   webtrees source + vendor (re-seeded on upgrade)
 webtrees_secrets    ~1 KB     auto-generated DB + admin passwords
 ```
 

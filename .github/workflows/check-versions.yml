@@ -105,7 +105,7 @@ jobs:
                           | sed -e 's/":"/": "/g' -e 's/":\[/": [/g' -e 's/,"/, "/g')
                       {
                           printf '[\n'
-                          n=$(printf '%s\n' "$new_rows" | wc -l)
+                          n=$(printf '%s\n' "$new_rows" | grep -c '')
                           i=0
                           while IFS= read -r row; do
                               i=$((i + 1))
@@ -147,7 +147,7 @@ jobs:
                       if gh issue list --state all --search "$issue_title in:title" --json number --jq 'length' | grep -q '^0$'; then
                           gh issue create \
                               --title "$issue_title" \
-                              --body "Upstream released webtrees \`${version}\`. Auto-bump PR: ${pr_url}. Build workflow was dispatched against \`main\` with input \`webtrees_version=${version}\`; track the run in the Actions tab."
+                              --body "Upstream released webtrees \`${version}\`. Auto-bump PR: ${pr_url}. Build workflow was dispatched against \`${branch}\` with input \`webtrees_version=${version}\`; track the run in the Actions tab."
                       else
                           echo "Issue for $version already exists — skipping"
                       fi
