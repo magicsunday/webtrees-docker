@@ -28,6 +28,10 @@ jobs:
                   # 2.2.6, which `comm` then rejects with "not in sorted order". Skip `comm`
                   # entirely: load the known list once and filter upstream with `grep -vxFf`.
                   upstream=$(gh api repos/fisharebest/webtrees/releases --jq '.[].tag_name' | head -50)
+                  # Bail loud if the API returned nothing (auth, rate limit, network):
+                  # otherwise the empty string sneaks through `printf | grep -vxFf` as a
+                  # single empty line and the step silently reports "no new versions".
+                  [ -n "$upstream" ] || { echo "::error::gh api returned no releases" >&2; exit 1; }
                   known_file=$(mktemp)
                   trap 'rm -f "$known_file"' EXIT
                   jq -r '.[].webtrees' dev/versions.json > "$known_file"
