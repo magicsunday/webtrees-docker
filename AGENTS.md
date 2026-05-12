@@ -10,7 +10,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | | |
 |---|---|
 | Purpose | Docker images + Python wizard for self-hosting [webtrees](https://www.webtrees.net/) |
-| Stacks | Python 3.12 wizard (`installer/`), multi-stage `Dockerfile` (PHP-FPM + nginx), bash launchers (`install`, `upgrade`) |
+| Stacks | Python wizard (`installer/`, ≥3.12), multi-stage `Dockerfile` (PHP-FPM + nginx), bash launchers (`install`, `upgrade`) |
 | Distribution | Container images on `ghcr.io/magicsunday/webtrees/{php,php-full,nginx,installer}`; matrix lives in `dev/versions.json` |
 | Entry point for end-users | `curl … /install \| bash` |
 
@@ -36,15 +36,14 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 
 | Command | Effect |
 |---|---|
-| `docker run --rm -v $(pwd)/installer:/work -w /work python:3.14-alpine sh -c "pip install -q -e .[test] && pytest -q"` | Run wizard tests (no host Python on the dev NAS) |
+| `docker run --rm -v $(pwd)/installer:/work -w /work python:3.14-alpine sh -c "pip install -q -e .[test] && pytest -q"` | Run wizard tests in a throwaway Python container |
 | `docker build -f installer/Dockerfile -t webtrees-installer:dev .` | Build wizard image locally |
-| `gh workflow run build.yml -R magicsunday/webtrees-docker --ref main` | Trigger full image-matrix + smoke build on CI |
-| `gh workflow run check-versions.yml -R magicsunday/webtrees-docker --ref main` | Run the upstream-release poller |
-| `docker run --rm -v /volume2/docker/webtrees:/repo -w /repo rhysd/actionlint:latest <workflow>` | Lint a workflow file |
+| `gh workflow run build.yml --ref main` | Trigger full image-matrix + smoke build on CI |
+| `gh workflow run check-versions.yml --ref main` | Run the upstream-release poller |
+| `docker run --rm -v $(pwd):/repo -w /repo rhysd/actionlint:latest <workflow>` | Lint a workflow file |
 
-No host PHP / Node / buildx is available on the dev NAS — see
-[`reference_environment`](/home/rso/.claude/memory/reference_environment.md)
-in global memory. Multi-platform image builds run only on CI.
+Multi-platform image builds (linux/amd64 + linux/arm64) are slow under
+qemu emulation; rely on CI for the full matrix.
 
 ## Working with the wizard
 
@@ -55,19 +54,6 @@ in global memory. Multi-platform image builds run only on CI.
 | Touch the dev flow | `installer/webtrees_installer/dev_flow.py` + `installer/tests/test_dev_flow.py` |
 | Touch the standalone flow | `installer/webtrees_installer/flow.py` + `installer/tests/test_flow.py` |
 | Update version matrix | `dev/versions.json` |
-
-## Workflow conventions
-
-| Rule | Source of truth |
-|---|---|
-| Capitalised verb commit subject; no `chore:` / `feat:` prefix | global memory `feedback_git_commits` |
-| Never add `Co-Authored-By` trailers | global memory `feedback_git_commits` |
-| Never amend commits; always create new ones | project memory `feedback_commit_discipline` |
-| `git -C /volume2/docker/webtrees …` — bash cwd does not persist across Bash tool invocations | project memory `feedback_pwd_before_git` |
-| Reviews iterate until clean; after every "Approved" run a second independent review | global memory `feedback_double_review_loop` |
-| No `Co-Authored-By`, no GH issue numbers / commit SHAs / external repo references in commit bodies | project memory `feedback_neutral_commit_messages` |
-| All code comments in English; planning docs may be German | project memory `feedback_code_comments_english` |
-| Don't push without explicit user "go" for any tagged release | project memory `feedback_release_needs_explicit_go` |
 
 ## Recent traps to avoid
 
