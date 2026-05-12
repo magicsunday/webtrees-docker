@@ -308,13 +308,18 @@ jobs:
                   set -euo pipefail
                   body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/")
                   # head -50 closes the pipe after the 50th line; without the
-                  # `|| true` the resulting SIGPIPE on `echo` would trip
+                  # `|| true` the resulting SIGPIPE on `printf` would trip
                   # `set -o pipefail` and fail the step before grep even runs.
                   printf '%s\n' "$body" | head -50 || true
-                  printf '%s\n' "$body" | grep -qi "webtrees" || {
+                  # `grep -q` also closes stdin on first match, which can
+                  # deliver SIGPIPE to upstream `printf` whenever the response
+                  # body exceeds the pipe buffer (~64 KiB). An `if !` form
+                  # consumes the pipeline's exit code as a conditional, so
+                  # SIGPIPE / exit 141 does not cascade through pipefail.
+                  if ! printf '%s\n' "$body" | grep -qi "webtrees"; then
                       echo "::error::response body does not mention 'webtrees'"
                       exit 1
-                  }
+                  fi
 
             - name: Tear down
               if: always()
