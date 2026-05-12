@@ -232,6 +232,26 @@ def test_collect_dev_inputs_rejects_non_numeric_port_in_env() -> None:
         )
 
 
+def test_collect_dev_inputs_threads_no_up_through() -> None:
+    """A caller-supplied ``no_up=True`` survives the interactive prompt loop.
+
+    Regression: before threading the flag, the collector hard-coded
+    ``no_up=False`` in the returned DevArgs, so an interactive ``--no-up``
+    invocation silently lost the flag before the wizard reached the
+    compose-pull / composer-install step.
+    """
+    stdin = StringIO("\n" * 16)
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=True,
+        existing={},
+        host_info=_HOST,
+        no_up=True,
+        stdin=stdin, stdout=StringIO(),
+    )
+    assert args.no_up is True
+    assert args.force is True
+
+
 def test_collect_dev_inputs_rejects_non_numeric_port_at_prompt() -> None:
     """Garbage at the port prompt surfaces a PromptError."""
     from webtrees_installer.prompts import PromptError
@@ -399,13 +419,31 @@ def test_detect_host_info_falls_back_to_cwd_without_work_dir(monkeypatch) -> Non
 
 
 def test_render_dev_env_writes_work_dir_line(tmp_path: Path, catalog: Catalog) -> None:
-    """The rendered .env carries WORK_DIR=<host-path> for compose to pick up."""
+    """The rendered .env carries WORK_DIR="<host-path>" for compose to pick up."""
     args = _args(work_dir=tmp_path, host_work_dir=str(tmp_path))
     render_dev_env(args, catalog=catalog, target_dir=tmp_path,
                    generated_at=datetime(2026, 5, 12, 12, 0, 0))
 
     env = (tmp_path / ".env").read_text()
-    assert f"WORK_DIR={tmp_path}" in env
+    assert f'WORK_DIR="{tmp_path}"' in env
+
+
+def test_render_dev_env_quotes_work_dir(tmp_path: Path, catalog: Catalog) -> None:
+    """WORK_DIR value is wrapped in double quotes.
+
+    Compose's env-file parser strips ``#...`` inline comments and trims
+    trailing whitespace from unquoted values. A host path containing
+    either character would silently truncate, so the template must emit
+    the value quoted regardless of the path content.
+    """
+    args = _args(work_dir=tmp_path, host_work_dir="/srv/projects/wt")
+    render_dev_env(args, catalog=catalog, target_dir=tmp_path,
+                   generated_at=datetime(2026, 5, 12, 12, 0, 0))
+
+    env = (tmp_path / ".env").read_text()
+    # The exact line: quoted on both sides, no bare value form.
+    assert 'WORK_DIR="/srv/projects/wt"' in env
+    assert "WORK_DIR=/srv/projects/wt\n" not in env
 
 
 def test_render_dev_env_rejects_empty_host_work_dir(tmp_path: Path, catalog: Catalog) -> None:
@@ -430,6 +468,23 @@ def test_run_dev_no_up_skips_compose(tmp_path: Path, silence_dev_runtime) -> Non
     assert silence_dev_runtime.call_count == 0
 
 
+def test_run_dev_interactive_preserves_no_up(tmp_path: Path, silence_dev_runtime) -> None:
+    """Interactive ``--no-up`` round-trips through the prompt loop.
+
+    Regression: ``collect_dev_inputs`` used to overwrite ``no_up`` with
+    ``False`` when reassigning ``args``, so the wizard ran compose-pull
+    + composer-install even though the caller asked for --no-up.
+    """
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(work_dir=tmp_path, interactive=True, no_up=True, force=True)
+
+    exit_code = run_dev(args, stdin=StringIO("\n" * 16), stdout=StringIO())
+
+    assert exit_code == 0
+    # Compose must never have been touched in the interactive --no-up flow.
+    assert silence_dev_runtime.call_count == 0
+
+
 def test_run_dev_fills_host_work_dir_from_env(tmp_path: Path, monkeypatch,
                                               silence_dev_runtime) -> None:
     """When the CLI hands DevArgs(host_work_dir=None) the env var fills it in."""
@@ -443,4 +498,4 @@ def test_run_dev_fills_host_work_dir_from_env(tmp_path: Path, monkeypatch,
 
     assert exit_code == 0
     env = (tmp_path / ".env").read_text()
-    assert "WORK_DIR=/host/workspace" in env
+    assert 'WORK_DIR="/host/workspace"' in env

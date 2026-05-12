@@ -167,10 +167,16 @@ def collect_dev_inputs(
     force: bool,
     existing: dict[str, str],
     host_info: HostInfo,
+    no_up: bool = False,
     stdin: IO[str] | None = None,
     stdout: IO[str] | None = None,
 ) -> DevArgs:
-    """Drive the dev-flow prompts. `existing` carries values from a previous .env."""
+    """Drive the dev-flow prompts. `existing` carries values from a previous .env.
+
+    The caller threads ``force`` and ``no_up`` through unchanged so a user
+    who passes ``--no-up`` on the command line keeps that behaviour even
+    when the wizard runs the interactive prompt loop.
+    """
 
     use_traefik = ask_yesno(
         "Is a Traefik reverse proxy available?",
@@ -263,7 +269,7 @@ def collect_dev_inputs(
         local_user_name=host_info.username,
         host_work_dir=host_info.work_dir,
         force=force,
-        no_up=False,
+        no_up=no_up,
     )
 
 
@@ -357,6 +363,7 @@ def run_dev(
             work_dir=work_dir, force=args.force,
             existing=existing,
             host_info=host_info,
+            no_up=args.no_up,
             stdin=stdin, stdout=stdout,
         )
 

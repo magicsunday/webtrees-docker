@@ -278,7 +278,7 @@ jobs:
                       grep -q "^ENVIRONMENT=development$" "${SMOKE_DIR}/repo/.env"
                       grep -q "^COMPOSE_FILE=compose.yaml:compose.pma.yaml:compose.development.yaml:compose.publish.yaml$" "${SMOKE_DIR}/repo/.env"
                       grep -q "^LOCAL_USER_ID=1000$" "${SMOKE_DIR}/repo/.env"
-                      grep -q "^WORK_DIR=${SMOKE_DIR}/repo$" "${SMOKE_DIR}/repo/.env"
+                      grep -Fq "WORK_DIR=\"${SMOKE_DIR}/repo\"" "${SMOKE_DIR}/repo/.env"
                       echo "dev edition: .env rendered with expected dev-chain"
                       exit 0
                   fi
@@ -451,13 +451,17 @@ jobs:
               working-directory: ${{ env.E2E_DIR }}
               run: |
                   set -euo pipefail
-                  # tree-list renders a Symfony-Console ASCII table; the demo
-                  # row starts `| demo ` once import is complete.
+                  # tree-list --format=json emits one object per tree with
+                  # name + imported fields; jq -e exits non-zero if no entry
+                  # matches, which also proves the import (not just create)
+                  # ran. The ASCII table form was ambiguous: `demo` lives in
+                  # column 2 (Name), not column 1 (ID), so a `^| demo `
+                  # anchor never matched.
                   output=$(docker compose exec -T phpfpm su www-data -s /bin/sh -c \
-                      "cd /var/www/html && php public/index.php tree-list")
+                      "cd /var/www/html && php public/index.php tree-list --format=json")
                   printf '%s\n' "$output"
-                  if ! grep -q '^| demo ' <<< "$output"; then
-                      echo "::error::tree-list output does not contain a row for 'demo'"
+                  if ! jq -e 'any(.[]; .name == "demo" and .imported == "yes")' <<< "$output" >/dev/null; then
+                      echo "::error::tree-list output does not contain an imported 'demo' tree"
                       exit 1
                   fi
 
