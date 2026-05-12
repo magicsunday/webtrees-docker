@@ -65,6 +65,16 @@ def test_probe_port_honours_custom_timeout() -> None:
         assert run.call_args.kwargs["timeout_s"] == 120.0
 
 
+def test_probe_port_honours_zero_timeout() -> None:
+    """`timeout_s=0` must not silently fall back to the default."""
+    with patch("webtrees_installer.ports._run_docker_probe") as run:
+        run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr="",
+        )
+        probe_port(8080, timeout_s=0)
+        assert run.call_args.kwargs["timeout_s"] == 0
+
+
 @pytest.mark.parametrize("invalid", [0, -1, 65536, 99999])
 def test_probe_port_rejects_invalid_port(invalid: int) -> None:
     """Out-of-range ports raise ValueError before invoking docker."""

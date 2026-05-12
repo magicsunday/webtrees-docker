@@ -6,7 +6,11 @@ import enum
 import subprocess
 
 
+# Public knob: callers can pass `timeout_s=PROBE_TIMEOUT_S * 2` or similar
+# to scale the deadline relative to the default without hardcoding seconds.
 PROBE_TIMEOUT_S = 20
+
+# Private dependency pin: the image is an implementation detail of the probe.
 _PROBE_IMAGE = "alpine:3.20"
 
 # Phrases the Docker daemon emits when the requested host port is occupied.
@@ -48,8 +52,9 @@ def probe_port(port: int, *, timeout_s: float | None = None) -> PortStatus:
     if not 1 <= port <= 65535:
         raise ValueError(f"port out of range: {port}")
 
+    effective_timeout = PROBE_TIMEOUT_S if timeout_s is None else timeout_s
     try:
-        result = _run_docker_probe(port, timeout_s=timeout_s or PROBE_TIMEOUT_S)
+        result = _run_docker_probe(port, timeout_s=effective_timeout)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return PortStatus.CHECK_FAILED
 
