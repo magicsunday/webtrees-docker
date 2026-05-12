@@ -1,0 +1,22 @@
+{
+    "male": [
+        "James", "John", "Robert", "Michael", "William", "David", "Richard",
+        "Joseph", "Thomas", "Charles", "Christopher", "Daniel", "Matthew",
+        "Anthony", "Donald", "Mark", "Paul", "Steven", "Andrew", "Kenneth",
+        "George", "Joshua", "Kevin", "Brian", "Edward", "Ronald", "Timothy",
+        "Jason", "Jeffrey", "Ryan", "Jacob", "Gary", "Nicholas", "Eric",
+        "Jonathan", "Stephen", "Larry", "Justin", "Scott", "Brandon",
+        "Frank", "Benjamin", "Gregory", "Samuel", "Raymond", "Patrick",
+        "Alexander", "Jack", "Dennis", "Jerry"
+    ],
+    "female": [
+        "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara",
+        "Susan", "Jessica", "Sarah", "Karen", "Lisa", "Nancy", "Betty",
+        "Helen", "Sandra", "Donna", "Carol", "Ruth", "Sharon", "Michelle",
+        "Laura", "Sarah", "Kimberly", "Deborah", "Dorothy", "Lisa", "Nancy",
+        "Karen", "Margaret", "Susan", "Dorothy", "Lisa", "Nancy", "Karen",
+        "Betty", "Helen", "Sandra", "Donna", "Carol", "Ruth", "Sharon",
+        "Michelle", "Laura", "Sarah", "Kimberly", "Deborah", "Amy", "Angela",
+        "Ashley", "Brenda"
+    ]
+}

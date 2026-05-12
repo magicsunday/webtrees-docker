@@ -41,7 +41,7 @@ webtrees-installer = "webtrees_installer.cli:main"
 include = ["webtrees_installer*"]
 
 [tool.setuptools.package-data]
-webtrees_installer = ["templates/*.j2"]
+webtrees_installer = ["templates/*.j2", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
