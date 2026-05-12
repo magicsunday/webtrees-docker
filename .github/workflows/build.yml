@@ -24,7 +24,7 @@ jobs:
             nginx_config_revision: ${{ steps.set.outputs.nginx_config_revision }}
             installer_tag: ${{ steps.set.outputs.installer_tag }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: License drift guard
               run: |
@@ -64,10 +64,10 @@ jobs:
             matrix:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         steps:
-            - uses: actions/checkout@v4
-            - uses: docker/setup-qemu-action@v3
-            - uses: docker/setup-buildx-action@v3
-            - uses: docker/login-action@v3
+            - uses: actions/checkout@v6
+            - uses: docker/setup-qemu-action@v4
+            - uses: docker/setup-buildx-action@v4
+            - uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -84,7 +84,7 @@ jobs:
                   done
                   printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
 
-            - uses: docker/build-push-action@v5
+            - uses: docker/build-push-action@v7
               with:
                   context: .
                   file: ./Dockerfile
@@ -113,10 +113,10 @@ jobs:
             matrix:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         steps:
-            - uses: actions/checkout@v4
-            - uses: docker/setup-qemu-action@v3
-            - uses: docker/setup-buildx-action@v3
-            - uses: docker/login-action@v3
+            - uses: actions/checkout@v6
+            - uses: docker/setup-qemu-action@v4
+            - uses: docker/setup-buildx-action@v4
+            - uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -133,7 +133,7 @@ jobs:
                   done
                   printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
 
-            - uses: docker/build-push-action@v5
+            - uses: docker/build-push-action@v7
               with:
                   context: .
                   file: ./Dockerfile
@@ -158,16 +158,16 @@ jobs:
             contents: read
             packages: write
         steps:
-            - uses: actions/checkout@v4
-            - uses: docker/setup-qemu-action@v3
-            - uses: docker/setup-buildx-action@v3
-            - uses: docker/login-action@v3
+            - uses: actions/checkout@v6
+            - uses: docker/setup-qemu-action@v4
+            - uses: docker/setup-buildx-action@v4
+            - uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: docker/build-push-action@v5
+            - uses: docker/build-push-action@v7
               with:
                   context: .
                   file: ./Dockerfile
@@ -192,19 +192,19 @@ jobs:
             contents: read
             packages: write
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
-            - uses: docker/setup-qemu-action@v3
-            - uses: docker/setup-buildx-action@v3
+            - uses: docker/setup-qemu-action@v4
+            - uses: docker/setup-buildx-action@v4
 
-            - uses: docker/login-action@v3
+            - uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build and push
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v7
               with:
                   context: .
                   file: installer/Dockerfile
@@ -235,7 +235,7 @@ jobs:
             SMOKE_PORT: 18080
             EDITION: ${{ matrix.edition }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Run installer (non-interactive)
               env:
