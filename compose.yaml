@@ -61,6 +61,24 @@ services:
             # are never overwritten.
             - WEBTREES_AUTO_SEED=true
             - WEBTREES_VERSION
+            # Database connection (consumed by config.ini.php and the
+            # headless bootstrap hook). MARIADB_PASSWORD is required when
+            # WT_ADMIN_USER is set; MARIADB_PASSWORD_FILE is honoured if
+            # present.
+            - MARIADB_HOST=${MARIADB_HOST:-db}
+            - MARIADB_PORT=${MARIADB_PORT:-3306}
+            - MARIADB_DATABASE
+            - MARIADB_USER
+            - MARIADB_PASSWORD=${MARIADB_PASSWORD:-}
+            - MARIADB_PASSWORD_FILE=${MARIADB_PASSWORD_FILE:-}
+            - WEBTREES_TABLE_PREFIX=${WEBTREES_TABLE_PREFIX:-wt_}
+            # Headless admin bootstrap (opt-in; entrypoint is a no-op when
+            # WT_ADMIN_USER is empty and the browser-side setup wizard runs).
+            - WT_ADMIN_USER=${WT_ADMIN_USER:-}
+            - WT_ADMIN_PASSWORD=${WT_ADMIN_PASSWORD:-}
+            - WT_ADMIN_PASSWORD_FILE=${WT_ADMIN_PASSWORD_FILE:-}
+            - WT_ADMIN_EMAIL=${WT_ADMIN_EMAIL:-}
+            - WT_ADMIN_REAL_NAME=${WT_ADMIN_REAL_NAME:-}
             # PHP configuration settings
             - PHP_MAX_EXECUTION_TIME
             - PHP_MAX_INPUT_VARS
