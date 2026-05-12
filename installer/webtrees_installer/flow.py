@@ -1,0 +1,298 @@
+"""Standalone-mode flow orchestrator."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import IO
+
+from webtrees_installer.ports import PortStatus, probe_port
+from webtrees_installer.prereq import (
+    PrereqError,
+    check_prerequisites,
+    confirm_overwrite,
+)
+from webtrees_installer.prompts import (
+    Choice,
+    ask_choice,
+    ask_text,
+    ask_yesno,
+)
+from webtrees_installer.render import RenderInput, render_files
+from webtrees_installer.secrets import generate_password
+from webtrees_installer.versions import load_catalog
+
+
+@dataclass(frozen=True)
+class StandaloneArgs:
+    """All inputs the standalone flow needs from the CLI layer."""
+
+    work_dir: Path | None
+    interactive: bool
+
+    edition: str | None
+    proxy_mode: str | None
+    app_port: int | None
+    domain: str | None
+    admin_bootstrap: bool | None
+    admin_user: str | None
+    admin_email: str | None
+
+    force: bool
+    no_up: bool
+
+
+_FALLBACK_PORT = 8080
+_MANIFEST_DIR = Path(
+    os.environ.get("WEBTREES_INSTALLER_MANIFEST_DIR", "/opt/installer/versions")
+)
+
+
+def run_standalone(
+    args: StandaloneArgs,
+    *,
+    stdin: IO[str] | None = None,
+    stdout: IO[str] | None = None,
+) -> int:
+    """Drive the standalone-flow end to end. Returns process exit code."""
+    work_dir = args.work_dir or Path("/work")
+
+    check_prerequisites(work_dir=work_dir)
+
+    if not confirm_overwrite(
+        work_dir=work_dir,
+        interactive=args.interactive,
+        force=args.force,
+        stdin=stdin,
+        stdout=stdout,
+    ):
+        if stdout:
+            print("Aborted (existing files preserved).", file=stdout)
+        return 1
+
+    edition = ask_choice(
+        "Which edition?",
+        choices=[
+            Choice("core", "Core (plain webtrees)"),
+            Choice("full", "Full (with Magic Sunday charts)"),
+        ],
+        default="full",
+        value=args.edition,
+        stdin=stdin,
+        stdout=stdout,
+    )
+
+    proxy_mode = ask_choice(
+        "Reverse-proxy mode?",
+        choices=[
+            Choice("standalone", "Standalone (no proxy)"),
+            Choice("traefik", "Behind Traefik"),
+        ],
+        default="standalone",
+        value=args.proxy_mode,
+        stdin=stdin,
+        stdout=stdout,
+    )
+
+    app_port: int | None = None
+    domain: str | None = None
+    if proxy_mode == "standalone":
+        app_port = _resolve_port(args, stdin=stdin, stdout=stdout)
+    else:
+        domain = ask_text(
+            "Public domain (e.g. webtrees.example.org)",
+            default=None,
+            value=args.domain,
+            stdin=stdin,
+            stdout=stdout,
+        )
+
+    admin_bootstrap = ask_yesno(
+        "Create an admin user automatically?",
+        default=True,
+        value=args.admin_bootstrap,
+        stdin=stdin,
+        stdout=stdout,
+    )
+    admin_user: str | None = None
+    admin_email: str | None = None
+    admin_password: str | None = None
+    if admin_bootstrap:
+        admin_user = ask_text(
+            "Admin username",
+            default="admin",
+            value=args.admin_user,
+            stdin=stdin,
+            stdout=stdout,
+        )
+        admin_email = ask_text(
+            "Admin email",
+            default="admin@example.org",
+            value=args.admin_email,
+            stdin=stdin,
+            stdout=stdout,
+        )
+        admin_password = generate_password()
+
+    catalog = load_catalog(_MANIFEST_DIR)
+    render_input = RenderInput(
+        edition=edition,
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_bootstrap=admin_bootstrap,
+        admin_user=admin_user,
+        admin_email=admin_email,
+        catalog=catalog,
+        generated_at=datetime.now(tz=timezone.utc),
+    )
+    render_files(input_model=render_input, target_dir=work_dir)
+
+    if admin_password is not None:
+        _write_admin_password_secret(work_dir=work_dir, password=admin_password)
+
+    _print_banner(
+        stdout=stdout,
+        work_dir=work_dir,
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        no_up=args.no_up,
+    )
+
+    return 0
+
+
+def _resolve_port(
+    args: StandaloneArgs,
+    *,
+    stdin: IO[str] | None,
+    stdout: IO[str] | None,
+) -> int:
+    """Ask for the port, probe it, fall back to 8080 if busy, warn on probe failure."""
+    requested = ask_text(
+        "Host port for the webtrees UI",
+        default="80",
+        value=str(args.app_port) if args.app_port is not None else None,
+        stdin=stdin,
+        stdout=stdout,
+    )
+    try:
+        port = int(requested)
+    except ValueError as exc:
+        raise PrereqError(f"port must be numeric: {requested!r}") from exc
+
+    status = probe_port(port)
+    if status is PortStatus.FREE:
+        return port
+    if status is PortStatus.CHECK_FAILED:
+        if stdout:
+            print(
+                f"Warning: could not probe port {port}; proceeding regardless.",
+                file=stdout,
+            )
+        return port
+
+    if stdout:
+        print(
+            f"Port {port} is in use; trying {_FALLBACK_PORT} instead.",
+            file=stdout,
+        )
+    fallback_status = probe_port(_FALLBACK_PORT)
+    if fallback_status is PortStatus.FREE:
+        return _FALLBACK_PORT
+    raise PrereqError(
+        f"port {port} is in use and fallback {_FALLBACK_PORT} is too; "
+        "pass --port to pick a free one"
+    )
+
+
+def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
+    """Pre-seed the secrets volume with the wizard's admin password.
+
+    The init container's command checks `[ -s "/secrets/wt_admin_password" ]`
+    and only generates a fresh password if the file is empty. By creating the
+    project-scoped volume (`webtrees_secrets`) up-front and writing the
+    password through an ephemeral alpine container, the init step finds the
+    file already populated and leaves it alone — which means the password the
+    wizard shows in the banner is the one the bootstrap hook will use.
+    """
+    project = _project_name(work_dir)
+    volume = f"{project}_secrets"
+
+    subprocess.run(
+        ["docker", "volume", "create", volume],
+        check=True, capture_output=True, text=True,
+    )
+    subprocess.run(
+        [
+            "docker", "run", "--rm", "-i",
+            "-v", f"{volume}:/secrets",
+            "alpine:3.20",
+            "sh", "-ec",
+            "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
+        ],
+        input=password,
+        check=True, capture_output=True, text=True,
+    )
+
+    secret_file = work_dir / ".webtrees-admin-password"
+    secret_file.write_text(password + "\n")
+    try:
+        secret_file.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _project_name(work_dir: Path) -> str:
+    """Mirror the COMPOSE_PROJECT_NAME the wizard writes into .env (always 'webtrees')."""
+    return "webtrees"
+
+
+def _print_banner(
+    *,
+    stdout: IO[str] | None,
+    work_dir: Path,
+    proxy_mode: str,
+    app_port: int | None,
+    domain: str | None,
+    admin_user: str | None,
+    admin_password: str | None,
+    no_up: bool,
+) -> None:
+    if stdout is None:
+        return
+
+    bar = "-" * 60
+    print(bar, file=stdout)
+    print("Webtrees install ready.", file=stdout)
+    print(bar, file=stdout)
+    print(f"Wrote: {work_dir / 'compose.yaml'}", file=stdout)
+    print(f"Wrote: {work_dir / '.env'}", file=stdout)
+
+    if proxy_mode == "standalone":
+        print(f"Webtrees URL: http://localhost:{app_port}/", file=stdout)
+    else:
+        print(f"Webtrees URL: https://{domain}/", file=stdout)
+
+    if admin_user is not None:
+        print(file=stdout)
+        print(f"Admin user:     {admin_user}", file=stdout)
+        print(f"Admin password: {admin_password}", file=stdout)
+        print(
+            "(Password saved to .webtrees-admin-password for reference; "
+            "remove the file after first login.)",
+            file=stdout,
+        )
+
+    print(file=stdout)
+    if no_up:
+        print("Next: docker compose up -d", file=stdout)
+    else:
+        print("Starting the stack now (docker compose up -d).", file=stdout)
+    print(bar, file=stdout)
