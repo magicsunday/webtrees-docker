@@ -228,7 +228,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                edition: [core, full, demo]
+                edition: [core, full, demo, dev]
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         # The smoke-test runs on a fresh ubuntu-latest VM per matrix cell, so
         # /tmp/smoke is naturally isolated; the matrix-derived suffix is
@@ -248,6 +248,26 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p "${SMOKE_DIR}"
+                  if [ "${EDITION}" = "dev" ]; then
+                      git clone --depth 1 https://github.com/magicsunday/webtrees-docker.git "${SMOKE_DIR}/repo"
+                      docker run --rm \
+                          -v "${SMOKE_DIR}/repo:/work" \
+                          -v /var/run/docker.sock:/var/run/docker.sock \
+                          "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
+                          --mode dev --non-interactive --force \
+                          --proxy standalone --port "${SMOKE_PORT}" --pma-port 50011 \
+                          --dev-domain "webtrees.localhost:${SMOKE_PORT}" \
+                          --mariadb-root-password rootpw \
+                          --mariadb-database webtrees \
+                          --mariadb-user webtrees --mariadb-password devpw \
+                          --local-user-id 1000 --local-user-name developer
+                      test -f "${SMOKE_DIR}/repo/.env"
+                      grep -q "^ENVIRONMENT=development$" "${SMOKE_DIR}/repo/.env"
+                      grep -q "^COMPOSE_FILE=compose.yaml:compose.pma.yaml:compose.development.yaml:compose.publish.yaml$" "${SMOKE_DIR}/repo/.env"
+                      grep -q "^LOCAL_USER_ID=1000$" "${SMOKE_DIR}/repo/.env"
+                      echo "dev edition: .env rendered with expected dev-chain"
+                      exit 0
+                  fi
                   if [ "${EDITION}" = "demo" ]; then
                       docker run --rm \
                           -v "${SMOKE_DIR}:/work" \
@@ -272,19 +292,23 @@ jobs:
             - name: Up stack
               working-directory: ${{ env.SMOKE_DIR }}
               run: |
-                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
-                      echo "demo edition: Up stack step skipped"
-                      exit 0
-                  fi
+                  case "${EDITION:-${{ matrix.edition }}}" in
+                      demo|dev)
+                          echo "${EDITION:-${{ matrix.edition }}} edition: Up stack step skipped"
+                          exit 0
+                          ;;
+                  esac
                   docker compose up -d
 
             - name: Wait for nginx healthy
               working-directory: ${{ env.SMOKE_DIR }}
               run: |
-                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
-                      echo "demo edition: Wait for nginx healthy step skipped"
-                      exit 0
-                  fi
+                  case "${EDITION:-${{ matrix.edition }}}" in
+                      demo|dev)
+                          echo "${EDITION:-${{ matrix.edition }}} edition: Wait for nginx healthy step skipped"
+                          exit 0
+                          ;;
+                  esac
                   set -euo pipefail
                   for i in $(seq 1 60); do
                       health=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q nginx)" 2>/dev/null || echo starting)
@@ -301,10 +325,12 @@ jobs:
             - name: Probe HTTP
               working-directory: ${{ env.SMOKE_DIR }}
               run: |
-                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
-                      echo "demo edition: Probe HTTP step skipped"
-                      exit 0
-                  fi
+                  case "${EDITION:-${{ matrix.edition }}}" in
+                      demo|dev)
+                          echo "${EDITION:-${{ matrix.edition }}} edition: Probe HTTP step skipped"
+                          exit 0
+                          ;;
+                  esac
                   set -euo pipefail
                   body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/")
                   # head -50 closes the pipe after the 50th line; without the
@@ -325,8 +351,10 @@ jobs:
               if: always()
               working-directory: ${{ env.SMOKE_DIR }}
               run: |
-                  if [ "${EDITION:-${{ matrix.edition }}}" = "demo" ]; then
-                      echo "demo edition: Tear down step skipped"
-                      exit 0
-                  fi
+                  case "${EDITION:-${{ matrix.edition }}}" in
+                      demo|dev)
+                          echo "${EDITION:-${{ matrix.edition }}} edition: Tear down step skipped"
+                          exit 0
+                          ;;
+                  esac
                   docker compose down -v
