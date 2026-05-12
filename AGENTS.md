@@ -38,7 +38,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 
 | Command | Effect |
 |---|---|
-| `docker run --rm -v $(pwd)/installer:/work -w /work python:3.12-alpine sh -c "pip install -q -e .[test] && pytest -q"` | Run wizard tests (no host Python on the dev NAS) |
+| `docker run --rm -v $(pwd)/installer:/work -w /work python:3.14-alpine sh -c "pip install -q -e .[test] && pytest -q"` | Run wizard tests (no host Python on the dev NAS) |
 | `docker build -f installer/Dockerfile -t webtrees-installer:dev .` | Build wizard image locally |
 | `gh workflow run build.yml -R magicsunday/webtrees-docker --ref main` | Trigger full image-matrix + smoke build on CI |
 | `gh workflow run check-versions.yml -R magicsunday/webtrees-docker --ref main` | Run the upstream-release poller |
@@ -70,17 +70,6 @@ in global memory. Multi-platform image builds run only on CI.
 | No `Co-Authored-By`, no GH issue numbers / commit SHAs / external repo references in commit bodies | project memory `feedback_neutral_commit_messages` |
 | All code comments in English; planning docs may be German | project memory `feedback_code_comments_english` |
 | Don't push without explicit user "go" for any tagged release | project memory `feedback_release_needs_explicit_go` |
-
-## Memory pointers
-
-Long-lived conventions and recurring gotchas live in two stores; load them
-before making non-trivial changes. Paths are tool-specific — on Claude Code
-they resolve under `~/.claude/memory/` (global) and
-`~/.claude/projects/<slug>/memory/` (per-repo). Other agent tools have
-equivalent stores; check your harness.
-
-When the user references "memory" or asks for "remembered" rules, those
-files are authoritative.
 
 ## Recent traps to avoid
 
