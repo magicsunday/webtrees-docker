@@ -13,6 +13,7 @@ FROM composer:2 AS webtrees-build
 # Re-declare with a default so an empty --build-arg from compose does not
 # collapse the JSON values when composer reads them.
 ARG WEBTREES_VERSION=2.2.6
+ARG PHP_VERSION=8.3
 
 WORKDIR /build
 
@@ -29,6 +30,14 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # image must lock to one version so the OCI label and the on-disk install
  # cannot drift.
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
+ # Pin composer's resolution platform to the target image's PHP version.
+ # The composer:2 image ships whatever PHP version Alpine packages (currently
+ # 8.5.x); without an explicit platform, composer resolves transitive deps
+ # against that latest version and bakes a `>= 8.5` platform-check into
+ # vendor/composer/platform_check.php — which then refuses to load at runtime
+ # on the php:${PHP_VERSION}-fpm-alpine image (HTTP 500 before webtrees ever
+ # starts). The pin makes resolution match the deployment target.
+ && composer config platform.php "${PHP_VERSION}.0" \
  # --ignore-platform-req=ext-*: the composer:2 image lacks the PHP extensions
  # webtrees needs (gd, intl, exif, ...). The php-base stage installs them;
  # we only need composer to resolve and unpack here.
@@ -88,6 +97,7 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
 # webtrees-statistics is deferred until the module is published to Packagist.
 FROM composer:2 AS webtrees-build-full
 ARG WEBTREES_VERSION=2.2.6
+ARG PHP_VERSION=8.3
 
 WORKDIR /build
 
@@ -97,6 +107,10 @@ COPY setup/public /build/public
 
 RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
+ # Mirror the platform-pin from webtrees-build (see comment there) so the
+ # full edition's transitive deps resolve against the deployment PHP
+ # version, not the composer:2 image's PHP version.
+ && composer config platform.php "${PHP_VERSION}.0" \
  && composer install \
         --no-dev \
         --no-scripts \
