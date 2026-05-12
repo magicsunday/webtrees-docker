@@ -20,8 +20,13 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-if [[ ! -S /var/run/docker.sock ]]; then
-    echo "warning: /var/run/docker.sock is not a socket; the wizard may not reach the daemon" >&2
+# Sanity-warn when there's no socket the bind-mount can reach. Rootless
+# Docker keeps the socket under $XDG_RUNTIME_DIR/docker.sock, and tcp /
+# ssh contexts surface via $DOCKER_HOST and don't need a unix socket at all.
+if [[ -z "${DOCKER_HOST:-}" \
+      && ! -S /var/run/docker.sock \
+      && ! -S "${XDG_RUNTIME_DIR:-/run/user/0}/docker.sock" ]]; then
+    echo "warning: no docker socket found at /var/run/docker.sock or \$XDG_RUNTIME_DIR/docker.sock; set DOCKER_HOST or check your daemon" >&2
 fi
 
 # Allocate a TTY only when stdin and stdout are terminals — `curl ... | bash`

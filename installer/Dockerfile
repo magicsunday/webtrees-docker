@@ -13,7 +13,7 @@ RUN apk add --no-cache docker-cli docker-cli-compose
 
 WORKDIR /opt/installer
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md LICENSE ./
 COPY webtrees_installer ./webtrees_installer
 
 RUN pip install --no-cache-dir .

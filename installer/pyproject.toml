@@ -9,10 +9,23 @@ description = "Out-of-the-box installer wizard for self-hosted webtrees"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
+# LICENSE is a deliberate copy of the repo-root LICENSE. setuptools'
+# license-files glob only resolves paths inside the project root, and
+# Docker COPY refuses to follow a symlink that points outside the
+# build context, so the duplicate file is currently the cheapest
+# workaround. Keep both in sync; the root file is canonical.
 license-files = ["LICENSE"]
+authors = [
+    { name = "Rico Sonntag", email = "mail@ricosonntag.de" },
+]
 dependencies = [
     "Jinja2>=3.1,<4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/magicsunday/webtrees-docker"
+Source = "https://github.com/magicsunday/webtrees-docker"
+Issues = "https://github.com/magicsunday/webtrees-docker/issues"
 
 [project.optional-dependencies]
 test = [
