@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Webtrees mode-switch launcher.
+#
+# Usage:
+#   curl -fsSL .../switch | bash -s -- dev
+#   ./switch dev|standalone
+#
+# Toggles between standalone (production self-host) and dev (module
+# maintainer) modes. Reads the existing `.env` to detect the current
+# mode and preserve user-set values (port, admin email, mariadb creds)
+# across the switch. Refuses to enter dev mode if the cwd is not a
+# clone of webtrees-docker.
+
+set -o errexit -o nounset -o pipefail
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "docker is not on PATH. Install Docker Engine first." >&2
+    exit 1
+fi
+
+target="${1:-}"
+if [ -z "$target" ]; then
+    # Interactive prompt
+    read -r -p "Target mode [dev|standalone]: " target
+fi
+case "$target" in
+    dev|standalone) ;;
+    *) echo "Usage: ./switch <dev|standalone>" >&2; exit 1 ;;
+esac
+
+# Detect current mode from .env if present
+current="standalone"
+if [ -f .env ] && grep -q "^ENVIRONMENT=development$" .env 2>/dev/null; then
+    current="dev"
+fi
+
+if [ "$current" = "$target" ]; then
+    echo "Already in $target mode; nothing to do."
+    exit 0
+fi
+
+# dev mode requires a webtrees-docker clone (the Dockerfile + compose
+# templates ride along), so refuse if cwd looks like a self-host-only dir.
+if [ "$target" = "dev" ] && [ ! -f Dockerfile ]; then
+    echo "Dev mode needs a clone of webtrees-docker in this directory; current" >&2
+    echo "directory has no Dockerfile. Clone the repo first:" >&2
+    echo "    git clone https://github.com/magicsunday/webtrees-docker.git" >&2
+    echo "    cd webtrees-docker && ./switch dev" >&2
+    exit 1
+fi
+
+# Snapshot user-set values from the existing .env so the new mode does
+# not blow them away. Each variable has a sensible default if the .env
+# is silent on it (first-time install path).
+env_value() {
+    [ -f .env ] || { echo "$2"; return; }
+    grep "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || echo "$2"
+}
+
+port=$(env_value APP_PORT 8080)
+pma_port=$(env_value PMA_PORT 50011)
+dev_domain=$(env_value DEV_DOMAIN "webtrees.localhost:${port}")
+mariadb_root=$(env_value MARIADB_ROOT_PASSWORD rootpw)
+mariadb_db=$(env_value MARIADB_DATABASE webtrees)
+mariadb_user=$(env_value MARIADB_USER webtrees)
+mariadb_pw=$(env_value MARIADB_PASSWORD devpw)
+
+if [ -f compose.yaml ]; then
+    echo "→ Stopping existing $current stack..."
+    docker compose down
+fi
+
+echo "→ Switching $current → $target..."
+
+if [ "$target" = "standalone" ]; then
+    # Standalone mode — bundled image, no admin pre-set (use webtrees own
+    # setup wizard on first visit). Port preserved.
+    exec ./install --non-interactive --no-admin --force \
+        --edition full --proxy standalone --port "$port"
+fi
+
+# Dev mode — pass through every dev-flow flag so the new .env carries
+# the same creds and ports as the old one.
+exec ./install --mode dev --non-interactive --force \
+    --proxy standalone --port "$port" --pma-port "$pma_port" \
+    --dev-domain "$dev_domain" \
+    --mariadb-root-password "$mariadb_root" \
+    --mariadb-database "$mariadb_db" \
+    --mariadb-user "$mariadb_user" --mariadb-password "$mariadb_pw"

@@ -40,6 +40,9 @@ compose.pma.yaml + compose.development.yaml`, plus
 `./app` into phpfpm. Bring the stack up with `make up`; webtrees lives
 at `http://localhost:50010`, phpMyAdmin at `http://localhost:50011`.
 
+Use `./switch standalone` to flip back to the self-host stack for
+browser testing without losing your dev DB creds.
+
 ## Wizard Development
 
 The Python wizard lives in `installer/` and has its own pytest suite

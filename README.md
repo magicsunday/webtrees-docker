@@ -144,6 +144,21 @@ docker compose pull
 docker compose up -d
 ```
 
+## Switching modes
+
+To toggle between standalone (production) and dev (module-maintainer):
+
+```bash
+./switch dev          # from standalone → dev
+./switch standalone   # from dev → standalone
+```
+
+The launcher reads the existing `.env`, stops the current stack, and
+re-runs the wizard with the target mode — preserving the port, admin
+settings, and database credentials you used before. Switching INTO dev
+mode requires a git clone of this repo in the current directory; the
+wizard refuses otherwise.
+
 ## Backup
 
 Full procedure (DB dump, media tar, restore, scheduling): see
