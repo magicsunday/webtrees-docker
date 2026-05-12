@@ -31,8 +31,15 @@ _VALID_EDITIONS = {"core", "full"}
 _VALID_PROXY_MODES = {"standalone", "traefik"}
 
 
-def render_files(input_model: RenderInput, *, target_dir: Path) -> None:
-    """Write compose.yaml + .env into target_dir based on input_model."""
+def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
+    """Write compose.yaml + .env into target_dir based on input_model.
+
+    The renderer prepares both texts first, then commits each via a
+    temp-file + ``Path.replace`` swap so an interrupted run cannot leave
+    the user with a half-written compose.yaml while the .env still points
+    at the previous run's image tags. ``target_dir`` is created if it
+    does not exist; both files land at mode 0644.
+    """
     _validate(input_model)
 
     env_jinja = Environment(
@@ -69,11 +76,20 @@ def render_files(input_model: RenderInput, *, target_dir: Path) -> None:
     compose_text = env_jinja.get_template(compose_template).render(**context)
     env_text = env_jinja.get_template("env.j2").render(**context)
 
-    (target_dir / "compose.yaml").write_text(compose_text)
-    (target_dir / ".env").write_text(env_text)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    _atomic_write(target_dir / "compose.yaml", compose_text)
+    _atomic_write(target_dir / ".env", env_text)
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Write content to path via a sibling .tmp file + os.replace swap."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content)
+    tmp.replace(path)
 
 
 def _validate(input_model: RenderInput) -> None:
+    """Reject obviously malformed RenderInput before any I/O happens."""
     if input_model.edition not in _VALID_EDITIONS:
         raise ValueError(
             f"edition must be one of {_VALID_EDITIONS}, got {input_model.edition!r}"

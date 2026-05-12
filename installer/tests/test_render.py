@@ -43,7 +43,7 @@ def standalone_core(catalog: Catalog) -> RenderInput:
 
 
 def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) -> None:
-    render_files(standalone_core, target_dir=tmp_path)
+    render_files(input_model=standalone_core, target_dir=tmp_path)
 
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
     env = (tmp_path / ".env").read_text()
@@ -73,7 +73,7 @@ def test_render_standalone_full_with_admin(tmp_path: Path, catalog: Catalog) -> 
         catalog=catalog,
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
     )
-    render_files(inp, target_dir=tmp_path)
+    render_files(input_model=inp, target_dir=tmp_path)
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
 
     phpfpm = compose["services"]["phpfpm"]
@@ -98,7 +98,7 @@ def test_render_traefik(tmp_path: Path, catalog: Catalog) -> None:
         catalog=catalog,
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
     )
-    render_files(inp, target_dir=tmp_path)
+    render_files(input_model=inp, target_dir=tmp_path)
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
     env = (tmp_path / ".env").read_text()
 
@@ -131,7 +131,7 @@ def test_render_traefik_with_custom_network(tmp_path: Path, catalog: Catalog) ->
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
         traefik_network="my-proxy",
     )
-    render_files(inp, target_dir=tmp_path)
+    render_files(input_model=inp, target_dir=tmp_path)
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
 
     assert compose["networks"]["traefik"]["name"] == "my-proxy"
@@ -154,7 +154,7 @@ def test_render_rejects_invalid_proxy_mode(tmp_path: Path, catalog: Catalog) -> 
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
     )
     with pytest.raises(ValueError, match="proxy_mode"):
-        render_files(inp, target_dir=tmp_path)
+        render_files(input_model=inp, target_dir=tmp_path)
 
 
 def test_render_rejects_admin_without_credentials(tmp_path: Path, catalog: Catalog) -> None:
@@ -170,4 +170,23 @@ def test_render_rejects_admin_without_credentials(tmp_path: Path, catalog: Catal
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
     )
     with pytest.raises(ValueError, match="admin_user"):
-        render_files(inp, target_dir=tmp_path)
+        render_files(input_model=inp, target_dir=tmp_path)
+
+
+def test_render_creates_missing_target_dir(tmp_path: Path, standalone_core: RenderInput) -> None:
+    """target_dir is created if it does not exist (parents=True)."""
+    nested = tmp_path / "deep" / "nested" / "work"
+    assert not nested.exists()
+
+    render_files(input_model=standalone_core, target_dir=nested)
+
+    assert (nested / "compose.yaml").is_file()
+    assert (nested / ".env").is_file()
+
+
+def test_render_leaves_no_tmp_files(tmp_path: Path, standalone_core: RenderInput) -> None:
+    """Atomic write must rename the .tmp files; none should linger after a successful run."""
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+
+    leftovers = sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp"))
+    assert leftovers == []
