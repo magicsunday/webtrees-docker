@@ -22,6 +22,25 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
+# Mirror docker compose v2's project-name normalisation: honour
+# COMPOSE_PROJECT_NAME if set, else lowercase the cwd basename and
+# strip every char that isn't [a-z0-9_-]. Exported so the downstream
+# `docker compose down`, the volume cleanup, AND the recursive install
+# (`curl | bash`) all see the same project name as the host cwd — a
+# naive `basename` would desync the volume names we touch from the
+# volumes compose actually mounts whenever the cwd has uppercase
+# letters, dots, or other characters compose strips.
+if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    COMPOSE_PROJECT_NAME=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+else
+    COMPOSE_PROJECT_NAME=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+fi
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    echo "compose project name is empty after normalisation; rename your install directory or set COMPOSE_PROJECT_NAME to an alphanumeric value" >&2
+    exit 1
+fi
+export COMPOSE_PROJECT_NAME
+
 # `docker compose down` needs a compose.yaml in the working directory. If
 # the user piped curl into bash from the wrong cwd (typically $HOME), the
 # error would be cryptic — fail loud with a path hint instead.
@@ -41,18 +60,8 @@ fi
 echo "→ Stopping existing stack..."
 docker compose down
 
-# Mirror docker compose v2's project-name normalization: honour
-# COMPOSE_PROJECT_NAME if set, else lowercase the cwd basename and
-# strip every char that isn't [a-z0-9_-]. A naive `basename` would
-# desync the volume names we touch from the volumes compose actually
-# mounts whenever the cwd has uppercase letters or special chars.
-if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-    project=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-else
-    project=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-fi
-echo "→ Removing ${project}_app volume so the new image re-seeds it..."
-docker volume rm -f "${project}_app"
+echo "→ Removing ${COMPOSE_PROJECT_NAME}_app volume so the new image re-seeds it..."
+docker volume rm -f "${COMPOSE_PROJECT_NAME}_app"
 
 echo "→ Re-running install with --force..."
 curl -fsSL "$INSTALLER_REMOTE" | bash -s -- "$@" --force

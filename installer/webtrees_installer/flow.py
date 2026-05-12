@@ -259,12 +259,30 @@ def _compose_project_name(work_dir: Path) -> str:
     compose actually mounts at runtime — a custom derivation would land
     in a different bucket whenever the cwd had uppercase letters or
     special chars.
+
+    The wizard runs inside the installer container with cwd `/work`, so
+    its idea of "cwd basename" is the mount point — not the user's
+    install directory. The launchers therefore export
+    `COMPOSE_PROJECT_NAME` derived from the host's cwd before invoking
+    the wizard; this helper honours that env var first so the pre-seed
+    volume and the runtime compose stack agree on the project name even
+    when the host path differs from the in-container mount, includes
+    symlink hops, or contains characters compose strips. `.resolve()` is
+    deliberately NOT called on `work_dir`: compose v2 derives its name
+    from the logical (PWD) cwd basename, not the realpath, and the
+    bash launchers use `basename "$(pwd)"` for the same reason — keep
+    the three derivations symmetrical.
     """
     env_name = os.environ.get("COMPOSE_PROJECT_NAME")
-    if env_name:
-        return re.sub(r"[^a-z0-9_-]", "", env_name.lower())
-    basename = work_dir.resolve().name
-    return re.sub(r"[^a-z0-9_-]", "", basename.lower())
+    raw = env_name if env_name else work_dir.name
+    normalized = re.sub(r"[^a-z0-9_-]", "", raw.lower())
+    if not normalized:
+        raise PrereqError(
+            f"compose project name derived from {raw!r} is empty after "
+            "normalisation; set COMPOSE_PROJECT_NAME to an alphanumeric "
+            "value or rename your install directory"
+        )
+    return normalized
 
 
 def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:

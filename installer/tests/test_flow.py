@@ -266,3 +266,60 @@ def test_compose_project_name_honours_env(
 
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "Some.Custom-Name")
     assert _compose_project_name(tmp_path) == "somecustom-name"
+
+
+def test_compose_project_name_preserves_symlink_basename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compose v2 derives its project name from the logical cwd basename
+    (PWD env), NOT the realpath. The launchers use `basename "$(pwd)"`
+    for the same reason. Calling `.resolve()` inside the wizard would
+    desync the pre-seeded secrets volume from the volume compose mounts
+    whenever the install path includes a symlink hop — e.g. user
+    installs from /srv/webtrees -> /volume2/docker/foo: compose sees
+    "webtrees", a `.resolve()`-based derivation would land on "foo".
+    """
+    from webtrees_installer.flow import _compose_project_name
+
+    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+
+    real = tmp_path / "foo"
+    real.mkdir()
+    link = tmp_path / "webtrees"
+    link.symlink_to(real, target_is_directory=True)
+
+    # The symlink path's logical basename is "webtrees"; .resolve()
+    # would yield "foo". The helper must take the path as given.
+    assert _compose_project_name(link) == "webtrees"
+
+
+def test_compose_project_name_raises_on_empty_normalisation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A basename of only stripped characters returns "" after
+    normalisation, which would compose to leading-underscore volume
+    names (`_secrets`, `_app`) — compose rejects those with a
+    confusing error far from the root cause. Fail loud with a
+    PrereqError that points at the input and the fix.
+    """
+    from webtrees_installer.flow import _compose_project_name
+
+    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+    weird = tmp_path / "!@#$%"
+    weird.mkdir()
+    with pytest.raises(PrereqError, match="empty after normalisation"):
+        _compose_project_name(weird)
+
+
+def test_compose_project_name_raises_on_empty_env_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A COMPOSE_PROJECT_NAME of only stripped characters also fails
+    loud — the env var has the same compose-rejected outcome as a
+    matching cwd basename, so the guard fires regardless of the source.
+    """
+    from webtrees_installer.flow import _compose_project_name
+
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "!@#$%")
+    with pytest.raises(PrereqError, match="empty after normalisation"):
+        _compose_project_name(tmp_path)

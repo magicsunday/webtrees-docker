@@ -18,6 +18,25 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
+# Mirror docker compose v2's project-name normalisation: honour
+# COMPOSE_PROJECT_NAME if set, else lowercase the cwd basename and
+# strip every char that isn't [a-z0-9_-]. Exported so `docker compose
+# down`, the warning banners, AND the chained `./install` invocation
+# below all derive the same project name from the host cwd — a naive
+# `basename` would desync the volume names mentioned in the warnings
+# from the volumes compose actually mounts whenever the cwd has
+# uppercase letters, dots, or other characters compose strips.
+if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    COMPOSE_PROJECT_NAME=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+else
+    COMPOSE_PROJECT_NAME=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+fi
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    echo "compose project name is empty after normalisation; rename your install directory or set COMPOSE_PROJECT_NAME to an alphanumeric value" >&2
+    exit 1
+fi
+export COMPOSE_PROJECT_NAME
+
 target="${1:-}"
 if [ -z "$target" ]; then
     if [[ -t 0 && -t 1 ]]; then
@@ -85,31 +104,22 @@ fi
 # Heads-up: the database backend differs between modes. Dev mode bind-mounts
 # ./persistent/database/, standalone mode uses a named volume named
 # <project>_database. Switching modes does NOT migrate the data — the
-# orphaned store stays on disk until manually inspected / removed.
-#
-# Mirror docker compose v2's project-name normalization: honour
-# COMPOSE_PROJECT_NAME if set, else lowercase the cwd basename and
-# strip every char that isn't [a-z0-9_-]. A naive `basename` would
-# desync the volume names we mention from the volumes compose actually
-# mounts whenever the cwd has uppercase letters or special chars.
-if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-    project=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-else
-    project=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-fi
+# orphaned store stays on disk until manually inspected / removed. The
+# <project> prefix comes from the COMPOSE_PROJECT_NAME normalised at the
+# top of this script.
 if [ "$current" = "dev" ] && [ "$target" = "standalone" ]; then
     echo "WARNING: dev mode stored its database under ./persistent/database/"
     echo "         (bind-mount). Standalone mode uses the named volume"
-    echo "         ${project}_database instead — your dev DB is NOT carried"
+    echo "         ${COMPOSE_PROJECT_NAME}_database instead — your dev DB is NOT carried"
     echo "         across. Recover it from ./persistent/database/ if needed."
     echo ""
 fi
 if [ "$current" = "standalone" ] && [ "$target" = "dev" ]; then
     echo "WARNING: standalone mode stored its database in the named volume"
-    echo "         ${project}_database. Dev mode uses ./persistent/database/"
+    echo "         ${COMPOSE_PROJECT_NAME}_database. Dev mode uses ./persistent/database/"
     echo "         instead — your standalone DB is NOT carried across."
     echo "         The volume stays on disk; inspect with"
-    echo "         'docker volume inspect ${project}_database'."
+    echo "         'docker volume inspect ${COMPOSE_PROJECT_NAME}_database'."
     echo ""
 fi
 

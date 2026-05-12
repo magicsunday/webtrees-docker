@@ -38,6 +38,26 @@ if [[ -t 0 && -t 1 ]]; then
     tty_flags=(-it)
 fi
 
+# Compose derives the project name from the cwd basename if no
+# compose.yaml `name:` key and no COMPOSE_PROJECT_NAME env are set. The
+# wizard runs inside a container whose cwd is /work, so its idea of
+# "cwd basename" would be "work", not the user's actual install
+# directory. Export the normalised host-cwd basename so the wizard's
+# secrets pre-seed lines up with the volume compose will mount at
+# runtime. Honour an existing COMPOSE_PROJECT_NAME if the user already
+# set one, but still normalise it through the same filter so the wizard
+# and compose see the same value.
+if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    COMPOSE_PROJECT_NAME=$(printf '%s' "$COMPOSE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+else
+    COMPOSE_PROJECT_NAME=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+fi
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    echo "compose project name is empty after normalisation; rename your install directory or set COMPOSE_PROJECT_NAME to an alphanumeric value" >&2
+    exit 1
+fi
+export COMPOSE_PROJECT_NAME
+
 # Inject host UID/name before user args so --mode dev gets the real values.
 # (Inside the container os.geteuid() returns 0; the wizard cannot see them.
 # Standalone mode ignores both flags. User-supplied values still override.)
@@ -55,6 +75,7 @@ installer_args=(
 # the real cwd, then the wizard writes WORK_DIR=<host-path> into .env.
 exec docker run --rm "${tty_flags[@]}" \
     -e WORK_DIR="$PWD" \
+    -e COMPOSE_PROJECT_NAME \
     -v "$PWD:/work" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     "$INSTALLER_IMAGE" "${installer_args[@]}"
