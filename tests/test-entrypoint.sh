@@ -591,13 +591,13 @@ test_bootstrap_sets_marker_on_success() {
 }
 
 test_bootstrap_respects_marker_on_second_run() {
-    local name="bootstrap: skips when marker already exists"
+    local name="bootstrap: skips when all markers already exist"
     local vol stub
     vol=$(mk_vol) || vol_create_failed "$name" || return
     stub=$(build_stub_image)
     bootstrap_prep_volume "$vol"
-    # Pre-set the marker so the hook should skip everything
-    vol_prep "$vol" 'touch /v/.webtrees-bootstrapped'
+    # Pre-set every per-step marker so all three steps short-circuit.
+    vol_prep "$vol" 'touch /v/.config-ini-written /v/.schema-migrated /v/.admin-created /v/.webtrees-bootstrapped'
 
     docker run --rm \
         -v "$vol:/var/www/html" \
@@ -622,7 +622,99 @@ test_bootstrap_respects_marker_on_second_run() {
         results+=("PASS  $name")
         pass=$((pass + 1))
     else
-        results+=("FAIL  $name — bootstrap stubbed-php was called $stub_calls times despite marker")
+        results+=("FAIL  $name — bootstrap stubbed-php was called $stub_calls times despite markers")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+# --no-admin flow: MARIADB_* set but WT_ADMIN_USER unset → config + schema run
+# unconditionally so webtrees boots with DB credentials already in place,
+# leaving the user on the admin-creation form rather than the setup wizard.
+test_bootstrap_config_runs_without_admin_user() {
+    local name="bootstrap: config-ini + schema run when MARIADB_* set but WT_ADMIN_USER unset"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local config_marker schema_marker admin_marker stub_log
+    config_marker=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c '[ -f /v/.config-ini-written ] && echo yes || echo no')
+    schema_marker=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c '[ -f /v/.schema-migrated ] && echo yes || echo no')
+    admin_marker=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c '[ -f /v/.admin-created ] && echo yes || echo no')
+    stub_log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    if [[ "$config_marker" == "yes" ]] \
+        && [[ "$schema_marker" == "yes" ]] \
+        && [[ "$admin_marker" == "no" ]] \
+        && echo "$stub_log" | grep -q "config-ini"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — config=$config_marker schema=$schema_marker admin=$admin_marker, stub_log=$(echo "$stub_log" | tr '\n' '|')")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+# Re-run after a partial bootstrap (config + schema markers exist but
+# .admin-created is missing) skips config-ini/schema and only invokes the
+# user-list + user-create + user-setting CLI calls for the admin step.
+test_bootstrap_admin_step_runs_after_partial_state() {
+    local name="bootstrap: admin step runs when config+schema markers exist but admin marker missing"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+    vol_prep "$vol" 'touch /v/.config-ini-written /v/.schema-migrated'
+
+    docker run --rm \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local stub_log admin_marker
+    stub_log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+    admin_marker=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c '[ -f /v/.admin-created ] && echo yes || echo no')
+
+    if [[ "$admin_marker" == "yes" ]] \
+        && ! echo "$stub_log" | grep -q "config-ini" \
+        && echo "$stub_log" | grep -q "user --create"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — admin=$admin_marker, stub_log=$(echo "$stub_log" | tr '\n' '|')")
         fail=$((fail + 1))
     fi
 
@@ -657,6 +749,8 @@ main() {
     test_bootstrap_fails_without_password
     test_bootstrap_sets_marker_on_success
     test_bootstrap_respects_marker_on_second_run
+    test_bootstrap_config_runs_without_admin_user
+    test_bootstrap_admin_step_runs_after_partial_state
 
     for line in "${results[@]}"; do
         printf "%s\n" "$line"
