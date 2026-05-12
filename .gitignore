@@ -19,3 +19,4 @@
 /persistent/media/*
 !/persistent/media/.gitkeep
 /docs/superpowers/
+/.claude/
