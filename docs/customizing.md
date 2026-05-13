@@ -183,9 +183,9 @@ ignore the file — edits stick.
   `docker compose logs nginx` surface bad config almost immediately;
   the `db` container's first boot takes 30-60 s before it reports
   healthy.
-- **Admin password lost** — the wizard wrote it once to
-  `.webtrees-admin-password` (mode 0600) in the directory you ran it
-  from. Reset via the webtrees CLI inside the container:
+- **Admin password lost** — the wizard prints it once in the install
+  banner and does not save it to disk. Reset via the webtrees CLI
+  inside the container:
   `docker compose exec phpfpm php /var/www/html/index.php user-password admin newpass`.
 - **Override not picked up** — Compose only merges
   `compose.override.yaml` when the filename matches exactly. Check
