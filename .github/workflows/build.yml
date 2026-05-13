@@ -434,7 +434,14 @@ jobs:
                   # Admin-bootstrap is required: without WT_ADMIN_USER the
                   # phpfpm entrypoint does not write data/config.ini.php, and
                   # the webtrees CLI cannot reach the database without it.
+                  # COMPOSE_PROJECT_NAME is mandatory — compose uses the host
+                  # cwd basename when bringing up the stack, but the installer
+                  # runs with cwd `/work` (the bind-mount), so without the env
+                  # var the pre-seeded `<project>_secrets` volume would land in
+                  # a different bucket than the one compose then mounts.
+                  project_name=$(basename "${E2E_DIR}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
                   docker run --rm \
+                      -e COMPOSE_PROJECT_NAME="${project_name}" \
                       -v "${E2E_DIR}:/work" \
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
