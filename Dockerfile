@@ -10,6 +10,12 @@ ARG BUILD_DATE=unknown
 ARG WEBTREES_VERSION=2.2.6
 
 FROM composer:2 AS webtrees-build
+
+# pipefail catches `find … | grep -q .` failures in the RUN below; without
+# it, a broken find with empty output would let the negated grep guard
+# silently pass and ship an unintended file layout.
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
 # Re-declare with a default so an empty --build-arg from compose does not
 # collapse the JSON values when composer reads them.
 ARG WEBTREES_VERSION=2.2.6
@@ -114,6 +120,10 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
 # Same install pipeline as webtrees-build, different composer manifest.
 # webtrees-statistics is deferred until the module is published to Packagist.
 FROM composer:2 AS webtrees-build-full
+
+# pipefail — same rationale as webtrees-build above.
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
 ARG WEBTREES_VERSION=2.2.6
 ARG PHP_VERSION=8.3
 
@@ -191,6 +201,11 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
 FROM php:${PHP_VERSION}-fpm-alpine AS php-base
 
 # docker-entrypoint.sh dependencies
+# DL3018 (pin apk versions) intentionally suppressed: this image tracks a
+# rolling Alpine base (see check-alpine.yml), so pinning every package
+# patch version would generate churn on every base bump without
+# reproducibility gain — the next bump rotates all packages anyway.
+# hadolint ignore=DL3018
 RUN apk update && \
     apk upgrade --no-cache && \
     apk add --no-cache \
@@ -304,6 +319,11 @@ RUN install-php-extensions xdebug && \
     rm -f /usr/local/bin/install-php-extensions
 
 # Installing required extensions
+# DL3018 (pin apk versions) intentionally suppressed: this image tracks a
+# rolling Alpine base (see check-alpine.yml), so pinning every package
+# patch version would generate churn on every base bump without
+# reproducibility gain — the next bump rotates all packages anyway.
+# hadolint ignore=DL3018
 RUN apk add --no-cache \
         acl \
         bash \
@@ -362,6 +382,12 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 # Pre-baked nginx with webtrees configs and an empty /etc/nginx/conf.d/custom/
 # directory that users override-mount for their own snippets.
 FROM nginx:1.28-alpine AS nginx-build
+
+# pipefail makes a failing `nginx -t` surface at the pipe rather than
+# being masked by tee's exit. The grep guards below would also catch the
+# same case downstream, but pipefail keeps the failure attributed to
+# nginx itself and satisfies DL4006.
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 ARG NGINX_CONFIG_REVISION=1
 ARG VCS_REF=unknown

@@ -9,6 +9,9 @@ LABEL org.opencontainers.image.licenses="MIT"
 # docker CLI client is required so the wizard can invoke `docker compose up`
 # and port-conflict probes from inside the container. docker-cli-compose
 # provides the v2 compose subcommand.
+# DL3018 intentionally suppressed: rolling Alpine base — pinning patch
+# versions on every base bump would churn without reproducibility gain.
+# hadolint ignore=DL3018
 RUN apk add --no-cache docker-cli docker-cli-compose
 
 WORKDIR /opt/installer

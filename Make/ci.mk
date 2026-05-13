@@ -106,10 +106,9 @@ ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the centr
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"
-	# Failure threshold: error. Warnings/info stay visible but do not fail
-	# the build — cleanup tracked in issue #62 (DL4006 SHELL pipefail,
-	# DL3018 apk-version-pin, SC2016 quote-expansion). Tighten the
-	# threshold once that issue lands.
-	docker run --rm -i hadolint/hadolint:latest hadolint --failure-threshold error - < Dockerfile
+	# Failure threshold: warning. Any new DL/SC finding above info level
+	# fails CI. Existing exemptions live as inline `# hadolint ignore=…`
+	# directives with a rationale comment above each one.
+	docker run --rm -i hadolint/hadolint:latest hadolint --failure-threshold warning - < Dockerfile
 	echo -e "${FBLUE}▶ hadolint (installer/Dockerfile)${FRESET}"
-	docker run --rm -i hadolint/hadolint:latest hadolint --failure-threshold error - < installer/Dockerfile
+	docker run --rm -i hadolint/hadolint:latest hadolint --failure-threshold warning - < installer/Dockerfile
