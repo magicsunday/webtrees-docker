@@ -42,7 +42,8 @@ def silence_prereq_and_docker(tmp_path_factory, monkeypatch) -> None:
     monkeypatch.setenv("WEBTREES_INSTALLER_MANIFEST_DIR", str(fake_manifest))
     with patch("webtrees_installer.flow.check_prerequisites"), \
          patch("webtrees_installer.flow.load_catalog", return_value=_TEST_CATALOG), \
-         patch("webtrees_installer.flow._write_admin_password_secret"):
+         patch("webtrees_installer.flow._write_admin_password_secret"), \
+         patch("webtrees_installer.flow._list_surviving_volumes", return_value=[]):
         yield
 
 
@@ -228,6 +229,67 @@ def test_no_admin_password_cli_flag_exists() -> None:
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["--admin-password", "x"])
+
+
+def test_run_standalone_warns_on_surviving_volumes_non_interactive(tmp_path: Path) -> None:
+    args = _args(work_dir=tmp_path)
+    out = StringIO()
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow._list_surviving_volumes",
+               return_value=["test_database", "test_secrets"]), \
+         patch("webtrees_installer.flow._wipe_volumes") as wipe:
+        run_standalone(args, stdin=StringIO(), stdout=out)
+
+    body = out.getvalue()
+    assert "existing docker volumes" in body.lower()
+    assert "test_database" in body
+    assert "test_secrets" in body
+    # Non-interactive must NEVER auto-delete data.
+    wipe.assert_not_called()
+
+
+def test_run_standalone_offers_wipe_interactively_and_keeps_on_no(tmp_path: Path) -> None:
+    args = _args(work_dir=tmp_path, interactive=True, force=True)
+    # ask_yesno reads stdin; an empty input keeps the default (False = keep).
+    stdin = StringIO("")
+    out = StringIO()
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow._list_surviving_volumes",
+               return_value=["test_database"]), \
+         patch("webtrees_installer.flow._wipe_volumes") as wipe:
+        run_standalone(args, stdin=stdin, stdout=out)
+
+    body = out.getvalue()
+    assert "Wipe them now" in body
+    assert "Keeping existing volumes" in body
+    wipe.assert_not_called()
+
+
+def test_run_standalone_wipes_when_interactive_user_answers_yes(tmp_path: Path) -> None:
+    args = _args(work_dir=tmp_path, interactive=True, force=True)
+    # `y` confirms the prompt; downstream prompts get empty lines.
+    stdin = StringIO("y\n")
+    out = StringIO()
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow._list_surviving_volumes",
+               return_value=["test_database", "test_secrets"]), \
+         patch("webtrees_installer.flow._wipe_volumes") as wipe:
+        run_standalone(args, stdin=stdin, stdout=out)
+
+    wipe.assert_called_once_with(["test_database", "test_secrets"])
+    assert "Wiped 2 stale volume(s)" in out.getvalue()
+
+
+def test_run_standalone_no_volume_prompt_when_none_survive(tmp_path: Path) -> None:
+    args = _args(work_dir=tmp_path, interactive=True)
+    out = StringIO()
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
+         patch("webtrees_installer.flow._list_surviving_volumes", return_value=[]), \
+         patch("webtrees_installer.flow._wipe_volumes") as wipe:
+        run_standalone(args, stdin=StringIO(), stdout=out)
+
+    assert "existing docker volumes" not in out.getvalue().lower()
+    wipe.assert_not_called()
 
 
 def test_run_standalone_writes_admin_password_to_secrets_init(tmp_path: Path) -> None:

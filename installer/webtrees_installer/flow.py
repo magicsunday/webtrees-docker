@@ -90,6 +90,13 @@ def run_standalone(
             print("Aborted (existing files preserved).", file=stdout)
         return 1
 
+    _handle_surviving_volumes(
+        work_dir=work_dir,
+        interactive=args.interactive,
+        stdin=stdin,
+        stdout=stdout,
+    )
+
     edition = ask_choice(
         "Which edition?",
         choices=[
@@ -312,6 +319,96 @@ def _compose_project_name(work_dir: Path) -> str:
             "alphanumeric value or rename your install directory"
         )
     return normalized
+
+
+def _list_surviving_volumes(work_dir: Path) -> list[str]:
+    """Return docker volumes named `<project>_*` that already exist
+    on the daemon.
+
+    These survive `rm -rf <work_dir>` because they live in the docker
+    namespace, not on the filesystem the user deleted. On the next
+    `compose up` they are silently re-mounted with their stale data —
+    the installer's freshly-generated admin password would then never
+    match the running stack.
+    """
+    project = _compose_project_name(work_dir)
+    result = subprocess.run(
+        [
+            "docker", "volume", "ls",
+            "--filter", f"name=^{project}_",
+            "--format", "{{.Name}}",
+        ],
+        check=True, capture_output=True, text=True,
+    )
+    return [name for name in result.stdout.splitlines() if name.strip()]
+
+
+def _wipe_volumes(volumes: list[str]) -> None:
+    """Force-remove the named docker volumes. No-op on an empty list."""
+    if not volumes:
+        return
+    subprocess.run(
+        ["docker", "volume", "rm", "-f", *volumes],
+        check=True, capture_output=True, text=True,
+    )
+
+
+def _handle_surviving_volumes(
+    *,
+    work_dir: Path,
+    interactive: bool,
+    stdin: IO[str] | None,
+    stdout: IO[str] | None,
+) -> None:
+    """Detect docker volumes left behind by an earlier install at the
+    same project name and let the operator deal with them. In
+    interactive mode the operator is prompted (default: keep, because
+    wiping data is irreversible). In non-interactive mode the
+    volumes are preserved and a loud warning is printed — automating
+    a destructive default would let a stray CI run torch user data.
+    """
+    surviving = _list_surviving_volumes(work_dir)
+    if not surviving:
+        return
+
+    volume_list = ", ".join(surviving)
+
+    if interactive:
+        wipe = ask_yesno(
+            f"Existing docker volumes from a previous install were detected: "
+            f"{volume_list}. These will be re-mounted on the next `compose up` "
+            "and the install banner's admin password may not match the data "
+            "they carry. Wipe them now? (irreversible)",
+            default=False,
+            stdin=stdin,
+            stdout=stdout,
+        )
+        if wipe:
+            _wipe_volumes(surviving)
+            if stdout:
+                print(f"Wiped {len(surviving)} stale volume(s).", file=stdout)
+        else:
+            if stdout:
+                print(
+                    "Keeping existing volumes — admin password from the "
+                    "banner below may not match the running stack.",
+                    file=stdout,
+                )
+        return
+
+    # Non-interactive: never auto-delete data. Loud warning only.
+    if stdout:
+        print(file=stdout)
+        print(
+            f"WARNING: existing docker volumes from a previous install at "
+            f"this project name were detected: {volume_list}. They will be "
+            "re-mounted on the next `compose up`, so the install banner's "
+            "admin password may not match the running stack. Run "
+            "`docker volume rm` on them before re-running this installer "
+            "if you want a clean install.",
+            file=stdout,
+        )
+        print(file=stdout)
 
 
 def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
