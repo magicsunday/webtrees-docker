@@ -1,5 +1,11 @@
 # Webtrees Self-Host
 
+[![Build](https://img.shields.io/github/actions/workflow/status/magicsunday/webtrees-docker/build.yml?branch=main&label=build)](https://github.com/magicsunday/webtrees-docker/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/magicsunday/webtrees-docker?label=release)](https://github.com/magicsunday/webtrees-docker/releases/latest)
+[![License](https://img.shields.io/github/license/magicsunday/webtrees-docker)](LICENSE)
+[![webtrees](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmagicsunday%2Fwebtrees-docker%2Fmain%2Fdev%2Fversions.json&query=%24%5B0%5D.webtrees&label=webtrees&color=blue)](https://www.webtrees.net/)
+[![PHP](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmagicsunday%2Fwebtrees-docker%2Fmain%2Fdev%2Fversions.json&query=%24..php&label=PHP&color=787CB5)](dev/versions.json)
+
 Docker images and a wizard for running [webtrees](https://www.webtrees.net/)
 without writing your own compose file.
 

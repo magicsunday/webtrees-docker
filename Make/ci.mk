@@ -13,13 +13,13 @@
 # prerequisites beyond `docker` itself.
 # =============================================================================
 
-.PHONY: ci-test ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep
+.PHONY: ci-test ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
+ci-test: ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
@@ -173,6 +173,45 @@ ci-shellcheck: .logo ## Lints every tracked shell script.
 			-w /work \
 			koalaman/shellcheck:stable \
 			-x
+
+ci-readme-badge-lockstep: .logo ## Asserts the README webtrees badge tracks dev/versions.json row 0.
+	echo -e "${FBLUE}▶ README badge lockstep${FRESET}"
+	# The README's webtrees badge uses shields.io's `dynamic/json` endpoint
+	# with JSONPath `$$[0].webtrees`. Shields.io's JSONPath subset rejects
+	# predicate filters, so we cannot scope the badge to the row tagged
+	# `latest`. Instead we enforce the invariant here: row 0 must be the
+	# row that carries the `latest` tag, so the badge always reads the
+	# canonical version. The check-versions.yml auto-bump renderer is in
+	# lockstep with this: it partitions latest-tagged rows to the front
+	# of the array before writing.
+	#
+	# Two-stage check so parse errors don't masquerade as drift:
+	#   1. `jq empty` validates the file is parseable JSON.
+	#   2. `jq -e <predicate>` flips exit status on the actual invariant.
+	docker run --rm \
+		-v "$(PWD)/dev:/d:ro" \
+		-w /d \
+		ghcr.io/jqlang/jq:latest \
+		empty versions.json >/dev/null 2>&1 || { \
+			echo "::error::dev/versions.json is not parseable JSON" >&2; \
+			exit 1; \
+		}
+	docker run --rm \
+		-v "$(PWD)/dev:/d:ro" \
+		-w /d \
+		ghcr.io/jqlang/jq:latest \
+		-e '.[0].tags | index("latest") != null' versions.json >/dev/null || { \
+			echo "::error::dev/versions.json row 0 must carry the \"latest\" tag — the README shields.io badge reads \$$[0].webtrees verbatim." >&2; \
+			exit 1; \
+		}
+	# Pin the README side of the invariant too: if someone edits the
+	# badge URL to a different JSONPath (e.g. `$$[*].webtrees`), the
+	# json-side check still passes but the badge silently regresses.
+	# `query=%24%5B0%5D.webtrees` is the URL-encoded form of `$$[0].webtrees`.
+	grep -q 'query=%24%5B0%5D.webtrees' README.md || { \
+		echo "::error::README.md webtrees badge no longer queries \$$[0].webtrees — update either the badge or ci-readme-badge-lockstep so both ends stay in sync." >&2; \
+		exit 1; \
+	}
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"

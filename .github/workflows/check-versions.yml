@@ -96,10 +96,17 @@ jobs:
                       # The new entry opens three PHP rows (8.3/8.4/8.5) to
                       # mirror the existing matrix; the row at canonical_php
                       # carries the rolling bundle.
+                      #
+                      # The final array is partitioned so every row carrying
+                      # a `latest`-style tag comes first — `ci-readme-badge-lockstep`
+                      # asserts that the README's shields.io badge target
+                      # (`dev/versions.json[0]`) always points at the canonical
+                      # release row.
                       new_rows=$(jq -c --arg ver "$version" --arg php "$canonical_php" --argjson rolling "$rolling" '
                           (map(.tags -= $rolling)
                            + ([["8.3"], ["8.4"], ["8.5"]]
                               | map(.[0] as $p | {webtrees: $ver, php: $p, tags: (if $p == $php then $rolling else [] end)})))
+                          | [.[] | select(.tags | index("latest"))] + [.[] | select(.tags | index("latest") | not)]
                           | .[]
                       ' dev/versions.json \
                           | sed -e 's/":"/": "/g' -e 's/":\[/": [/g' -e 's/,"/, "/g')
