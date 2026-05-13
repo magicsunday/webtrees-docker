@@ -380,7 +380,15 @@ def _handle_surviving_volumes(
     if not surviving:
         return
 
+    project = _compose_project_name(work_dir)
     volume_list = ", ".join(surviving)
+    volume_args = " ".join(surviving)
+    # `compose down` first because docker volume rm refuses to delete a
+    # volume that is still mounted by a running container.
+    cleanup_lines = (
+        f"    docker compose -p {project} down",
+        f"    docker volume rm {volume_args}",
+    )
 
     if interactive:
         wipe = ask_yesno(
@@ -400,23 +408,32 @@ def _handle_surviving_volumes(
             if stdout:
                 print(
                     "Keeping existing volumes — admin password from the "
-                    "banner below may not match the running stack.",
+                    "banner below may not match the running stack. To start "
+                    "clean later, run (irreversible):",
                     file=stdout,
                 )
+                for line in cleanup_lines:
+                    print(line, file=stdout)
         return
 
-    # Non-interactive: never auto-delete data. Loud warning only.
+    # Non-interactive: never auto-delete data. Loud warning + ready-to-paste
+    # cleanup commands so the operator does not have to assemble the volume
+    # list by hand.
     if stdout:
         print(file=stdout)
         print(
             f"WARNING: existing docker volumes from a previous install at "
             f"this project name were detected: {volume_list}. They will be "
             "re-mounted on the next `compose up`, so the install banner's "
-            "admin password may not match the running stack. Run "
-            "`docker volume rm` on them before re-running this installer "
-            "if you want a clean install.",
+            "admin password may not match the running stack.",
             file=stdout,
         )
+        print(
+            "To start clean (data loss — irreversible), run:",
+            file=stdout,
+        )
+        for line in cleanup_lines:
+            print(line, file=stdout)
         print(file=stdout)
 
 

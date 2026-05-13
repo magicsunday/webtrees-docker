@@ -231,37 +231,52 @@ def test_no_admin_password_cli_flag_exists() -> None:
         parser.parse_args(["--admin-password", "x"])
 
 
-def test_run_standalone_warns_on_surviving_volumes_non_interactive(tmp_path: Path) -> None:
+def test_run_standalone_warns_on_surviving_volumes_non_interactive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "myproj")
     args = _args(work_dir=tmp_path)
     out = StringIO()
     with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
          patch("webtrees_installer.flow._list_surviving_volumes",
-               return_value=["test_database", "test_secrets"]), \
+               return_value=["myproj_database", "myproj_secrets"]), \
          patch("webtrees_installer.flow._wipe_volumes") as wipe:
         run_standalone(args, stdin=StringIO(), stdout=out)
 
     body = out.getvalue()
     assert "existing docker volumes" in body.lower()
-    assert "test_database" in body
-    assert "test_secrets" in body
+    assert "myproj_database" in body
+    assert "myproj_secrets" in body
+    # The exact cleanup commands must be copy-paste-ready in the output:
+    # compose down first (so the volumes are unlocked) then a single
+    # docker volume rm with all names.
+    assert "docker compose -p myproj down" in body
+    assert "docker volume rm myproj_database myproj_secrets" in body
     # Non-interactive must NEVER auto-delete data.
     wipe.assert_not_called()
 
 
-def test_run_standalone_offers_wipe_interactively_and_keeps_on_no(tmp_path: Path) -> None:
+def test_run_standalone_offers_wipe_interactively_and_keeps_on_no(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "myproj")
     args = _args(work_dir=tmp_path, interactive=True, force=True)
     # ask_yesno reads stdin; an empty input keeps the default (False = keep).
     stdin = StringIO("")
     out = StringIO()
     with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE), \
          patch("webtrees_installer.flow._list_surviving_volumes",
-               return_value=["test_database"]), \
+               return_value=["myproj_database"]), \
          patch("webtrees_installer.flow._wipe_volumes") as wipe:
         run_standalone(args, stdin=stdin, stdout=out)
 
     body = out.getvalue()
     assert "Wipe them now" in body
     assert "Keeping existing volumes" in body
+    # Even on the "keep" path the operator should see the exact commands
+    # they would need to clean up later.
+    assert "docker compose -p myproj down" in body
+    assert "docker volume rm myproj_database" in body
     wipe.assert_not_called()
 
 
