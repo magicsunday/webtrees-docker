@@ -1,0 +1,60 @@
+name: Test Copilot handoff
+
+# One-off test workflow that always fails on demand so the
+# `notify-on-failure` block (same logic as build.yml / check-php.yml /
+# check-versions.yml) runs and exercises the Copilot auto-assignment
+# end-to-end. Delete this file once the handoff is verified.
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    issues: write
+
+jobs:
+    deliberately-fail:
+        name: Deliberately fail to exercise notify-on-failure
+        runs-on: ubuntu-latest
+        steps:
+            - run: |
+                  echo "This step fails on purpose to test the notify-on-failure path."
+                  exit 1
+
+    notify-on-failure:
+        name: Notify on workflow failure
+        needs: [deliberately-fail]
+        if: failure() && github.event_name != 'pull_request'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+        steps:
+            - name: Open tracking issue
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
+              run: |
+                  set -euo pipefail
+                  title="Test: Copilot handoff (run ${{ github.run_number }})"
+                  body=$(cat <<BODY_END
+                  This issue was filed by the test-copilot-handoff workflow on purpose.
+
+                  Run: ${RUN_URL}
+
+                  If the Copilot Coding Agent picks this up, the assignment path is wired correctly.
+                  Close this issue once the handoff is verified.
+                  BODY_END
+                  )
+                  issue_url=$(gh issue create --title "$title" --body "$body")
+                  echo "Issue created: $issue_url"
+                  if [ -n "${COPILOT_PAT:-}" ]; then
+                      if ! GH_TOKEN="${COPILOT_PAT}" gh issue edit "$issue_url" \
+                              --add-assignee "copilot-swe-agent[bot]"; then
+                          echo "::error::Could not assign $issue_url to Copilot. Verify (a) COPILOT_PAT has 'repo' scope (classic) or 'issues:write' + 'metadata:read' (fine-grained), (b) Copilot Coding Agent is enabled in repo settings, (c) the token has not expired."
+                          exit 1
+                      fi
+                  else
+                      echo "::notice::COPILOT_PAT secret not set — skipping Copilot auto-assignment. Add a PAT to enable hands-off triage."
+                  fi
