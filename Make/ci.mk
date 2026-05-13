@@ -13,13 +13,13 @@
 # prerequisites beyond `docker` itself.
 # =============================================================================
 
-.PHONY: ci-test ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep
+.PHONY: ci-test ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
+ci-test: ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests ci-entrypoint ## Runs every local CI check (pytest + lint + lockstep + entrypoint tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
@@ -212,6 +212,16 @@ ci-readme-badge-lockstep: .logo ## Asserts the README webtrees badge tracks dev/
 		echo "::error::README.md webtrees badge no longer queries \$$[0].webtrees — update either the badge or ci-readme-badge-lockstep so both ends stay in sync." >&2; \
 		exit 1; \
 	}
+
+ci-lockstep-tests: .logo ## Failure-path tests for the ci-*-lockstep drift checks.
+	echo -e "${FBLUE}▶ lockstep failure-path tests${FRESET}"
+	# Each ci-*-lockstep target only proves itself on the happy path; if a
+	# future edit weakens the regex / predicate (e.g. fattens the alpine
+	# shape check, drops the row-0 invariant), the lockstep silently passes.
+	# This harness mutates a throwaway git worktree to inject the violation
+	# the lockstep is supposed to catch and asserts the recipe still fails
+	# with the documented error annotation.
+	./tests/test-lockstep.sh
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"
