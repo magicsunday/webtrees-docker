@@ -133,8 +133,10 @@ ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the centr
 	# Shape assertion on the pin itself: `alpine:X.Y` (no patch). Pin
 	# policy is enforced here, not just on convention. A future maintainer
 	# adding a patch suffix (X.Y.Z) would fail this check loudly.
-	pinned=$$(grep -E '^ALPINE_BASE_IMAGE\s*=' installer/webtrees_installer/_alpine.py | sed -E 's/^[^"]*"([^"]+)".*/\1/'); \
-		[ -n "$$pinned" ] || { echo "::error::Could not parse ALPINE_BASE_IMAGE from _alpine.py" >&2; exit 1; }; \
+	# The parser script handles canonical/Final[str]/indented/single-quoted
+	# variants of the assignment so a benign reformat of _alpine.py doesn't
+	# break this recipe; tests/test-lockstep.sh exercises the failure paths.
+	pinned=$$(./scripts/parse-alpine-pin.sh) || exit 1; \
 		echo "  canonical pin: $$pinned"; \
 		echo "$$pinned" | grep -qE '^alpine:[0-9]+\.[0-9]+$$' || { \
 			echo "::error::ALPINE_BASE_IMAGE='$$pinned' violates the minor-only pin policy (expected 'alpine:X.Y')" >&2; \

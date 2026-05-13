@@ -28,10 +28,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Copy every pending change from the live repo into the worktree:
+# tracked-modified + staged-new + truly-untracked. Called once at setup
+# and again after each restore_worktree so the in-progress edit is
+# visible to every test.
+apply_overlay() {
+    {
+        git -C "$repo" diff --name-only -z HEAD
+        git -C "$repo" ls-files --others --exclude-standard -z
+    } | sort -uz | while IFS= read -r -d '' path; do
+        [ -f "$repo/$path" ] || continue
+        target_dir="$worktree/$(dirname "$path")"
+        mkdir -p "$target_dir"
+        cp -a "$repo/$path" "$target_dir/"
+    done
+}
+
 # Stand up a clean copy of the working tree (HEAD, not the index). Each
 # test mutates files inside the worktree freely; `git restore` between
 # tests reverts the mutation so the next test starts from HEAD.
 git -C "$repo" worktree add --detach "$worktree" HEAD >/dev/null
+
+# Apply the pending-edit overlay so the harness exercises the
+# in-progress edit, not just what's already committed.
+apply_overlay
 
 # Run a make target inside the worktree and capture exit code + stderr.
 # Echoes "PASS" / "FAIL" + records into the result table.
@@ -72,8 +92,82 @@ assert_lockstep_fails() {
 }
 
 restore_worktree() {
+    # Revert tracked-file mutations only, then re-apply the pending-edit
+    # overlay so tests 2..N exercise the same in-progress code as test 1.
+    # `git checkout HEAD -- .` resets tracked files to HEAD, which would
+    # erase any tracked-modified overlay (e.g. an edited Make/ci.mk);
+    # the re-overlay step puts it back. We deliberately do NOT
+    # `git clean -fd` here: it would sweep the untracked overlay files
+    # (e.g. a not-yet-committed scripts/parse-alpine-pin.sh).
+    #
+    # New tests creating untracked artefacts inside $worktree need their
+    # own bespoke cleanup — this restore intentionally only handles the
+    # tracked-mutation revert.
     git -C "$worktree" checkout HEAD -- . >/dev/null 2>&1
-    git -C "$worktree" clean -fd >/dev/null 2>&1 || true
+    apply_overlay
+}
+
+# Run scripts/parse-alpine-pin.sh against an _alpine.py written from
+# `fixture_content`, assert it prints `expected_pin` and exits 0.
+assert_parser_outputs() {
+    local name=$1 fixture_content=$2 expected_pin=$3
+    local fixture_file="$worktree/installer/webtrees_installer/_alpine.py"
+    local actual exit_code
+
+    printf '%s\n' "$fixture_content" > "$fixture_file"
+
+    set +e
+    actual=$(cd "$worktree" && ./scripts/parse-alpine-pin.sh 2>/dev/null)
+    exit_code=$?
+    set -e
+
+    if [ "$exit_code" -ne 0 ]; then
+        echo "FAIL  $name: parser exited $exit_code, expected 0"
+        fail=$((fail + 1))
+        results+=("FAIL  $name")
+    elif [ "$actual" != "$expected_pin" ]; then
+        echo "FAIL  $name: parser output '$actual', expected '$expected_pin'"
+        fail=$((fail + 1))
+        results+=("FAIL  $name")
+    else
+        echo "PASS  $name"
+        pass=$((pass + 1))
+        results+=("PASS  $name")
+    fi
+}
+
+# Run scripts/parse-alpine-pin.sh against an _alpine.py written from
+# `fixture_content`, assert it exits non-zero with `expect_in_stderr`
+# present in its stderr (mirrors assert_lockstep_fails' contract so a
+# regression in the *specific* failure message surfaces, not just any
+# non-zero exit).
+assert_parser_fails() {
+    local name=$1 fixture_content=$2 expect_in_stderr=$3
+    local fixture_file="$worktree/installer/webtrees_installer/_alpine.py"
+    local stderr_out exit_code
+
+    printf '%s\n' "$fixture_content" > "$fixture_file"
+
+    set +e
+    stderr_out=$(cd "$worktree" && ./scripts/parse-alpine-pin.sh 2>&1 >/dev/null)
+    exit_code=$?
+    set -e
+
+    if [ "$exit_code" -eq 0 ]; then
+        echo "FAIL  $name: expected non-zero exit, got 0"
+        fail=$((fail + 1))
+        results+=("FAIL  $name")
+    elif ! printf '%s\n' "$stderr_out" | grep -qF "$expect_in_stderr"; then
+        echo "FAIL  $name: stderr does not contain '${expect_in_stderr}'"
+        echo "      actual stderr (last 5 lines):"
+        printf '%s\n' "$stderr_out" | tail -5 | sed 's/^/        /'
+        fail=$((fail + 1))
+        results+=("FAIL  $name")
+    else
+        echo "PASS  $name"
+        pass=$((pass + 1))
+        results+=("PASS  $name")
+    fi
 }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -126,6 +220,64 @@ assert_lockstep_fails \
     "ci-readme-badge-lockstep: badge URL no longer queries \$[0].webtrees" \
     ci-readme-badge-lockstep \
     "no longer queries"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/parse-alpine-pin.sh — happy-path variants
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: parser fixture (canonical assignment)"
+assert_parser_outputs \
+    "parse-alpine-pin: canonical 'KEY = \"alpine:3.23\"'" \
+    'ALPINE_BASE_IMAGE = "alpine:3.23"' \
+    "alpine:3.23"
+restore_worktree
+
+echo "Setting up: parser fixture (Final[str] type annotation)"
+assert_parser_outputs \
+    "parse-alpine-pin: 'KEY: Final[str] = \"alpine:3.23\"'" \
+    'ALPINE_BASE_IMAGE: Final[str] = "alpine:3.23"' \
+    "alpine:3.23"
+restore_worktree
+
+echo "Setting up: parser fixture (indented + single quotes)"
+assert_parser_outputs \
+    "parse-alpine-pin: indented + single-quoted" \
+    "    ALPINE_BASE_IMAGE = 'alpine:3.23'" \
+    "alpine:3.23"
+restore_worktree
+
+echo "Setting up: parser fixture (inline comment with another alpine literal)"
+# Verifies the sed extractor anchors on the RHS after `=`, not on any
+# alpine literal that happens to appear later on the line (e.g. in a
+# bump-history comment).
+assert_parser_outputs \
+    "parse-alpine-pin: inline comment with stray alpine literal is ignored" \
+    'ALPINE_BASE_IMAGE = "alpine:3.23"  # was "alpine:9.99" before bump' \
+    "alpine:3.23"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/parse-alpine-pin.sh — parse-failure path
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: parser fixture (no ALPINE_BASE_IMAGE assignment)"
+assert_parser_fails \
+    "parse-alpine-pin: empty file fails with parse error" \
+    "# no pin defined here" \
+    "Could not parse ALPINE_BASE_IMAGE"
+restore_worktree
+
+echo "Setting up: parser fixture (unquoted RHS)"
+assert_parser_fails \
+    "parse-alpine-pin: unquoted RHS fails with parse error" \
+    'ALPINE_BASE_IMAGE = alpine:3.23' \
+    "Could not parse ALPINE_BASE_IMAGE"
+restore_worktree
+
+echo "Setting up: parser fixture (non-alpine quoted RHS)"
+assert_parser_fails \
+    "parse-alpine-pin: non-alpine image rejected" \
+    'ALPINE_BASE_IMAGE = "debian:bookworm"' \
+    "Could not parse ALPINE_BASE_IMAGE"
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────

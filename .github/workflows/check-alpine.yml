@@ -30,15 +30,16 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
-                  # Pin is stored as `alpine:<major>.<minor>` in the
-                  # installer's _alpine.py — read the literal so the workflow
-                  # cannot drift from the actual constant.
-                  pinned_minor=$(grep -E '^ALPINE_BASE_IMAGE\s*=' installer/webtrees_installer/_alpine.py \
-                      | sed -E 's/^[^"]*"alpine:([0-9]+\.[0-9]+).*/\1/')
-                  [ -n "$pinned_minor" ] || {
-                      echo "::error::Could not parse Alpine pin from installer/webtrees_installer/_alpine.py" >&2
-                      exit 1
-                  }
+                  # Reuse the parser script that ci-alpine-lockstep already
+                  # exercises locally on every PR. Reading the literal pin
+                  # via one shared parser keeps this workflow from drifting
+                  # if a future _alpine.py reformat changes the assignment
+                  # shape (Final[str], single quotes, indented).
+                  # ci-alpine-lockstep enforces `alpine:X.Y` shape on every
+                  # PR, so by the time this cron runs the pin is guaranteed
+                  # to be `alpine:X.Y` (no patch).
+                  pinned=$(./scripts/parse-alpine-pin.sh)
+                  pinned_minor=${pinned#alpine:}
                   echo "Pinned Alpine minor: ${pinned_minor}"
 
                   # Docker Hub library/alpine tag listing — `name=^3` keeps
