@@ -550,3 +550,22 @@ def test_compose_project_name_raises_on_empty_env_value(
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "!@#$%")
     with pytest.raises(PrereqError, match="empty after normalisation"):
         _compose_project_name(tmp_path)
+
+
+def test_list_surviving_volumes_returns_empty_when_project_name_unresolvable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the project name cannot be derived (e.g. running inside the
+    installer container without COMPOSE_PROJECT_NAME), _list_surviving_volumes
+    must return an empty list instead of propagating the PrereqError.
+
+    The volume check is best-effort — aborting the install because the
+    project name is unknowable would block the demo smoke cell which runs
+    with --no-up --no-admin inside a container at /work.
+    """
+    from webtrees_installer.flow import _list_surviving_volumes
+
+    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+    # /work triggers the PrereqError guard in _compose_project_name.
+    result = _list_surviving_volumes(Path("/work"))
+    assert result == []

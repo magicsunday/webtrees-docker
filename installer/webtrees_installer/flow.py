@@ -330,8 +330,16 @@ def _list_surviving_volumes(work_dir: Path) -> list[str]:
     `compose up` they are silently re-mounted with their stale data —
     the installer's freshly-generated admin password would then never
     match the running stack.
+
+    Returns an empty list when the compose project name cannot be
+    determined (e.g., running inside the installer container without
+    ``COMPOSE_PROJECT_NAME`` set). The volume check is best-effort —
+    skipping it is always safer than aborting the install.
     """
-    project = _compose_project_name(work_dir)
+    try:
+        project = _compose_project_name(work_dir)
+    except PrereqError:
+        return []
     result = subprocess.run(
         [
             "docker", "volume", "ls",
