@@ -8,6 +8,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._io import atomic_write
 from webtrees_installer.versions import Catalog
 
@@ -66,6 +67,10 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
         "installer_version": input_model.catalog.installer_version,
         "generated_at": input_model.generated_at.isoformat(),
         "traefik_network": input_model.traefik_network,
+        # Pin lives in webtrees_installer._alpine and is consumed verbatim;
+        # the templates carry no fallback, so a renaming bug here trips
+        # Jinja's StrictUndefined immediately.
+        "alpine_image": ALPINE_BASE_IMAGE,
     }
 
     compose_template = (

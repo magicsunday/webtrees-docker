@@ -119,7 +119,7 @@ docker compose exec -T db sh -c \
 docker run --rm \
     -v "$(basename "$PWD")_media:/m:ro" \
     -v "$PWD:/host" \
-    alpine:3.20 \
+    alpine:3.23 \
     tar -C /m -czf "/host/media-$(date +%F).tar.gz" .
 ```
 
@@ -141,7 +141,7 @@ gunzip < backup-2026-05-12.sql.gz \
 docker run --rm \
     -v "$(basename "$PWD")_media:/m" \
     -v "$PWD:/host" \
-    alpine:3.20 \
+    alpine:3.23 \
     sh -c "cd /m && tar -xzf /host/media-2026-05-12.tar.gz"
 ```
 

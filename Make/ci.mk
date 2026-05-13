@@ -13,13 +13,13 @@
 # prerequisites beyond `docker` itself.
 # =============================================================================
 
-.PHONY: ci-test ci-pytest ci-entrypoint ci-yamllint ci-hadolint
+.PHONY: ci-test ci-pytest ci-entrypoint ci-yamllint ci-hadolint ci-alpine-lockstep
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-pytest ci-yamllint ci-hadolint ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
+ci-test: ci-pytest ci-yamllint ci-hadolint ci-alpine-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
@@ -68,6 +68,41 @@ ci-yamllint: .logo ## Lints workflow + compose YAML files.
 		cytopia/yamllint:latest \
 		-d "{extends: default, rules: {line-length: {max: 200, level: warning}, document-start: disable, truthy: {check-keys: false}, comments: {min-spaces-from-content: 1}}}" \
 		.github/workflows/ compose.yaml compose.pma.yaml compose.traefik.yaml compose.publish.yaml compose.development.yaml
+
+ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the central pin.
+	echo -e "${FBLUE}▶ alpine lockstep${FRESET}"
+	# Single-source-of-truth check: ALPINE_BASE_IMAGE in
+	# webtrees_installer/_alpine.py is canonical. Every literal
+	# `alpine:X.Y[.Z]` reference in live code, runtime configs, docs
+	# and Make/scripts must match it. A partial bump that updates the
+	# constant but forgets one consumer (or vice versa) trips this check.
+	#
+	# Scoped to surfaces that ship to the operator. Excluded:
+	#   * `docs/superpowers/` — historical specs/plans, frozen point-in-time records.
+	#   * Dockerfile variant tags (`php:8.5-fpm-alpine`, `nginx:1.28-alpine`)
+	#     — follow their parent image's release cadence; out of scope.
+	#
+	# Shape assertion on the pin itself: `alpine:X.Y` (no patch). Pin
+	# policy is enforced here, not just on convention. A future maintainer
+	# adding a patch suffix (X.Y.Z) would fail this check loudly.
+	pinned=$$(grep -E '^ALPINE_BASE_IMAGE\s*=' installer/webtrees_installer/_alpine.py | sed -E 's/^[^"]*"([^"]+)".*/\1/'); \
+		[ -n "$$pinned" ] || { echo "::error::Could not parse ALPINE_BASE_IMAGE from _alpine.py" >&2; exit 1; }; \
+		echo "  canonical pin: $$pinned"; \
+		echo "$$pinned" | grep -qE '^alpine:[0-9]+\.[0-9]+$$' || { \
+			echo "::error::ALPINE_BASE_IMAGE='$$pinned' violates the minor-only pin policy (expected 'alpine:X.Y')" >&2; \
+			exit 1; \
+		}; \
+		drifted=$$(find installer/webtrees_installer Make docs Dockerfile installer/Dockerfile -type f \
+				\( -name '*.py' -o -name '*.j2' -o -name '*.md' -o -name '*.mk' -o -name '*.sh' -o -name 'Dockerfile*' \) \
+				-not -path 'docs/superpowers/*' \
+				-print0 2>/dev/null \
+			| xargs -0 grep -hEo 'alpine:[0-9]+\.[0-9]+(\.[0-9]+)?' 2>/dev/null \
+			| sort -u | grep -vFx "$$pinned" || true); \
+		if [ -n "$$drifted" ]; then \
+			echo "::error::Alpine pin drift detected — these references diverge from ALPINE_BASE_IMAGE='$$pinned':" >&2; \
+			echo "$$drifted" >&2; \
+			exit 1; \
+		fi
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"

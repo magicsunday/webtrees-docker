@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
+from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._docker import run_docker
 from webtrees_installer.demo import generate_tree
 from webtrees_installer.gedcom import serialize
@@ -460,7 +461,7 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
                 "docker", "run", "--rm", "-i",
                 "--pull=missing", "--quiet",
                 "-v", f"{volume}:/secrets",
-                "alpine:3.20",
+                ALPINE_BASE_IMAGE,
                 "sh", "-ec",
                 "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
             ],

@@ -5,13 +5,15 @@ from __future__ import annotations
 import enum
 import subprocess
 
+from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+
 
 # Public knob: callers can pass `timeout_s=PROBE_TIMEOUT_S * 2` or similar
 # to scale the deadline relative to the default without hardcoding seconds.
 PROBE_TIMEOUT_S = 20
 
 # Private dependency pin: the image is an implementation detail of the probe.
-_PROBE_IMAGE = "alpine:3.20"
+_PROBE_IMAGE = ALPINE_BASE_IMAGE
 
 # Phrases the Docker daemon emits when the requested host port is occupied.
 # Matched case-insensitively. Linux (`bind: address already in use`), Docker
