@@ -23,6 +23,27 @@ Docker images, and the compose chain. Self-hosters should follow the
 
 ## Setup
 
+### Host prerequisites
+
+The local toolchain leans on docker for everything language-specific
+(PHP, Python, linters all live in ephemeral containers) but a handful
+of `make` targets drive those containers with host-side coreutils:
+
+| Tool | Used by |
+|---|---|
+| `docker` | Every CI target and the dev stack itself. |
+| `bash`, `git` | `ci-shellcheck`, `ci-alpine-lockstep`, `ci-lockstep-tests`, the bundled scripts under `tests/` and `scripts/`. |
+| `cat`, `grep`, `sed`, `find`, `xargs`, `sort`, `head`, `tail`, `wc`, `tr`, `printf`, `cp`, `mkdir`, `mktemp`, `column` | GNU coreutils as shipped on Linux/macOS/WSL — driven by the same Make recipes, `make help`'s own pipeline, and the bundled shell scripts. |
+| `gh` (optional) | Auto-detected by the root Makefile to set `COMPOSER_AUTH`; without it, composer's anonymous rate limit applies. |
+| `jq` (optional) | Not required — every recipe runs it in a `ghcr.io/jqlang/jq:latest` container. Handy on the host for inspecting `dev/versions.json` by hand. |
+
+`make ci-test` opens with a `ci-prereqs` step that scans for every
+mandatory tool above and fails fast with an install hint if anything
+is missing — run it once after cloning to confirm the host is
+sufficiently equipped.
+
+### Bootstrap
+
 Clone the repo and run the wizard in dev mode through the bundled
 launcher — it injects `--local-user-id $(id -u)` / `--local-user-name
 $(id -un)` so the rendered `.env` carries the host UID (the wizard runs

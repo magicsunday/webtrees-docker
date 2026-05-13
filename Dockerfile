@@ -30,6 +30,10 @@ COPY setup/composer-core.json /build/composer.json
 COPY setup/patches /build/patches
 COPY setup/public /build/public
 
+# SC2016: the later `grep -q 'merge($this->vendorModules())'` quotes the
+# literal PHP expression — `$this` must NOT be shell-expanded. False
+# positive; suppress.
+# hadolint ignore=SC2016
 RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
  # Pin fisharebest/webtrees to the exact version this image bundles.
  # setup/composer-core.json carries a "~2.2.0" range for the dev bootstrap; the
@@ -133,6 +137,9 @@ COPY setup/composer-full.json /build/composer.json
 COPY setup/patches /build/patches
 COPY setup/public /build/public
 
+# SC2016: see the webtrees-build stage above — `$this` in the grep
+# pattern is the literal PHP expression, intentionally single-quoted.
+# hadolint ignore=SC2016
 RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
  # Mirror the platform-pin from webtrees-build (see comment there) so the

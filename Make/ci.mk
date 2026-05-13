@@ -9,18 +9,39 @@
 # here (not as separate workflows) so the aggregate stays the single source of
 # truth.
 #
-# Tools are pulled on first use as ephemeral docker containers; no host-side
-# prerequisites beyond `docker` itself.
+# Heavy lifting runs in ephemeral docker containers (linters, type-checkers,
+# language toolchains) — no Python / Node / PHP install needed on the host.
+# A handful of targets and the bundled shell scripts still drive those
+# containers with host-side bash + git + GNU coreutils; `ci-prereqs` is the
+# canonical, verified list and docs/developing.md renders the same set as
+# a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests ci-entrypoint ## Runs every local CI check (pytest + lint + lockstep + entrypoint tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests ci-entrypoint ## Runs every local CI check (pytest + lint + lockstep + entrypoint tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
+
+ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
+	echo -e "${FBLUE}▶ host toolchain check${FRESET}"
+	# Fail-fast diagnostic so a missing coreutil surfaces at the start of
+	# ci-test with a clear pointer, not as a cryptic "command not found"
+	# mid-pipeline. When a new ci-* recipe (or a script invoked from one)
+	# starts shelling out to a tool not yet on this list, extend both the
+	# loop below AND the table in docs/developing.md in lockstep.
+	missing=""; \
+		for tool in docker bash git cat grep sed find xargs sort head tail wc tr printf cp mkdir mktemp column; do \
+			command -v "$$tool" >/dev/null 2>&1 || missing="$$missing $$tool"; \
+		done; \
+		if [ -n "$$missing" ]; then \
+			echo "::error::missing required host tools:$$missing" >&2; \
+			echo "::error::install via your distro package manager (Debian/Ubuntu: 'apt install coreutils bsdmainutils git'; macOS: 'brew install coreutils git')." >&2; \
+			exit 1; \
+		fi
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 	echo -e "${FBLUE}▶ pytest (installer)${FRESET}"
