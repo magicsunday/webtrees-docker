@@ -11,6 +11,7 @@
 /app/*
 !.gitkeep
 
+/compose.override.yaml
 /docker-compose.override.yml
 
 /persistent/database/*

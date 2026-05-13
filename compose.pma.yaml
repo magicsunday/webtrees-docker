@@ -16,8 +16,8 @@ services:
             retries: 3
             start_period: 5s
         environment:
-            PMA_HOST: ${MARIADB_HOST}
-            PMA_PORT: ${MARIADB_PORT}
+            PMA_HOST: ${MARIADB_HOST:-db}
+            PMA_PORT: ${MARIADB_PORT:-3306}
             UPLOAD_LIMIT: ${UPLOAD_LIMIT}
             MEMORY_LIMIT: 512M
         volumes:

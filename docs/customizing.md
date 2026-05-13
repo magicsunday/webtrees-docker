@@ -177,6 +177,11 @@ rather than written by the wizard. Add them by hand when you need them:
 The wizard's `.env` carries a comment block noting that subsequent runs
 ignore the file — edits stick.
 
+If you skip the wizard entirely, your hand-roll reference is the
+repo-root `.env.dist`. Each variable carries an inline comment with
+its default; you'll see dev-only and proxy-only scopes flagged where
+they apply.
+
 ## When things go wrong
 
 - **Stack stays unhealthy** — `docker compose logs phpfpm` and
