@@ -34,7 +34,6 @@
     },
     "scripts": {
         "post-autoload-dump": [
-            "../scripts/update-application.sh",
             "../scripts/update-languages.sh"
         ]
     }

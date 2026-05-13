@@ -24,12 +24,6 @@ COMPOSE_BIN := $(shell \
 		echo "echo 'Error: Docker not found' && exit 1"; \
 	fi)
 
-# Verify Docker Compose is available
-.PHONY: check-docker
-
-check-docker:
-	@$(COMPOSE_BIN) --version >/dev/null 2>&1 || (echo "Docker Compose not available" && exit 1)
-
 # Auto-detect GitHub token for Composer API authentication (avoids rate limiting)
 GITHUB_TOKEN ?= $(shell command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null)
 

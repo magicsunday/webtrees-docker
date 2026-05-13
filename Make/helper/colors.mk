@@ -33,21 +33,3 @@ else
 	FWHITE        := ""
 	FRESET        := ""
 endif
-
-# =============================================================================
-# TARGETS
-# =============================================================================
-
-.PHONY: colors
-
-colors: .logo
-	@echo "${FBLACK}BLACK${FRESET}"
-	@echo "${FRED}RED${FRESET}"
-	@echo "${FGREEN}GREEN${FRESET}"
-	@echo "${FYELLOW}YELLOW${FRESET}"
-	@echo "${FBLUE}BLUE${FRESET}"
-	@echo "${FPURPLE}PURPLE${FRESET}"
-	@echo "${FCYAN}CYAN${FRESET}"
-	@echo "${FWHITE}WHITE${FRESET}"
-	@echo "${FBOLD}BOLD${FRESET}"
-	@echo "${FDIM}DIM${FRESET}"
