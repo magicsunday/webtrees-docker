@@ -77,6 +77,7 @@ class StandaloneArgs:
 #                               (default), troubleshooting (fallback)
 #   - docs/customizing.md       APP_PORT row
 #   - docs/developing.md        render-only smoke example
+#   - docs/env-vars.md          APP_PORT default cell
 _DEFAULT_PORT = 28080
 _FALLBACK_PORT = 28081
 

@@ -19,7 +19,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | Path | Purpose |
 |---|---|
 | `installer/webtrees_installer/` | Python wizard package: CLI, flow orchestrators, render, prompts |
-| `installer/templates/*.j2` | Jinja2 sources for the rendered `compose.yaml` / `.env` |
+| `installer/webtrees_installer/templates/*.j2` | Jinja2 sources for the rendered `compose.yaml` / `.env` |
 | `installer/tests/` | pytest suite |
 | `installer/Dockerfile` | Wizard image — separate build, shipped as `installer:<tag>` |
 | `Dockerfile` | Multi-stage build for `php` / `php-full` / `nginx` (stages: `webtrees-build`, `webtrees-build-full`, `php-base`, `php-build`, `php-build-full`, `build-box`, `nginx-build`) |
