@@ -1,0 +1,43 @@
+name: ci:test
+
+# Mirror of `make ci-test`: pytest + yamllint + hadolint + entrypoint
+# integration tests. Runs on every push to main and every pull request so
+# the local "green before commit" discipline is enforced upstream too.
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+# Cancel earlier runs on rapid push/PR updates — each run pulls a ~430 MB
+# php image for the entrypoint tests, so duplicate queued runs waste both
+# CI minutes and GHCR bandwidth.
+concurrency:
+    group: ci-test-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    ci-test:
+        name: ci-test aggregate
+        runs-on: ubuntu-latest
+        # 20 min: a clean run completes in ~3 min today, plus headroom for
+        # cold image pulls. Caps a wedged docker-pull at a sensible bound
+        # instead of GitHub's 6h default.
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+
+            # Entrypoint tests pull the published php image; logging in
+            # avoids GHCR's anonymous rate-limits.
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Run ci-test aggregate
+              run: make ci-test

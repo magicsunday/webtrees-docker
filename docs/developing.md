@@ -117,8 +117,30 @@ Buildbox + application:
 | `make apply-config` | Re-apply the webtrees configuration to an existing install. |
 | `make cache-clear` | Clear the webtrees cache directory. |
 | `make test` | Run the entrypoint state-machine tests on the host. |
+| `make ci-test` | Run the full local CI aggregate — green here is the precondition for every commit. |
 
 Run `make help` for the full list.
+
+### `make ci-test` — green-before-commit
+
+`make ci-test` bundles every static-analysis + unit-test step that CI also
+runs, so a green local run reliably predicts a green GitHub Actions run.
+
+Today's bundle:
+
+- `make ci-pytest` — installer Python test suite (137+ cases).
+- `make ci-yamllint` — workflow + compose YAML lint (line-length is a
+  warning, not an error: GHA `run:` blocks routinely carry long inline
+  strings).
+- `make ci-hadolint` — Dockerfile lint at the `error` failure threshold;
+  warnings stay visible but do not fail the build.
+- `make ci-entrypoint` — entrypoint state-machine integration tests
+  against the canonical published php image (tag resolved from
+  `dev/versions.json`).
+
+Every check has its own sub-target for fast iteration. Add new checks to
+this aggregate (not as a separate workflow) — the single-source-of-truth
+property is what makes the local-CI parity useful.
 
 ## Module Developer Workflow
 
