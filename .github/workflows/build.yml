@@ -304,7 +304,14 @@ jobs:
                   # password surfaced in the banner). `--no-admin` is an
                   # advanced opt-out that leaves the stack at webtrees' upstream
                   # setup wizard — not what we want to cover in CI smoke.
+                  # COMPOSE_PROJECT_NAME is mandatory — compose uses the host
+                  # cwd basename when bringing up the stack, but the installer
+                  # runs with cwd `/work` (the bind-mount), so without the env
+                  # var the pre-seeded `<project>_secrets` volume would land in
+                  # a different bucket than the one compose then mounts.
+                  project_name=$(basename "${SMOKE_DIR}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
                   docker run --rm \
+                      -e COMPOSE_PROJECT_NAME="${project_name}" \
                       -v "${SMOKE_DIR}:/work" \
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
@@ -361,7 +368,12 @@ jobs:
                           ;;
                   esac
                   set -euo pipefail
-                  body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/")
+                  # GET / lands on a tree's homepage when a tree exists; on a
+                  # fresh auto-admin install there are no trees yet, so the
+                  # router serves 404. Probe the login page directly — its
+                  # presence proves config.ini.php was written, the schema is
+                  # in place, the admin user was created, and routes resolve.
+                  body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/index.php?route=/login")
                   # head -50 closes the pipe after the 50th line; without the
                   # `|| true` the resulting SIGPIPE on `printf` would trip
                   # `set -o pipefail` and fail the step before grep even runs.
@@ -371,8 +383,8 @@ jobs:
                   # `if ! printf … | grep` form looked equivalent in local
                   # testing but tripped CI's pipefail anyway — there is no
                   # producer process to SIGPIPE when the source is `<<<`.
-                  if ! grep -qi "webtrees" <<< "$body"; then
-                      echo "::error::response body does not mention 'webtrees'"
+                  if ! grep -qi "sign in" <<< "$body"; then
+                      echo "::error::response body does not contain a sign-in form"
                       exit 1
                   fi
 
