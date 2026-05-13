@@ -20,7 +20,7 @@ from typing import IO
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._io import atomic_write
-from webtrees_installer.prereq import PrereqError, check_prerequisites, confirm_overwrite
+from webtrees_installer.prereq import check_prerequisites, confirm_overwrite
 from webtrees_installer.prompts import PromptError, ask_text, ask_yesno
 from webtrees_installer.versions import Catalog, load_catalog
 

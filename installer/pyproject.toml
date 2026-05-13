@@ -33,6 +33,12 @@ test = [
     "pytest-cov>=5.0",
     "PyYAML>=6.0",
 ]
+static = [
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "vulture>=2.11",
+    "pylint>=3.0",
+]
 
 [project.scripts]
 webtrees-installer = "webtrees_installer.cli:main"
@@ -46,3 +52,30 @@ webtrees_installer = ["templates/*.j2", "data/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+# Jinja2 ships partial inline annotations but no PEP 561 marker, so its
+# imports cannot be resolved by strict mypy. Scoping the ignore to the
+# `jinja2.*` namespace keeps the global posture strict — any future
+# third-party dep without stubs surfaces as a fresh mypy error instead
+# of being silently swallowed.
+[[tool.mypy.overrides]]
+module = "jinja2.*"
+ignore_missing_imports = true
+
+[tool.pylint."messages control"]
+disable = ["all"]
+enable = ["duplicate-code"]
+
+[tool.pylint.similarities]
+# 20 lines is small enough to surface real duplication (e.g. two
+# near-identical helpers) but high enough to ignore boilerplate
+# (imports, dataclass field repetition).
+min-similarity-lines = 20

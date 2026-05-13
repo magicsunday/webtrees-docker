@@ -67,11 +67,13 @@ def _load_php_entries(path: Path) -> tuple[PhpEntry, ...]:
 
 
 def _load_nginx_tag(path: Path) -> str:
-    return _read_json(path)["tag"]
+    tag: str = _read_json(path)["tag"]
+    return tag
 
 
 def _load_installer_version(path: Path) -> str:
-    return _read_json(path)["version"]
+    version: str = _read_json(path)["version"]
+    return version
 
 
 def _read_json(path: Path) -> Any:

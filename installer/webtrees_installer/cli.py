@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from webtrees_installer import __version__
@@ -242,7 +242,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
 
-def _run_with_exit_codes(run_fn) -> int:
+def _run_with_exit_codes(run_fn: Callable[[], int]) -> int:
     """Translate the flow-layer exceptions into the documented exit codes.
 
     Both standalone and dev branches translate the same three exceptions

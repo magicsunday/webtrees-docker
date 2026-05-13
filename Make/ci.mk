@@ -13,13 +13,13 @@
 # prerequisites beyond `docker` itself.
 # =============================================================================
 
-.PHONY: ci-test ci-pytest ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep
+.PHONY: ci-test ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-pytest ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
+ci-test: ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
@@ -30,6 +30,54 @@ ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 		--entrypoint sh \
 		python:3.13-slim \
 		-c "pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
+
+# All four ci-{ruff,mypy,vulture,cpd} targets share the same install
+# step against the installer's `.[static]` optional-deps. The targets
+# are intentionally separate (rather than a single ci-static aggregate)
+# so a developer iterating on one check can run it without paying for
+# the others.
+ci-ruff: .logo ## Lints the installer Python package with ruff.
+	echo -e "${FBLUE}▶ ruff${FRESET}"
+	docker run --rm \
+		-v "$(PWD)/installer:/app" \
+		-w /app \
+		--entrypoint sh \
+		python:3.13-slim \
+		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && ruff check webtrees_installer"
+
+ci-mypy: .logo ## Type-checks the installer Python package with mypy --strict.
+	echo -e "${FBLUE}▶ mypy --strict${FRESET}"
+	docker run --rm \
+		-v "$(PWD)/installer:/app" \
+		-w /app \
+		--entrypoint sh \
+		python:3.13-slim \
+		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && mypy webtrees_installer"
+
+ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
+	echo -e "${FBLUE}▶ vulture${FRESET}"
+	# --min-confidence 80 trims trivial false positives (e.g. constants
+	# referenced via reflection / template lookup) while still surfacing
+	# unused functions/imports/variables that the codebase no longer needs.
+	docker run --rm \
+		-v "$(PWD)/installer:/app" \
+		-w /app \
+		--entrypoint sh \
+		python:3.13-slim \
+		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && vulture webtrees_installer --min-confidence 80"
+
+ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint duplicate-code).
+	echo -e "${FBLUE}▶ cpd (pylint duplicate-code)${FRESET}"
+	# pylint's `duplicate-code` checker is the de-facto standalone CPD
+	# for Python; disabling everything else gives us narrow CPD without
+	# pulling in a second tool. Threshold lives in pyproject.toml
+	# (min-similarity-lines).
+	docker run --rm \
+		-v "$(PWD)/installer:/app" \
+		-w /app \
+		--entrypoint sh \
+		python:3.13-slim \
+		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && pylint webtrees_installer"
 
 # Resolve the rolling-`latest` image tag (e.g. `2.2.6-php8.5`) from the
 # version manifest. Containerised so the aggregate honours the "docker only"
