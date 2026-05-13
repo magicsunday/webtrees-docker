@@ -1,0 +1,29 @@
+name: 'Bring up the compose stack (with retry)'
+description: >
+    Run `docker compose up -d` against a host work-dir, retrying up to
+    three times with 10s back-off when GHCR pulls flake on
+    `context deadline exceeded`. `compose up` is idempotent — services
+    already created on an earlier attempt are reconciled, not duplicated.
+
+inputs:
+    work-dir:
+        description: 'Host directory containing compose.yaml / .env.'
+        required: true
+
+runs:
+    using: composite
+    steps:
+        - name: Bring up the stack
+          shell: bash
+          working-directory: ${{ inputs.work-dir }}
+          run: |
+              set -euo pipefail
+              for attempt in 1 2 3; do
+                  if docker compose up -d; then
+                      exit 0
+                  fi
+                  echo "::warning::compose up attempt ${attempt} failed; retrying in 10s"
+                  sleep 10
+              done
+              echo "::error::compose up failed after 3 attempts"
+              exit 1

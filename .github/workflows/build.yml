@@ -296,48 +296,28 @@ jobs:
                       echo "demo edition: demo.ged emitted (skip stack-up)"
                       exit 0
                   fi
-                  # Default install path: auto-admin (admin user created, random
-                  # password surfaced in the banner). `--no-admin` is an
-                  # advanced opt-out that leaves the stack at webtrees' upstream
-                  # setup wizard — not what we want to cover in CI smoke.
-                  # COMPOSE_PROJECT_NAME is mandatory — compose uses the host
-                  # cwd basename when bringing up the stack, but the installer
-                  # runs with cwd `/work` (the bind-mount), so without the env
-                  # var the pre-seeded `<project>_secrets` volume would land in
-                  # a different bucket than the one compose then mounts.
-                  project_name=$(basename "${SMOKE_DIR}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-                  docker run --rm \
-                      -e COMPOSE_PROJECT_NAME="${project_name}" \
-                      -v "${SMOKE_DIR}:/work" \
-                      -v /var/run/docker.sock:/var/run/docker.sock \
-                      "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
-                      --non-interactive --force --no-up \
-                      --edition "${EDITION}" --proxy standalone --port "${SMOKE_PORT}"
+                  echo "Default-path smoke handled by the next step (installer-run composite)."
+
+            # Default install path: auto-admin (admin user created, random
+            # password surfaced in the banner). `--no-admin` is an advanced
+            # opt-out that leaves the stack at webtrees' upstream setup
+            # wizard — not what we want to cover in CI smoke. The composite
+            # action derives COMPOSE_PROJECT_NAME from the work-dir basename
+            # so the installer's pre-seeded secrets volume matches the one
+            # compose mounts on the host.
+            - name: Run installer (default smoke)
+              if: matrix.edition != 'dev' && matrix.edition != 'demo'
+              uses: ./.github/actions/installer-run
+              with:
+                  work-dir: ${{ env.SMOKE_DIR }}
+                  installer-tag: ${{ needs.matrix.outputs.installer_tag }}
+                  args: --non-interactive --force --no-up --edition ${{ matrix.edition }} --proxy standalone --port ${{ env.SMOKE_PORT }}
 
             - name: Up stack
-              working-directory: ${{ env.SMOKE_DIR }}
-              run: |
-                  case "${EDITION:-${{ matrix.edition }}}" in
-                      demo|dev)
-                          echo "${EDITION:-${{ matrix.edition }}} edition: Up stack step skipped"
-                          exit 0
-                          ;;
-                  esac
-                  # `docker compose up -d` pulls images implicitly when they
-                  # are missing from the local cache; on a fresh runner that
-                  # pull can flake the same way the GHCR login does. Retry
-                  # the whole up-step three times with 10s back-off — compose
-                  # up is idempotent, so a partially-created stack from a
-                  # previous attempt is safe to re-apply.
-                  for attempt in 1 2 3; do
-                      if docker compose up -d; then
-                          exit 0
-                      fi
-                      echo "::warning::compose up attempt ${attempt} failed; retrying in 10s"
-                      sleep 10
-                  done
-                  echo "::error::compose up failed after 3 attempts"
-                  exit 1
+              if: matrix.edition != 'dev' && matrix.edition != 'demo'
+              uses: ./.github/actions/compose-up
+              with:
+                  work-dir: ${{ env.SMOKE_DIR }}
 
             - name: Wait for nginx healthy
               working-directory: ${{ env.SMOKE_DIR }}
@@ -427,26 +407,28 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - name: Render stack via wizard (full + demo + admin-bootstrap)
-              run: |
-                  set -euo pipefail
-                  mkdir -p "${E2E_DIR}"
-                  # Admin-bootstrap is required: without WT_ADMIN_USER the
-                  # phpfpm entrypoint does not write data/config.ini.php, and
-                  # the webtrees CLI cannot reach the database without it.
-                  docker run --rm \
-                      -v "${E2E_DIR}:/work" \
-                      -v /var/run/docker.sock:/var/run/docker.sock \
-                      "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
-                      --non-interactive --force --no-up \
-                      --edition full --demo --demo-seed 42 \
-                      --proxy standalone --port "${E2E_PORT}" \
-                      --admin-user e2e --admin-email e2e@example.org
-                  test -f "${E2E_DIR}/demo.ged"
+            - name: Prepare work-dir
+              run: mkdir -p "${E2E_DIR}"
+
+            # Admin-bootstrap is required: without WT_ADMIN_USER the phpfpm
+            # entrypoint does not write data/config.ini.php, and the webtrees
+            # CLI cannot reach the database without it. The composite action
+            # handles COMPOSE_PROJECT_NAME so the pre-seeded secrets volume
+            # aligns with the volume compose mounts on the host.
+            - name: Render stack via wizard
+              uses: ./.github/actions/installer-run
+              with:
+                  work-dir: ${{ env.E2E_DIR }}
+                  installer-tag: ${{ env.INSTALLER_TAG }}
+                  args: --non-interactive --force --no-up --edition full --demo --demo-seed 42 --proxy standalone --port ${{ env.E2E_PORT }} --admin-user e2e --admin-email e2e@example.org
+
+            - name: Verify demo.ged emitted
+              run: test -f "${E2E_DIR}/demo.ged"
 
             - name: Bring stack up
-              working-directory: ${{ env.E2E_DIR }}
-              run: docker compose up -d
+              uses: ./.github/actions/compose-up
+              with:
+                  work-dir: ${{ env.E2E_DIR }}
 
             - name: Wait for db + phpfpm healthy (120s budget)
               working-directory: ${{ env.E2E_DIR }}

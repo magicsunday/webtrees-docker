@@ -1,0 +1,47 @@
+name: 'Run the webtrees installer'
+description: >
+    Run `docker run …installer` against a host bind-mount, automatically
+    deriving COMPOSE_PROJECT_NAME from the host work-dir basename. The
+    installer would otherwise see cwd `/work` inside its container and
+    pre-seed `work_secrets`, while compose-up on the host uses
+    `<work-dir basename>_secrets`. Centralising this prevents the
+    "forgot one call-site" failure mode.
+
+inputs:
+    work-dir:
+        description: 'Host directory bind-mounted into the installer at /work.'
+        required: true
+    installer-tag:
+        description: 'GHCR tag for the installer image.'
+        required: true
+    args:
+        description: 'Arguments passed verbatim to the installer (no leading executable).'
+        required: true
+
+runs:
+    using: composite
+    steps:
+        - name: Run installer with derived project name
+          shell: bash
+          env:
+              WORK_DIR: ${{ inputs.work-dir }}
+              INSTALLER_TAG: ${{ inputs.installer-tag }}
+              INSTALLER_ARGS: ${{ inputs.args }}
+          run: |
+              set -euo pipefail
+              project_name=$(basename "${WORK_DIR}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+              if [ -z "${project_name}" ]; then
+                  echo "::error::Cannot derive COMPOSE_PROJECT_NAME from ${WORK_DIR}; basename normalises to empty string"
+                  exit 1
+              fi
+              # Word-splitting INSTALLER_ARGS is intentional — the input is a
+              # space-separated argv list; quoting it would pass everything as
+              # one giant arg. Single-quoted values inside the input survive
+              # because GHA preserves them in the env var.
+              # shellcheck disable=SC2086
+              docker run --rm \
+                  -e COMPOSE_PROJECT_NAME="${project_name}" \
+                  -v "${WORK_DIR}:/work" \
+                  -v /var/run/docker.sock:/var/run/docker.sock \
+                  "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
+                  ${INSTALLER_ARGS}
