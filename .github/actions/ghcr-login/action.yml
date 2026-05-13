@@ -1,0 +1,35 @@
+name: 'GHCR login (with retry)'
+description: >
+    Log in to ghcr.io with a small retry loop because docker/login-action@v4
+    has no retry input and has flaked on `context deadline exceeded` against
+    ghcr.io multiple times in a row. Three attempts, 10s back-off; fails the
+    step only if all three time out.
+
+inputs:
+    username:
+        description: 'GHCR username (typically github.actor).'
+        required: true
+    token:
+        description: 'GHCR token (typically secrets.GITHUB_TOKEN).'
+        required: true
+
+runs:
+    using: composite
+    steps:
+        - name: Login to GHCR (with retry)
+          shell: bash
+          env:
+              GHCR_USER: ${{ inputs.username }}
+              GHCR_TOKEN: ${{ inputs.token }}
+          run: |
+              set -euo pipefail
+              for attempt in 1 2 3; do
+                  if printf '%s' "${GHCR_TOKEN}" \
+                          | docker login ghcr.io -u "${GHCR_USER}" --password-stdin; then
+                      exit 0
+                  fi
+                  echo "::warning::ghcr.io login attempt ${attempt} failed; retrying in 10s"
+                  sleep 10
+              done
+              echo "::error::ghcr.io login failed after 3 attempts"
+              exit 1
