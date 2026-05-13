@@ -37,12 +37,25 @@ ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 LATEST_PHP_TAG = $$(docker run --rm -v "$(PWD)/dev:/d:ro" -w /d ghcr.io/jqlang/jq:latest \
 	-r '.[] | select(.tags | index("latest")) | "\(.webtrees)-php\(.php)"' versions.json)
 
+# Runs on the host: the script spawns ephemeral docker containers and
+# volumes directly via the docker CLI. Wrapping it in buildbox would
+# require docker-in-docker and add nothing.
+#
+# Also consumed by `test-entrypoint` in Make/test.mk — rename this target
+# (or change its contract) only in lockstep with that delegation.
 ci-entrypoint: .logo ## Runs the docker-entrypoint.sh state-machine tests.
 	echo -e "${FBLUE}▶ entrypoint integration tests${FRESET}"
 	# Pin TEST_IMAGE: the script's default `:8.5` tag does not exist in the
 	# registry — we publish `2.2.6-php8.5` etc. Resolve the canonical tag
 	# from dev/versions.json (the row carrying the rolling `latest` bundle).
-	TEST_IMAGE="ghcr.io/magicsunday/webtrees/php:$(LATEST_PHP_TAG)" ./tests/test-entrypoint.sh
+	# Pre-pull so test-entrypoint.sh's "Image not found locally" guard does
+	# not trip on a fresh runner that has never built/pulled the image.
+	IMAGE="ghcr.io/magicsunday/webtrees/php:$(LATEST_PHP_TAG)"; \
+		docker pull "$$IMAGE" >/dev/null || { \
+			echo "::error::docker pull failed for $$IMAGE" >&2; \
+			exit 1; \
+		}; \
+		TEST_IMAGE="$$IMAGE" ./tests/test-entrypoint.sh
 
 ci-yamllint: .logo ## Lints workflow + compose YAML files.
 	echo -e "${FBLUE}▶ yamllint${FRESET}"

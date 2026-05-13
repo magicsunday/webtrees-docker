@@ -8,12 +8,8 @@
 
 test: test-entrypoint ## Runs all local test suites.
 
-test-entrypoint: .logo ## Runs the docker-entrypoint.sh state-machine tests.
-	# Runs on the host: the script spawns ephemeral docker containers and
-	# volumes directly via the docker CLI. Wrapping it in buildbox would
-	# require docker-in-docker and add nothing.
-	#
-	# TEST_IMAGE: the script's default `:8.5` tag does not exist in the
-	# registry (we publish `2.2.6-php8.5` etc). $(LATEST_PHP_TAG) — defined
-	# in Make/ci.mk — resolves the rolling-`latest` row from dev/versions.json.
-	TEST_IMAGE="ghcr.io/magicsunday/webtrees/php:$(LATEST_PHP_TAG)" ./tests/test-entrypoint.sh
+# Delegates to ci-entrypoint to avoid drifting between two near-identical
+# pull-then-run recipes — both used to share the LATEST_PHP_TAG pin and the
+# pre-pull guard. Single source of truth lives in Make/ci.mk; this target
+# stays as the historical entry point for `make test`.
+test-entrypoint: ci-entrypoint ## Runs the docker-entrypoint.sh state-machine tests (delegates to ci-entrypoint).
