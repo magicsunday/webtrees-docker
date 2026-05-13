@@ -1,5 +1,5 @@
 {
-    "nginx_base": "1.28",
+    "nginx_base": "1.30",
     "config_revision": 1,
-    "tag": "1.28-r1"
+    "tag": "1.30-r1"
 }

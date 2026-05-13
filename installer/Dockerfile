@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.12-alpine AS installer
+FROM python:3.13-alpine AS installer
 
 LABEL org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker"
 LABEL org.opencontainers.image.description="Wizard for setting up a self-hosted webtrees stack"

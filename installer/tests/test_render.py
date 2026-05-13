@@ -23,7 +23,7 @@ def catalog() -> Catalog:
             PhpEntry(webtrees="2.2.6", php="8.5", tags=("latest",)),
             PhpEntry(webtrees="2.2.6", php="8.4"),
         ),
-        nginx_tag="1.28-r1",
+        nginx_tag="1.30-r1",
         installer_version="0.1.0",
     )
 

@@ -27,7 +27,7 @@ _HOST = HostInfo(uid=1000, username="dev", primary_ip="192.168.1.50",
 def catalog() -> Catalog:
     return Catalog(
         php_entries=(PhpEntry(webtrees="2.2.6", php="8.5", tags=("latest",)),),
-        nginx_tag="1.28-r1",
+        nginx_tag="1.30-r1",
         installer_version="0.1.0",
     )
 
@@ -88,7 +88,7 @@ def test_render_dev_env_writes_full_env(tmp_path: Path, catalog: Catalog) -> Non
     assert "COMPOSE_PROJECT_NAME=" not in env
     assert "PHP_VERSION=8.5" in env
     assert "WEBTREES_VERSION=2.2.6" in env
-    assert "WEBTREES_NGINX_VERSION=1.28-r1" in env
+    assert "WEBTREES_NGINX_VERSION=1.30-r1" in env
     assert "MARIADB_PASSWORD=devpw" in env
     assert "MARIADB_ROOT_PASSWORD=rootpw" in env
     assert "USE_EXISTING_DB=0" in env
@@ -267,7 +267,7 @@ def test_collect_dev_inputs_rejects_non_numeric_port_at_prompt() -> None:
 
 _LIVE_CATALOG = Catalog(
     php_entries=(PhpEntry(webtrees="2.2.6", php="8.5", tags=("latest",)),),
-    nginx_tag="1.28-r1",
+    nginx_tag="1.30-r1",
     installer_version="0.1.0",
 )
 

@@ -181,7 +181,7 @@ Full procedure (DB dump, media tar, restore, scheduling): see
   falls back to 8080 automatically. If 8080 is also taken, pass
   `--port <free-port>` explicitly.
 - **`docker compose pull` fails** — confirm GHCR is reachable
-  (`docker pull ghcr.io/magicsunday/webtrees/nginx:1.28-r1`) and re-run.
+  (`docker pull ghcr.io/magicsunday/webtrees/nginx:1.30-r1`) and re-run.
 - **Admin login fails** — the password is printed once in the install
   banner and not saved to disk. If you missed it, re-run the wizard with
   `--force` to regenerate (your tree data in the named volumes survives).

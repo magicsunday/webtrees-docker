@@ -148,7 +148,7 @@ ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the centr
 	#
 	# Scoped to surfaces that ship to the operator. Excluded:
 	#   * `docs/superpowers/` — historical specs/plans, frozen point-in-time records.
-	#   * Dockerfile variant tags (`php:8.5-fpm-alpine`, `nginx:1.28-alpine`)
+	#   * Dockerfile variant tags (`php:8.5-fpm-alpine`, `nginx:1.30-alpine`)
 	#     — follow their parent image's release cadence; out of scope.
 	#
 	# Shape assertion on the pin itself: `alpine:X.Y` (no patch). Pin

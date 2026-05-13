@@ -9,6 +9,10 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 ARG WEBTREES_VERSION=2.2.6
 
+# Major-pin: `composer:2` auto-rolls within the 2.x line so patch and
+# minor bumps land without a manual update. A stricter pin would block
+# them; loosening to `composer:latest` would let a 3.x release land
+# silently and break this build.
 FROM composer:2 AS webtrees-build
 
 # pipefail catches `find … | grep -q .` failures in the RUN below; without
@@ -123,6 +127,7 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
 # Magic-Sunday-Edition: webtrees core + fan/pedigree/descendants charts.
 # Same install pipeline as webtrees-build, different composer manifest.
 # webtrees-statistics is deferred until the module is published to Packagist.
+# Major-pin — same rationale as webtrees-build above.
 FROM composer:2 AS webtrees-build-full
 
 # pipefail — same rationale as webtrees-build above.
@@ -388,7 +393,7 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 ##################
 # Pre-baked nginx with webtrees configs and an empty /etc/nginx/conf.d/custom/
 # directory that users override-mount for their own snippets.
-FROM nginx:1.28-alpine AS nginx-build
+FROM nginx:1.30-alpine AS nginx-build
 
 # pipefail makes a failing `nginx -t` surface at the pipe rather than
 # being masked by tee's exit. The grep guards below would also catch the
@@ -406,13 +411,13 @@ LABEL org.opencontainers.image.title="Webtrees nginx" \
       org.opencontainers.image.vendor="Rico Sonntag" \
       org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="1.28-r${NGINX_CONFIG_REVISION}" \
+      org.opencontainers.image.version="1.30-r${NGINX_CONFIG_REVISION}" \
       org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.base.name="nginx:1.28-alpine" \
-      org.opencontainers.image.ref.name="webtrees/nginx:1.28-r${NGINX_CONFIG_REVISION}"
+      org.opencontainers.image.base.name="nginx:1.30-alpine" \
+      org.opencontainers.image.ref.name="webtrees/nginx:1.30-r${NGINX_CONFIG_REVISION}"
 
 # Baked configs: conf.d, includes, templates.
 COPY rootfs/etc/nginx/conf.d /etc/nginx/conf.d

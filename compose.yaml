@@ -16,7 +16,7 @@ services:
     # MariaDB database service
     # This container runs the database that stores all Webtrees data
     db:
-        image: mariadb:11.7
+        image: mariadb:11.8
         restart: unless-stopped
         environment:
             # Database credentials and configuration

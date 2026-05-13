@@ -24,7 +24,7 @@ services:
                 chmod 444 /secrets/*
 
     db:
-        image: mariadb:11.7
+        image: mariadb:11.8
         depends_on:
             init:
                 condition: service_completed_successfully

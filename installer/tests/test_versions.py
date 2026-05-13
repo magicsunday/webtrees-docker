@@ -15,9 +15,9 @@ def test_load_catalog_reads_all_three_manifests(tmp_path: Path) -> None:
         {"webtrees": "2.2.6", "php": "8.4"},
     ]))
     (tmp_path / "nginx-version.json").write_text(json.dumps({
-        "nginx_base": "1.28",
+        "nginx_base": "1.30",
         "config_revision": 1,
-        "tag": "1.28-r1",
+        "tag": "1.30-r1",
     }))
     (tmp_path / "installer-version.json").write_text(json.dumps({
         "version": "0.1.0",
@@ -29,7 +29,7 @@ def test_load_catalog_reads_all_three_manifests(tmp_path: Path) -> None:
     assert isinstance(catalog, Catalog)
     assert catalog.default_php_entry.webtrees == "2.2.6"
     assert catalog.default_php_entry.php == "8.5"
-    assert catalog.nginx_tag == "1.28-r1"
+    assert catalog.nginx_tag == "1.30-r1"
     assert catalog.installer_version == "0.1.0"
 
 
@@ -40,7 +40,7 @@ def test_default_php_entry_prefers_latest_tag(tmp_path: Path) -> None:
         {"webtrees": "2.2.6", "php": "8.5", "tags": ["latest"]},
     ]))
     (tmp_path / "nginx-version.json").write_text(json.dumps({
-        "nginx_base": "1.28", "config_revision": 1, "tag": "1.28-r1",
+        "nginx_base": "1.30", "config_revision": 1, "tag": "1.30-r1",
     }))
     (tmp_path / "installer-version.json").write_text(json.dumps({
         "version": "0.1.0", "tag": "0.1.0",
@@ -64,7 +64,7 @@ def test_default_php_entry_falls_back_to_first_without_latest_tag(tmp_path: Path
         {"webtrees": "2.2.5", "php": "8.4"},
     ]))
     (tmp_path / "nginx-version.json").write_text(json.dumps({
-        "nginx_base": "1.28", "config_revision": 1, "tag": "1.28-r1",
+        "nginx_base": "1.30", "config_revision": 1, "tag": "1.30-r1",
     }))
     (tmp_path / "installer-version.json").write_text(json.dumps({
         "version": "0.1.0", "tag": "0.1.0",
@@ -78,6 +78,6 @@ def test_default_php_entry_falls_back_to_first_without_latest_tag(tmp_path: Path
 
 def test_default_php_entry_raises_when_no_entries() -> None:
     """An empty catalog surfaces a clear error instead of IndexError."""
-    catalog = Catalog(php_entries=(), nginx_tag="1.28-r1", installer_version="0.1.0")
+    catalog = Catalog(php_entries=(), nginx_tag="1.30-r1", installer_version="0.1.0")
     with pytest.raises(ValueError, match="no PHP entries"):
         catalog.default_php_entry
