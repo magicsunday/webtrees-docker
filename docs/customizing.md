@@ -180,7 +180,9 @@ ignore the file — edits stick.
 If you skip the wizard entirely, your hand-roll reference is the
 repo-root `.env.dist`. Each variable carries an inline comment with
 its default; you'll see dev-only and proxy-only scopes flagged where
-they apply.
+they apply. For an at-a-glance map (every variable → consumer file →
+default + any naming collisions worth knowing) see
+[`docs/env-vars.md`](env-vars.md).
 
 ## When things go wrong
 

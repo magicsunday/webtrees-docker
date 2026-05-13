@@ -31,6 +31,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases |
 | `docs/developing.md` | Module-maintainer guide |
 | `docs/customizing.md` | Self-hoster customising + backup |
+| `docs/env-vars.md` | Env-var inventory + collision audit (every name → consumer + default) |
 
 ## Build & test
 
