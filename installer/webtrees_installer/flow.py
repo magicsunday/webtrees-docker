@@ -14,6 +14,7 @@ from typing import IO
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._docker import run_docker
 from webtrees_installer.demo import generate_tree
+from webtrees_installer.dev_flow import resolve_enforce_https
 from webtrees_installer.gedcom import serialize
 from webtrees_installer.ports import PortStatus, probe_port
 from webtrees_installer.prereq import (
@@ -50,6 +51,11 @@ class StandaloneArgs:
 
     demo: bool
     demo_seed: int
+
+    # Tristate, mirrors admin_bootstrap above: None = operator didn't
+    # pass --no-https; True/False = explicit choice. Resolved to a
+    # concrete bool by run_standalone before render time.
+    enforce_https: bool | None
 
     force: bool
     no_up: bool
@@ -162,6 +168,14 @@ def run_standalone(
         )
         admin_password = generate_password()
 
+    # Resolve the tristate via the shared helper. The standalone flow
+    # doesn't read an existing .env (env_value=None), so resolution
+    # collapses to "explicit CLI value, else the wizard default of True".
+    enforce_https = resolve_enforce_https(
+        cli_value=args.enforce_https,
+        env_value=None,
+    )
+
     catalog = load_catalog(_resolve_manifest_dir())
     render_input = RenderInput(
         edition=edition,
@@ -173,6 +187,7 @@ def run_standalone(
         admin_email=admin_email,
         catalog=catalog,
         generated_at=datetime.now(tz=timezone.utc),
+        enforce_https=enforce_https,
     )
     render_files(input_model=render_input, target_dir=work_dir)
 
@@ -187,6 +202,7 @@ def run_standalone(
         domain=domain,
         admin_user=admin_user,
         admin_password=admin_password,
+        enforce_https=enforce_https,
         no_up=args.no_up,
     )
 
@@ -493,6 +509,7 @@ def _print_banner(
     domain: str | None,
     admin_user: str | None,
     admin_password: str | None,
+    enforce_https: bool,
     no_up: bool,
 ) -> None:
     if stdout is None:
@@ -506,9 +523,20 @@ def _print_banner(
     print(f"Wrote: {work_dir / '.env'}", file=stdout)
 
     if proxy_mode == "standalone":
-        print(f"Webtrees URL: http://localhost:{app_port}/", file=stdout)
+        scheme = "https" if enforce_https else "http"
+        print(f"Webtrees URL: {scheme}://localhost:{app_port}/", file=stdout)
     else:
         print(f"Webtrees URL: https://{domain}/", file=stdout)
+
+    if enforce_https and proxy_mode == "standalone":
+        print(file=stdout)
+        print(
+            "NOTE: ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
+            "HTTPS — point a TLS-terminating reverse proxy (Caddy, "
+            "nginx-on-host, Cloudflare tunnel, …) at the published port, "
+            "or re-run with --no-https for a plaintext local install.",
+            file=stdout,
+        )
 
     if admin_user is not None:
         # GitHub Actions log redaction: emit ::add-mask:: so the password is

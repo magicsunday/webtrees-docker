@@ -60,6 +60,13 @@ class DevArgs:
     # None → run_dev() falls back to WORK_DIR env var or os.getcwd().
     host_work_dir: str | None
 
+    # Tristate, mirrors admin_bootstrap in flow.py: None = operator
+    # didn't pass --no-https on the CLI (use .env value if present, else
+    # the wizard default of True); True/False = explicit operator choice
+    # that wins over the .env. After collect_dev_inputs() resolves the
+    # value this is always concrete True/False before render time.
+    enforce_https: bool | None
+
     force: bool
     no_up: bool
 
@@ -127,6 +134,7 @@ def render_dev_env(
         "local_user_id": args.local_user_id,
         "local_user_name": args.local_user_name,
         "work_dir": args.host_work_dir or "",
+        "enforce_https": args.enforce_https,
     }
 
     env_jinja = Environment(
@@ -168,6 +176,7 @@ def collect_dev_inputs(
     existing: dict[str, str],
     host_info: HostInfo,
     no_up: bool = False,
+    enforce_https: bool | None = None,
     stdin: IO[str] | None = None,
     stdout: IO[str] | None = None,
 ) -> DevArgs:
@@ -176,6 +185,11 @@ def collect_dev_inputs(
     The caller threads ``force`` and ``no_up`` through unchanged so a user
     who passes ``--no-up`` on the command line keeps that behaviour even
     when the wizard runs the interactive prompt loop.
+
+    ``enforce_https`` is tristate: an explicit ``True``/``False`` (operator
+    passed a CLI flag) wins over everything; ``None`` (no CLI flag) means
+    honour the existing .env's value on a re-render, falling back to the
+    wizard's ``True`` default for fresh installs.
     """
 
     use_traefik = ask_yesno(
@@ -184,6 +198,11 @@ def collect_dev_inputs(
         stdin=stdin, stdout=stdout,
     )
     proxy_mode = "traefik" if use_traefik else "standalone"
+
+    enforce_https = resolve_enforce_https(
+        cli_value=enforce_https,
+        env_value=existing.get("ENFORCE_HTTPS"),
+    )
 
     app_port: int | None = None
     pma_port: int | None = None
@@ -268,6 +287,7 @@ def collect_dev_inputs(
         local_user_id=host_info.uid,
         local_user_name=host_info.username,
         host_work_dir=host_info.work_dir,
+        enforce_https=enforce_https,
         force=force,
         no_up=no_up,
     )
@@ -356,14 +376,27 @@ def run_dev(
             print("Aborted (existing files preserved).", file=stdout)
         return 1
 
+    # Parse the existing .env once and reuse it for both the tristate
+    # resolution and the interactive prompt loop. The resolution runs
+    # unconditionally so a None never reaches Jinja, which would otherwise
+    # render ENFORCE_HTTPS=FALSE because Python's None is falsy.
+    existing = _parse_env(work_dir / ".env")
+    args = dataclasses.replace(
+        args,
+        enforce_https=resolve_enforce_https(
+            cli_value=args.enforce_https,
+            env_value=existing.get("ENFORCE_HTTPS"),
+        ),
+    )
+
     if args.interactive:
         host_info = _detect_host_info()
-        existing = _parse_env(work_dir / ".env")
         args = collect_dev_inputs(
             work_dir=work_dir, force=args.force,
             existing=existing,
             host_info=host_info,
             no_up=args.no_up,
+            enforce_https=args.enforce_https,
             stdin=stdin, stdout=stdout,
         )
 
@@ -433,6 +466,33 @@ def _detect_host_info() -> HostInfo:
     return HostInfo(uid=uid, username=username, primary_ip=primary_ip, work_dir=work_dir)
 
 
+def resolve_enforce_https(
+    cli_value: bool | None,
+    env_value: str | None,
+    *,
+    default: bool = True,
+) -> bool:
+    """Resolve the ENFORCE_HTTPS tristate to a concrete bool.
+
+    Precedence (highest wins):
+      1. ``cli_value`` — an explicit operator choice via the CLI flag
+         (e.g. ``--no-https`` → False). Anything other than ``None``
+         wins outright.
+      2. ``env_value`` — the value carried by an existing ``.env`` on
+         a re-render. Parsed case-insensitively against ``"TRUE"``.
+      3. ``default`` — the wizard's fallback for a fresh install.
+
+    Shared between the standalone and dev flows so the precedence cannot
+    drift between the two; without this, three call sites would
+    open-code the same `.strip().upper() == "TRUE"` parse.
+    """
+    if cli_value is not None:
+        return cli_value
+    if env_value is not None:
+        return env_value.strip().upper() == "TRUE"
+    return default
+
+
 def _parse_env(path: Path) -> dict[str, str]:
     """Best-effort .env reader for prompt defaults."""
     if not path.is_file():
@@ -459,11 +519,22 @@ def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
     print("Webtrees dev environment ready.", file=stdout)
     print(bar, file=stdout)
     if args.proxy_mode == "standalone":
-        print(f"Webtrees URL: http://{args.dev_domain}/", file=stdout)
+        scheme = "https" if args.enforce_https else "http"
+        print(f"Webtrees URL: {scheme}://{args.dev_domain}/", file=stdout)
         print(f"phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
               file=stdout)
     else:
         print(f"Webtrees URL: https://{args.dev_domain}/", file=stdout)
+
+    if args.enforce_https and args.proxy_mode == "standalone":
+        print(file=stdout)
+        print(
+            "NOTE: ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
+            "HTTPS — point a TLS-terminating reverse proxy at the published "
+            "port, or re-run with --no-https for a plaintext local install.",
+            file=stdout,
+        )
+
     print(file=stdout)
     print("Next: make up", file=stdout)
     print(bar, file=stdout)

@@ -159,6 +159,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write files but do not run `docker compose up -d`.",
     )
     parser.add_argument(
+        "--no-https",
+        action="store_true",
+        help="Opt out of HTTPS enforcement (ENFORCE_HTTPS=FALSE). The default "
+             "is ENFORCE_HTTPS=TRUE; use this flag for local-only installs "
+             "without TLS termination, or for setups where an upstream proxy "
+             "handles redirects.",
+    )
+    parser.add_argument(
         "--demo",
         action="store_true",
         help="Generate a 7-generation synthetic family tree and (when the stack is up) import it.",
@@ -206,6 +214,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             # _detect_host_info() pick up the env var (or fall back to
             # os.getcwd() for direct-host invocations).
             host_work_dir=args.host_work_dir,
+            # Tristate: --no-https → False (explicit opt-out); absence →
+            # None (let collect_dev_inputs honour the existing .env or
+            # fall through to the wizard's TRUE default).
+            enforce_https=False if args.no_https else None,
             force=args.force,
             no_up=args.no_up,
         )
@@ -233,6 +245,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         admin_email=args.admin_email,
         demo=args.demo,
         demo_seed=args.demo_seed,
+        # Tristate: --no-https → False; absence → None (let the standalone
+        # flow apply the wizard's TRUE default).
+        enforce_https=False if args.no_https else None,
         force=args.force,
         no_up=args.no_up,
     )

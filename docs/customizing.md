@@ -169,7 +169,7 @@ rather than written by the wizard. Add them by hand when you need them:
 
 | Variable | Purpose |
 |---|---|
-| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Default `FALSE`. |
+| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` to roll an install with `FALSE`. The runtime fallback when the key is unset entirely is `FALSE`. Cert provisioning itself (Let's Encrypt, bring-your-own) is a separate concern — see issue #44 for that workflow. |
 | `WEBTREES_VERSION` | Pins the webtrees image tag. The wizard writes this; bump it manually for an out-of-cycle upgrade. |
 | `APP_PORT` | Host port published by the standalone overlay (default `8080` in the wizard quickstart). |
 | `MARIADB_HOST` / `MARIADB_PORT` | Override when you point at an external database (see above). |

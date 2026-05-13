@@ -124,7 +124,11 @@ services:
             # by design when no tree exists yet (operator imports the GEDCOM
             # post-install). The login route resolves as soon as
             # config.ini.php, the schema, and any admin user exist.
-            test: ["CMD-SHELL", "curl -sf 'http://localhost/index.php?route=/login' -o /dev/null || exit 1"]
+            # X-Forwarded-Proto: https tells nginx the upstream already
+            # terminated TLS, bypassing the enforce-https redirect (see
+            # rootfs/etc/nginx/conf.d/default.conf $isHttps logic). Keeps
+            # the healthcheck honest regardless of ENFORCE_HTTPS value.
+            test: ["CMD-SHELL", "curl -sf -H 'X-Forwarded-Proto: https' 'http://localhost/index.php?route=/login' -o /dev/null || exit 1"]
             interval: 10s
             timeout: 5s
             retries: 3

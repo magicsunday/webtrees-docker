@@ -61,6 +61,7 @@ def _args(**overrides) -> StandaloneArgs:
         admin_email="admin@example.org",
         demo=False,
         demo_seed=42,
+        enforce_https=True,
         force=True,
         no_up=True,
     )

@@ -50,6 +50,7 @@ def _args(**overrides) -> DevArgs:
         local_user_id=1000,
         local_user_name="dev",
         host_work_dir="/host/workspace",
+        enforce_https=True,
         force=True,
         no_up=False,
     )
@@ -97,6 +98,18 @@ def test_render_dev_env_writes_full_env(tmp_path: Path, catalog: Catalog) -> Non
     assert "PMA_PORT=50011" in env
     assert "compose.publish.yaml" in env
     assert "compose.traefik.yaml" not in env
+    # Default flips ON regardless of proxy mode — operators opt out via
+    # --no-https (enforce_https=False) when there's no TLS termination.
+    assert "ENFORCE_HTTPS=TRUE" in env
+
+
+def test_render_dev_env_no_https_opt_out(tmp_path: Path, catalog: Catalog) -> None:
+    """`--no-https` (enforce_https=False) renders ENFORCE_HTTPS=FALSE in the dev .env."""
+    args = _args(work_dir=tmp_path, enforce_https=False)
+    render_dev_env(args, catalog=catalog, target_dir=tmp_path,
+                   generated_at=datetime(2026, 5, 12, 12, 0, 0))
+
+    env = (tmp_path / ".env").read_text()
     assert "ENFORCE_HTTPS=FALSE" in env
 
 
@@ -219,6 +232,45 @@ def test_collect_dev_inputs_uses_existing_env_values() -> None:
     assert args.mariadb_user == "old_user"
 
 
+def test_collect_dev_inputs_preserves_existing_enforce_https_true() -> None:
+    """A previous ENFORCE_HTTPS=TRUE survives a re-render without --no-https."""
+    existing = {"ENFORCE_HTTPS": "TRUE"}
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing=existing,
+        host_info=_HOST,
+        stdin=StringIO("\n" * 16), stdout=StringIO(),
+    )
+    assert args.enforce_https is True
+
+
+def test_collect_dev_inputs_preserves_existing_enforce_https_false() -> None:
+    """A previous ENFORCE_HTTPS=FALSE survives a re-render without --no-https."""
+    existing = {"ENFORCE_HTTPS": "FALSE"}
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing=existing,
+        host_info=_HOST,
+        # enforce_https defaults to True (the new wizard default); the
+        # existing .env value should win on re-render.
+        stdin=StringIO("\n" * 16), stdout=StringIO(),
+    )
+    assert args.enforce_https is False
+
+
+def test_collect_dev_inputs_no_https_overrides_existing_true() -> None:
+    """`--no-https` (enforce_https=False) wins over an existing TRUE."""
+    existing = {"ENFORCE_HTTPS": "TRUE"}
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing=existing,
+        host_info=_HOST,
+        enforce_https=False,  # operator passed --no-https
+        stdin=StringIO("\n" * 16), stdout=StringIO(),
+    )
+    assert args.enforce_https is False
+
+
 def test_collect_dev_inputs_rejects_non_numeric_port_in_env() -> None:
     """A legacy .env with APP_PORT=abc surfaces a PromptError, not a stack trace."""
     from webtrees_installer.prompts import PromptError
@@ -315,6 +367,36 @@ def test_run_dev_non_interactive_writes_env_and_pulls(
     assert (tmp_path / "persistent" / "database").is_dir()
     assert (tmp_path / "persistent" / "media").is_dir()
     assert (tmp_path / "app").is_dir()
+
+
+def test_run_dev_non_interactive_resolves_none_enforce_https_to_true(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
+    """`--non-interactive` without `--no-https` (enforce_https=None) renders
+    the wizard's TRUE default, not Jinja's None-is-falsy FALSE."""
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(work_dir=tmp_path, enforce_https=None)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    env = (tmp_path / ".env").read_text()
+    assert "ENFORCE_HTTPS=TRUE" in env
+
+
+def test_run_dev_non_interactive_preserves_existing_enforce_https_false(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
+    """Re-render preservation also works on the non-interactive path."""
+    from webtrees_installer.dev_flow import run_dev
+    (tmp_path / ".env").write_text("ENFORCE_HTTPS=FALSE\n")
+    args = _args(work_dir=tmp_path, enforce_https=None, force=True)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    env = (tmp_path / ".env").read_text()
+    assert "ENFORCE_HTTPS=FALSE" in env
 
 
 def test_run_dev_invokes_compose_pull_and_install(
