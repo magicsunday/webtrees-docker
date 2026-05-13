@@ -88,7 +88,8 @@ env_value() {
     fi
 }
 
-port=$(env_value APP_PORT 8080)
+# 28080 mirrors installer/webtrees_installer/flow.py:_DEFAULT_PORT (28k band).
+port=$(env_value APP_PORT 28080)
 pma_port=$(env_value PMA_PORT 50011)
 dev_domain=$(env_value DEV_DOMAIN "webtrees.localhost:${port}")
 mariadb_root=$(env_value MARIADB_ROOT_PASSWORD rootpw)

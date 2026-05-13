@@ -90,7 +90,7 @@ docker run --rm \
   -v /tmp/wizard-smoke:/work \
   webtrees-installer:dev \
   --non-interactive --no-up --no-admin \
-  --edition full --proxy standalone --port 8080
+  --edition full --proxy standalone --port 28080
 ls /tmp/wizard-smoke
 ```
 

@@ -32,13 +32,13 @@ nginx to install yourself.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
-  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 8080
+  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 28080
 ```
 
 (Or with admin auto-create: drop `--no-admin` and add `--admin-user admin --admin-email me@example.org`.)
 
 The wizard writes `compose.yaml` + `.env` into the current directory and
-brings the stack up via `docker compose up -d`. Visit `http://localhost:8080/`.
+brings the stack up via `docker compose up -d`. Visit `http://localhost:28080/`.
 
 When you run the one-liner, the wizard:
 
@@ -150,7 +150,7 @@ it runs, or tweak individual steps):
 docker compose down
 docker volume rm "$(basename "$PWD")_app"
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
-  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 8080 --force
+  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 28080 --force
 docker compose pull
 docker compose up -d
 ```
@@ -178,7 +178,7 @@ Full procedure (DB dump, media tar, restore, scheduling): see
 ## Troubleshooting
 
 - **Port already in use** — the wizard probes the requested port and
-  falls back to 8080 automatically. If 8080 is also taken, pass
+  falls back to 28081 automatically. If 28081 is also taken, pass
   `--port <free-port>` explicitly.
 - **`docker compose pull` fails** — confirm GHCR is reachable
   (`docker pull ghcr.io/magicsunday/webtrees/nginx:1.30-r1`) and re-run.

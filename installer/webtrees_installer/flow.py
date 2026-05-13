@@ -61,7 +61,22 @@ class StandaloneArgs:
     no_up: bool
 
 
-_FALLBACK_PORT = 8080
+# Default + fallback ports live in the 28k range (out of the
+# 80/8080 drive-by-scan band) to reduce bot traffic on a fresh
+# install. Operators still override via `--port`.
+#
+# Mirrors (keep in lockstep when bumping — run `grep -rn 2808`
+# across the repo to catch any new sites for either port):
+#   - compose.publish.yaml      `${APP_PORT:-28080}`
+#   - switch                    `env_value APP_PORT 28080`
+#   - upgrade                   `--port 28080` (no-arg default)
+#   - install                   `--port 28080` (usage comment)
+#   - README.md                 quickstart + upgrade examples
+#                               (default), troubleshooting (fallback)
+#   - docs/customizing.md       APP_PORT row
+#   - docs/developing.md        render-only smoke example
+_DEFAULT_PORT = 28080
+_FALLBACK_PORT = 28081
 
 # Test-patch seam: existing tests patch
 # ``webtrees_installer.flow._resolve_manifest_dir``. The thin alias keeps
@@ -231,10 +246,10 @@ def _resolve_port(
     stdin: IO[str] | None,
     stdout: IO[str] | None,
 ) -> int:
-    """Ask for the port, probe it, fall back to 8080 if busy, warn on probe failure."""
+    """Ask for the port, probe it, fall back to ``_FALLBACK_PORT`` if busy, warn on probe failure."""
     requested = ask_text(
         "Host port for the webtrees UI",
-        default="80",
+        default=str(_DEFAULT_PORT),
         value=str(args.app_port) if args.app_port is not None else None,
         stdin=stdin,
         stdout=stdout,

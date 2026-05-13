@@ -53,8 +53,10 @@ fi
 # `curl ... | bash` invocation just works. Anything passed on the command
 # line overrides; --force is always appended so the wizard does not stop
 # at the override prompt.
+#
+# 28080 mirrors installer/webtrees_installer/flow.py:_DEFAULT_PORT.
 if [ "$#" -eq 0 ]; then
-    set -- --non-interactive --no-admin --edition full --proxy standalone --port 8080
+    set -- --non-interactive --no-admin --edition full --proxy standalone --port 28080
 fi
 
 echo "→ Stopping existing stack..."

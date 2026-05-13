@@ -327,8 +327,8 @@ def test_run_standalone_aborts_on_existing_file_without_force(tmp_path: Path) ->
         run_standalone(args, stdin=StringIO(), stdout=StringIO())
 
 
-def test_run_standalone_port_in_use_falls_back_to_8080(tmp_path: Path) -> None:
-    """Non-interactive flow: port 80 IN_USE → wizard bumps to 8080."""
+def test_run_standalone_port_in_use_falls_back_to_fallback_port(tmp_path: Path) -> None:
+    """Non-interactive flow: chosen port IN_USE → wizard bumps to the 28k fallback."""
     args = _args(work_dir=tmp_path, app_port=80)
 
     side_effects = iter([PortStatus.IN_USE, PortStatus.FREE])
@@ -340,28 +340,28 @@ def test_run_standalone_port_in_use_falls_back_to_8080(tmp_path: Path) -> None:
     compose_text = (tmp_path / "compose.yaml").read_text()
     # The standalone template renders ports as ${APP_PORT:-<chosen>}:80, so
     # the fallback bump shows up both as the .env override and as the inline
-    # default. Match against the rendered substring rather than `8080:80`.
-    assert "${APP_PORT:-8080}:80" in compose_text
-    assert "APP_PORT=8080" in (tmp_path / ".env").read_text()
+    # default. Match against the rendered substring rather than `28081:80`.
+    assert "${APP_PORT:-28081}:80" in compose_text
+    assert "APP_PORT=28081" in (tmp_path / ".env").read_text()
 
 
-def test_run_standalone_port_8080_in_use_short_circuits_without_redundant_probe(
+def test_run_standalone_fallback_port_in_use_short_circuits_without_redundant_probe(
     tmp_path: Path,
 ) -> None:
-    """--port 8080 on a busy host raises immediately, skipping the redundant 8080 fallback probe."""
-    args = _args(work_dir=tmp_path, app_port=8080)
+    """--port on the fallback that's already busy raises immediately, skipping the redundant retry."""
+    args = _args(work_dir=tmp_path, app_port=28081)
 
     with patch(
         "webtrees_installer.flow.probe_port",
         return_value=PortStatus.IN_USE,
     ) as probe_mock:
         out = StringIO()
-        with pytest.raises(PrereqError, match=r"port 8080 is in use; pass --port"):
+        with pytest.raises(PrereqError, match=r"port 28081 is in use; pass --port"):
             run_standalone(args, stdin=StringIO(), stdout=out)
 
     assert probe_mock.call_count == 1
-    assert probe_mock.call_args.args == (8080,)
-    assert "trying 8080 instead" not in out.getvalue()
+    assert probe_mock.call_args.args == (28081,)
+    assert "trying 28081 instead" not in out.getvalue()
 
 
 def test_resolve_manifest_dir_raises_when_unset_and_default_missing(

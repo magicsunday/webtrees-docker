@@ -3,7 +3,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install | bash
-#   ./install [--non-interactive --edition core --proxy standalone --port 8080 ...]
+#   ./install [--non-interactive --edition core --proxy standalone --port 28080 ...]
 #
 # Mounts the current directory as /work inside the installer image and exposes
 # the docker socket so the wizard can probe ports and bring the stack up.
