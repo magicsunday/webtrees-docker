@@ -323,7 +323,21 @@ jobs:
                           exit 0
                           ;;
                   esac
-                  docker compose up -d
+                  # `docker compose up -d` pulls images implicitly when they
+                  # are missing from the local cache; on a fresh runner that
+                  # pull can flake the same way the GHCR login does. Retry
+                  # the whole up-step three times with 10s back-off — compose
+                  # up is idempotent, so a partially-created stack from a
+                  # previous attempt is safe to re-apply.
+                  for attempt in 1 2 3; do
+                      if docker compose up -d; then
+                          exit 0
+                      fi
+                      echo "::warning::compose up attempt ${attempt} failed; retrying in 10s"
+                      sleep 10
+                  done
+                  echo "::error::compose up failed after 3 attempts"
+                  exit 1
 
             - name: Wait for nginx healthy
               working-directory: ${{ env.SMOKE_DIR }}
