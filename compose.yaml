@@ -120,7 +120,11 @@ services:
         environment:
             - ENFORCE_HTTPS
         healthcheck:
-            test: ["CMD-SHELL", "curl -sf http://localhost/ -o /dev/null || exit 1"]
+            # Probe the login page rather than `/` because `/` returns 404
+            # by design when no tree exists yet (operator imports the GEDCOM
+            # post-install). The login route resolves as soon as
+            # config.ini.php, the schema, and any admin user exist.
+            test: ["CMD-SHELL", "curl -sf 'http://localhost/index.php?route=/login' -o /dev/null || exit 1"]
             interval: 10s
             timeout: 5s
             retries: 3
