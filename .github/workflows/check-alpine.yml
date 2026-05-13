@@ -42,17 +42,50 @@ jobs:
                   pinned_minor=${pinned#alpine:}
                   echo "Pinned Alpine minor: ${pinned_minor}"
 
-                  # Docker Hub library/alpine tag listing — `name=^3` keeps
-                  # the response small. We look for `<major>.<minor>` tags
-                  # (e.g. 3.23, 3.24), not patch tags (e.g. 3.23.4).
-                  hub_response=$(curl -sf --retry 3 \
-                      "https://hub.docker.com/v2/repositories/library/alpine/tags/?name=3.&page_size=100&ordering=name") \
-                      || { echo "::warning::Docker Hub tag fetch failed, skipping minor scan"; exit 0; }
+                  # Docker Hub library/alpine tag listing. We page through
+                  # every `next` link until exhausted so the scan can't
+                  # miss a new minor that lands beyond an arbitrary
+                  # page-size cap. The previous one-shot fetch with
+                  # `ordering=name` sorted alphabetically (3.9.x lands
+                  # after 3.20.x), so a new release could fall off the
+                  # first 100 results and go unnoticed.
+                  url="https://hub.docker.com/v2/repositories/library/alpine/tags/?name=3.&page_size=100&ordering=last_updated"
+                  all_tags=""
+                  while [ -n "$url" ] && [ "$url" != "null" ]; do
+                      page=$(curl -sf --retry 3 "$url") || {
+                          echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
+                          exit 0
+                      }
+                      # `?` + `// empty` keep jq tolerant of a future schema
+                      # regression where .results is null/missing — without
+                      # them, `set -euo pipefail` aborts the script mid-loop
+                      # before the self-check below can fire the documented
+                      # ::error:: annotation about schema changes.
+                      all_tags+=$'\n'$(printf '%s' "$page" | jq -r '.results[]?.name // empty')
+                      url=$(printf '%s' "$page" | jq -r '.next // empty')
+                  done
 
-                  available=$(printf '%s' "$hub_response" \
-                      | jq -r '.results[].name' \
-                      | grep -E '^[0-9]+\.[0-9]+$' \
+                  # We look for `<major>.<minor>` tags (e.g. 3.23, 3.24),
+                  # not patch tags (e.g. 3.23.4). `|| true` swallows grep's
+                  # no-match exit so `set -e` + `pipefail` don't abort the
+                  # script before the self-check below can fire the
+                  # documented `::error::` annotation — `name=3.` filter
+                  # regression and schema-change failure modes route
+                  # through here.
+                  available=$(printf '%s' "$all_tags" \
+                      | { grep -E '^[0-9]+\.[0-9]+$' || true; } \
                       | sort -uV)
+
+                  # Self-test: the polling can only spot newer minors if
+                  # the current pin is reachable from the response. If the
+                  # API query degrades (page_size cap silently lowered, the
+                  # filter pattern stops matching, ordering quirk, schema
+                  # change), this guard fails the workflow instead of
+                  # silently shipping a green run that scanned nothing.
+                  if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
+                      echo "::error::Pinned Alpine minor ${pinned_minor} not found in the Docker Hub tag listing. Likely causes: page_size cap silently lowered, name=3. filter regressed, ordering quirk dropping the pin mid-pagination, or response schema change. Inspect the curl output and adjust the query."
+                      exit 1
+                  fi
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
