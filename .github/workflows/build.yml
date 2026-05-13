@@ -283,6 +283,10 @@ jobs:
                       exit 0
                   fi
                   if [ "${EDITION}" = "demo" ]; then
+                      # Demo cell exits before stack-up, so the auto-admin
+                      # bootstrap is wasted work — and it would also leave a
+                      # `<project>_secrets` docker volume on the runner that
+                      # the cell never tears down. Keep --no-admin here.
                       docker run --rm \
                           -v "${SMOKE_DIR}:/work" \
                           -v /var/run/docker.sock:/var/run/docker.sock \
@@ -296,11 +300,15 @@ jobs:
                       echo "demo edition: demo.ged emitted (skip stack-up)"
                       exit 0
                   fi
+                  # Default install path: auto-admin (admin user created, random
+                  # password surfaced in the banner). `--no-admin` is an
+                  # advanced opt-out that leaves the stack at webtrees' upstream
+                  # setup wizard — not what we want to cover in CI smoke.
                   docker run --rm \
                       -v "${SMOKE_DIR}:/work" \
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
-                      --non-interactive --force --no-up --no-admin \
+                      --non-interactive --force --no-up \
                       --edition "${EDITION}" --proxy standalone --port "${SMOKE_PORT}"
 
             - name: Up stack
@@ -324,7 +332,14 @@ jobs:
                           ;;
                   esac
                   set -euo pipefail
-                  for i in $(seq 1 60); do
+                  # 120s rather than 60s: the smoke install now runs the
+                  # full bootstrap (config-ini + schema migrate + Argon2id
+                  # admin-create + admin role grant) before phpfpm execs and
+                  # the healthcheck flips. On a cold runner that serial
+                  # chain plus the db-healthcheck warm-up plausibly eats
+                  # 30-50s; 60s left no margin once a single image had to
+                  # be pulled fresh.
+                  for i in $(seq 1 120); do
                       health=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q nginx)" 2>/dev/null || echo starting)
                       if [ "$health" = "healthy" ]; then
                           echo "nginx healthy after ${i}s"
@@ -332,7 +347,7 @@ jobs:
                       fi
                       sleep 1
                   done
-                  echo "::error::nginx did not become healthy within 60s"
+                  echo "::error::nginx did not become healthy within 120s"
                   docker compose logs --tail=200
                   exit 1
 
