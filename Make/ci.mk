@@ -13,13 +13,13 @@
 # prerequisites beyond `docker` itself.
 # =============================================================================
 
-.PHONY: ci-test ci-pytest ci-entrypoint ci-yamllint ci-hadolint ci-alpine-lockstep
+.PHONY: ci-test ci-pytest ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-pytest ci-yamllint ci-hadolint ci-alpine-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
+ci-test: ci-pytest ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-entrypoint ## Runs every local CI check (pytest + lint + entrypoint tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
@@ -103,6 +103,28 @@ ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the centr
 			echo "$$drifted" >&2; \
 			exit 1; \
 		fi
+
+ci-shellcheck: .logo ## Lints every tracked shell script.
+	echo -e "${FBLUE}▶ shellcheck${FRESET}"
+	# File set is derived from a shebang scan of every tracked file:
+	# anything with a `#!/…sh|bash|dash|ksh` shebang (incl. env-prefixed
+	# variants) gets linted — the four shells shellcheck actually supports.
+	# Self-extending: a new launcher added anywhere is picked up
+	# automatically, no Makefile edit needed.
+	#
+	# `xargs -d '\n' docker run …` feeds the file list as newline-
+	# delimited args, so paths with spaces survive the hand-off.
+	#
+	# -x follows `source …` directives so common helpers
+	# (scripts/configuration) get analysed in the context of every caller
+	# that sources them.
+	files=$$(git ls-files -z | xargs -0 grep -lE '^#!.*\b(bash|sh|dash|ksh)\b' 2>/dev/null | sort); \
+		[ -n "$$files" ] || { echo "::error::ci-shellcheck found no shell scripts to lint" >&2; exit 1; }; \
+		printf '%s\n' "$$files" | xargs -d '\n' docker run --rm \
+			-v "$(PWD):/work" \
+			-w /work \
+			koalaman/shellcheck:stable \
+			-x
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"

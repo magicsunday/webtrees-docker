@@ -175,7 +175,7 @@ test_state_2_version_empty() {
 # State 3: AUTO_SEED=true + WEBTREES_VERSION set + empty volume → seed
 #
 test_state_3_seed_fresh() {
-    local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
+    local vol; vol=$(mk_vol) || { vol_create_failed "${FUNCNAME[0]}"; return; }
     run_entrypoint_test \
         "state 3: AUTO_SEED=true + empty volume → seed" \
         "-v $vol:/var/www/html -e WEBTREES_AUTO_SEED=true -e WEBTREES_VERSION=2.2.6" \
@@ -210,7 +210,7 @@ test_state_3_seed_fresh() {
 # State 4: marker matches + tree intact → skip
 #
 test_state_4_marker_matches() {
-    local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
+    local vol; vol=$(mk_vol) || { vol_create_failed "${FUNCNAME[0]}"; return; }
     vol_prep "$vol" 'mkdir -p /v/public && cp -a /opt/webtrees-dist/html/public/. /v/public/ && echo 2.2.6 > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 4: marker matches + tree intact → skip" \
@@ -225,7 +225,7 @@ test_state_4_marker_matches() {
 # State 5: marker absent + tree present (unmarked install) → warn, no clobber
 #
 test_state_5_unmarked_tree() {
-    local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
+    local vol; vol=$(mk_vol) || { vol_create_failed "${FUNCNAME[0]}"; return; }
     vol_prep "$vol" 'mkdir -p /v/public && echo USERDATA > /v/public/index.php'
     run_entrypoint_test \
         "state 5: marker absent + tree present → warn, no clobber" \
@@ -246,7 +246,7 @@ test_state_5_unmarked_tree() {
 # State 6: marker mismatch + tree intact → warn, no overwrite, exit 0
 #
 test_state_6_version_mismatch() {
-    local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
+    local vol; vol=$(mk_vol) || { vol_create_failed "${FUNCNAME[0]}"; return; }
     vol_prep "$vol" 'mkdir -p /v/public && cp -a /opt/webtrees-dist/html/public/. /v/public/ && echo 2.2.5 > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 6: marker mismatch + tree intact → warn, exit 0" \
@@ -267,7 +267,7 @@ test_state_6_version_mismatch() {
 # State 7: marker present + tree corrupt (no index.php) → fail fast
 #
 test_state_7_marker_no_tree() {
-    local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
+    local vol; vol=$(mk_vol) || { vol_create_failed "${FUNCNAME[0]}"; return; }
     vol_prep "$vol" 'echo 2.2.6 > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 7: marker present + index.php missing → fail fast" \
@@ -282,7 +282,7 @@ test_state_7_marker_no_tree() {
 # State 8: empty marker → fail fast
 #
 test_state_8_empty_marker() {
-    local vol; vol=$(mk_vol) || { vol_create_failed "$FUNCNAME"; return; }
+    local vol; vol=$(mk_vol) || { vol_create_failed "${FUNCNAME[0]}"; return; }
     vol_prep "$vol" 'mkdir -p /v/public && cp -a /opt/webtrees-dist/html/public/. /v/public/ && : > /v/.webtrees-bundled-version'
     run_entrypoint_test \
         "state 8: empty marker → fail fast" \
