@@ -199,9 +199,18 @@ jobs:
                   issue_url=$(gh issue create --title "$title" --body "$body")
                   echo "Issue created: $issue_url"
                   if [ -n "${COPILOT_PAT:-}" ]; then
-                      GH_TOKEN="${COPILOT_PAT}" gh issue edit "$issue_url" \
-                          --add-assignee "copilot-swe-agent[bot]" \
-                          || echo "::warning::Could not assign issue to Copilot — ensure the Coding Agent is enabled in repo settings"
+                      # COPILOT_PAT is intentionally set — treat an assignment
+                      # failure as a configuration bug (wrong scope, agent
+                      # not enabled, expired token) and fail the step so it
+                      # surfaces in the Actions UI instead of hiding behind
+                      # a warning. Remove the explicit `exit 1` once the
+                      # Copilot handoff is verified end-to-end and warnings
+                      # become acceptable steady-state noise.
+                      if ! GH_TOKEN="${COPILOT_PAT}" gh issue edit "$issue_url" \
+                              --add-assignee "copilot-swe-agent[bot]"; then
+                          echo "::error::Could not assign $issue_url to Copilot. Verify (a) COPILOT_PAT has 'repo' scope (classic) or 'issues:write' + 'metadata:read' (fine-grained), (b) Copilot Coding Agent is enabled in repo settings, (c) the token has not expired."
+                          exit 1
+                      fi
                   else
-                      echo "::notice::COPILOT_PAT secret not set — skipping Copilot auto-assignment. Add a PAT (repo scope) to enable hands-off triage."
+                      echo "::notice::COPILOT_PAT secret not set — skipping Copilot auto-assignment. Add a PAT to enable hands-off triage."
                   fi
