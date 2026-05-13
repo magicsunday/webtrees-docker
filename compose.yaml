@@ -72,6 +72,10 @@ services:
             - MARIADB_PASSWORD=${MARIADB_PASSWORD:-}
             - MARIADB_PASSWORD_FILE=${MARIADB_PASSWORD_FILE:-}
             - WEBTREES_TABLE_PREFIX=${WEBTREES_TABLE_PREFIX:-wt_}
+            # Pretty-URL toggle. Entrypoint forwards 1 → --rewrite-urls,
+            # 0 → --no-rewrite-urls to webtrees' config-ini CLI; anything
+            # else keeps the on-disk default.
+            - WEBTREES_REWRITE_URLS=${WEBTREES_REWRITE_URLS:-0}
             # Headless admin bootstrap (opt-in; entrypoint is a no-op when
             # WT_ADMIN_USER is empty and the browser-side setup wizard runs).
             - WT_ADMIN_USER=${WT_ADMIN_USER:-}

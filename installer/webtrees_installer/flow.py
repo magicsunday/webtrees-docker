@@ -57,6 +57,8 @@ class StandaloneArgs:
     # concrete bool by run_standalone before render time.
     enforce_https: bool | None
 
+    pretty_urls: bool
+
     force: bool
     no_up: bool
 
@@ -203,6 +205,7 @@ def run_standalone(
         catalog=catalog,
         generated_at=datetime.now(tz=timezone.utc),
         enforce_https=enforce_https,
+        pretty_urls=args.pretty_urls,
     )
     render_files(input_model=render_input, target_dir=work_dir)
 

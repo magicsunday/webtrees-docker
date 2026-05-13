@@ -18,6 +18,11 @@ set -o errexit -o nounset -o pipefail
 
 IMAGE="${TEST_IMAGE:-ghcr.io/magicsunday/webtrees/php:8.5}"
 
+# Source-tree entrypoint. Tests that exercise behavioural changes not yet
+# baked into the published image bind-mount this over /docker-entrypoint.sh
+# so the assertions match the on-disk source of truth.
+ENTRYPOINT_SRC="$(cd "$(dirname "$0")/.." && pwd)/rootfs/docker-entrypoint.sh"
+
 # Env vars setup_php needs to find — keeps the test focused on the seed
 # state machine rather than tripping over unrelated configuration paths.
 PHP_ENV=(
@@ -477,10 +482,14 @@ test_file_secrets_missing() {
 # function reaches its decision branches.
 bootstrap_prep_volume() {
     local vol="$1"
+    # Pre-create the stub-log world-writable so the php stub can append
+    # to it from `su www-data` (volume root is 755 owned by root).
     vol_prep "$vol" 'mkdir -p /v/public /v/data && \
         echo "2.2.6" > /v/.webtrees-bundled-version && \
         touch /v/public/index.php && \
-        touch /v/data/.htaccess'
+        touch /v/data/.htaccess && \
+        touch /v/.bootstrap-stub.log && \
+        chmod 666 /v/.bootstrap-stub.log'
 }
 
 test_bootstrap_noop_without_admin_user() {
@@ -629,6 +638,215 @@ test_bootstrap_respects_marker_on_second_run() {
     vol_rm "$vol"
 }
 
+test_bootstrap_pretty_urls_flag_propagates() {
+    local name="bootstrap: WEBTREES_REWRITE_URLS=1 forwards --rewrite-urls"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    # WEBTREES_REWRITE_URLS=1 → entrypoint should call config-ini with --rewrite-urls.
+    docker run --rm \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        -e WEBTREES_REWRITE_URLS=1 \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local log
+    log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    if grep -q 'config-ini' <<<"$log" \
+        && grep -qE -- '(^| )--rewrite-urls( |$)' <<<"$log" \
+        && ! grep -qE -- '(^| )--no-rewrite-urls( |$)' <<<"$log"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — --rewrite-urls not in config-ini argv, log=$(head -3 <<<"$log")")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_pretty_urls_off_passes_no_rewrite_urls() {
+    local name="bootstrap: WEBTREES_REWRITE_URLS=0 forwards --no-rewrite-urls"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        -e WEBTREES_REWRITE_URLS=0 \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local log
+    log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    if grep -q 'config-ini' <<<"$log" \
+        && grep -qE -- '(^| )--no-rewrite-urls( |$)' <<<"$log" \
+        && ! grep -qE -- '(^| )--rewrite-urls( |$)' <<<"$log"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — --no-rewrite-urls not in config-ini argv, log=$(head -3 <<<"$log")")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_pretty_urls_accepts_lowercase_true_alias() {
+    local name="bootstrap: WEBTREES_REWRITE_URLS=true forwards --rewrite-urls"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        -e WEBTREES_REWRITE_URLS=true \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local log
+    log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    if grep -qE -- '(^| )--rewrite-urls( |$)' <<<"$log" \
+        && ! grep -qE -- '(^| )--no-rewrite-urls( |$)' <<<"$log"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — --rewrite-urls alias 'true' not honoured, log=$(head -3 <<<"$log")")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_pretty_urls_unknown_value_falls_through() {
+    local name="bootstrap: WEBTREES_REWRITE_URLS=yes (unknown) falls through with no flag"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        -e WEBTREES_REWRITE_URLS=yes \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local log
+    log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    if grep -q 'config-ini' <<<"$log" \
+        && ! grep -qE -- '(^| )--rewrite-urls( |$)' <<<"$log" \
+        && ! grep -qE -- '(^| )--no-rewrite-urls( |$)' <<<"$log"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — unknown value should fall through with no flag, log=$(head -3 <<<"$log")")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
+test_bootstrap_pretty_urls_unset_omits_flag() {
+    local name="bootstrap: WEBTREES_REWRITE_URLS unset keeps config-ini default"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -v "$vol:/var/www/html" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local log
+    log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    if grep -q 'config-ini' <<<"$log" \
+        && ! grep -qE -- '(^| )--rewrite-urls( |$)' <<<"$log" \
+        && ! grep -qE -- '(^| )--no-rewrite-urls( |$)' <<<"$log"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — rewrite-urls flag leaked despite WEBTREES_REWRITE_URLS unset, log=$(head -3 <<<"$log")")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
 main() {
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
         printf "Image %s not found locally — build it first (make build).\n" "$IMAGE" >&2
@@ -657,6 +875,11 @@ main() {
     test_bootstrap_fails_without_password
     test_bootstrap_sets_marker_on_success
     test_bootstrap_respects_marker_on_second_run
+    test_bootstrap_pretty_urls_flag_propagates
+    test_bootstrap_pretty_urls_off_passes_no_rewrite_urls
+    test_bootstrap_pretty_urls_unset_omits_flag
+    test_bootstrap_pretty_urls_accepts_lowercase_true_alias
+    test_bootstrap_pretty_urls_unknown_value_falls_through
 
     for line in "${results[@]}"; do
         printf "%s\n" "$line"

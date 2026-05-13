@@ -65,6 +65,7 @@ services:
             MARIADB_USER: webtrees
             MARIADB_PASSWORD_FILE: /secrets/mariadb_password
             MARIADB_DATABASE: webtrees
+            WEBTREES_REWRITE_URLS: "{% if pretty_urls %}1{% else %}0{% endif %}"
 {%- if admin_bootstrap %}
             WT_ADMIN_USER: "{{ admin_user }}"
             WT_ADMIN_EMAIL: "{{ admin_email }}"

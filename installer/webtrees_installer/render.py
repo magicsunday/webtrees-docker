@@ -28,6 +28,7 @@ class RenderInput:
     generated_at: datetime
     traefik_network: str = "traefik"
     enforce_https: bool = True
+    pretty_urls: bool = False
 
 
 _VALID_EDITIONS = {"core", "full"}
@@ -69,6 +70,7 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
         "generated_at": input_model.generated_at.isoformat(),
         "traefik_network": input_model.traefik_network,
         "enforce_https": input_model.enforce_https,
+        "pretty_urls": input_model.pretty_urls,
         # Pin lives in webtrees_installer._alpine and is consumed verbatim;
         # the templates carry no fallback, so a renaming bug here trips
         # Jinja's StrictUndefined immediately.

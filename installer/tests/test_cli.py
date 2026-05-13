@@ -123,3 +123,63 @@ def test_parser_carries_demo_flags():
     ])
     assert args.demo is True
     assert args.demo_seed == 7
+
+
+def test_main_returns_2_when_pretty_urls_combined_with_dev_mode(capsys):
+    """`--pretty-urls` is standalone-only; dev mode rejects it with exit 2 + clear message."""
+    exit_code = main([
+        "--mode", "dev",
+        "--non-interactive", "--force",
+        "--proxy", "standalone", "--port", "50010",
+        "--pretty-urls",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "--pretty-urls is standalone-only" in captured.err
+    assert "WEBTREES_REWRITE_URLS" in captured.err
+
+
+def test_main_accepts_pretty_urls_in_standalone_mode():
+    """The mode-compatibility check fires only for dev mode — standalone must pass through."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core", "--proxy", "standalone", "--port", "28080",
+            "--pretty-urls",
+        ])
+
+    assert exit_code == 0
+    assert run_mock.called
+    # The StandaloneArgs is the single positional arg.
+    flow_args = run_mock.call_args.args[0]
+    assert flow_args.pretty_urls is True
+
+
+def test_main_silently_accepts_dev_only_flag_in_standalone_mode():
+    """Symmetric half of the mode-compat rule: dev-only flags pass through standalone untouched."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core", "--proxy", "standalone", "--port", "28080",
+            "--pma-port", "50011",
+        ])
+
+    assert exit_code == 0
+    assert run_mock.called
+
+
+def test_parser_pretty_urls_flag_defaults_off_and_flips_to_true():
+    """`--pretty-urls` is opt-in: absent → False, present → True."""
+    parser = build_parser()
+    default_args = parser.parse_args([
+        "--non-interactive", "--no-admin", "--edition", "core",
+        "--proxy", "standalone", "--port", "28080",
+    ])
+    assert default_args.pretty_urls is False
+
+    on_args = parser.parse_args([
+        "--non-interactive", "--no-admin", "--edition", "core",
+        "--proxy", "standalone", "--port", "28080", "--pretty-urls",
+    ])
+    assert on_args.pretty_urls is True

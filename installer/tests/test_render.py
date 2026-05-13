@@ -216,6 +216,57 @@ def test_render_traefik(tmp_path: Path, catalog: Catalog) -> None:
     assert "APP_PORT" not in env
 
 
+def test_render_pretty_urls_default_off_writes_rewrite_urls_zero(
+    tmp_path: Path, standalone_core: RenderInput,
+) -> None:
+    """Default render path (pretty_urls=False) ships WEBTREES_REWRITE_URLS=0."""
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    assert compose["services"]["phpfpm"]["environment"]["WEBTREES_REWRITE_URLS"] == "0"
+
+
+def test_render_pretty_urls_on_writes_rewrite_urls_one_standalone(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """`pretty_urls=True` flips WEBTREES_REWRITE_URLS to "1" on the standalone phpfpm service."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="standalone",
+        app_port=28080,
+        domain=None,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        pretty_urls=True,
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    assert compose["services"]["phpfpm"]["environment"]["WEBTREES_REWRITE_URLS"] == "1"
+
+
+def test_render_pretty_urls_on_writes_rewrite_urls_one_traefik(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """Traefik proxy mode honours pretty_urls=True identically."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="traefik",
+        app_port=None,
+        domain="webtrees.example.com",
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        pretty_urls=True,
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    assert compose["services"]["phpfpm"]["environment"]["WEBTREES_REWRITE_URLS"] == "1"
+
+
 def test_render_traefik_with_custom_network(tmp_path: Path, catalog: Catalog) -> None:
     """Custom traefik_network propagates to both network name and docker.network label."""
     inp = RenderInput(

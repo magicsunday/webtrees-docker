@@ -271,6 +271,18 @@ setup_webtrees_bootstrap() {
         return 1
     fi
 
+    # Pretty-URL toggle (rewrite_urls in config.ini.php). The webtrees
+    # config-ini CLI accepts `--rewrite-urls` / `--no-rewrite-urls` as a
+    # negatable option; when absent it defaults to the existing on-disk
+    # value (or 0 on a fresh write). We only pass an explicit flag when
+    # the operator has set WEBTREES_REWRITE_URLS — leaving the env var
+    # unset keeps the core default behaviour.
+    local rewrite_urls_flag=""
+    case "${WEBTREES_REWRITE_URLS:-}" in
+        1|true|TRUE) rewrite_urls_flag="--rewrite-urls" ;;
+        0|false|FALSE) rewrite_urls_flag="--no-rewrite-urls" ;;
+    esac
+
     log_success "Writing config.ini.php via webtrees config-ini"
     if ! su www-data -s /bin/sh -c "
         php '${launcher}' config-ini \
@@ -280,7 +292,8 @@ setup_webtrees_bootstrap() {
             --dbname='${MARIADB_DATABASE:-webtrees}' \
             --dbuser='${MARIADB_USER:-webtrees}' \
             --dbpass='${MARIADB_PASSWORD}' \
-            --tblpfx='${WEBTREES_TABLE_PREFIX:-wt_}'
+            --tblpfx='${WEBTREES_TABLE_PREFIX:-wt_}' \
+            ${rewrite_urls_flag}
     "; then
         log_error "webtrees config-ini failed — marker not set, will retry on next start"
         return 1

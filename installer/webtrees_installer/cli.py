@@ -167,6 +167,15 @@ def build_parser() -> argparse.ArgumentParser:
              "handles redirects.",
     )
     parser.add_argument(
+        "--pretty-urls",
+        action="store_true",
+        help="Standalone mode only. Enable webtrees pretty URLs "
+             "(rewrite_urls=1 in config.ini.php) so tree pages serve as "
+             "/tree/.../individual/... rather than ?route=... query strings. "
+             "Off by default. Dev mode honours WEBTREES_REWRITE_URLS in .env "
+             "directly — edit there instead.",
+    )
+    parser.add_argument(
         "--demo",
         action="store_true",
         help="Generate a 7-generation synthetic family tree and (when the stack is up) import it.",
@@ -190,6 +199,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         # surface the status as a return value so callers (and tests) can
         # observe it without the interpreter aborting.
         return int(exc.code or 0)
+
+    return _run_with_exit_codes(lambda: _dispatch(args))
+
+
+def _dispatch(args: argparse.Namespace) -> int:
+    """Run mode-compatibility checks and hand off to the chosen flow.
+
+    Called inside ``_run_with_exit_codes`` so any ``PromptError`` /
+    ``PrereqError`` / ``StackError`` raised here (or by the flows below)
+    funnels through the single exit-code translator.
+    """
+    _validate_mode_compatibility(args)
 
     if args.mode == "dev":
         from webtrees_installer.dev_flow import DevArgs, run_dev
@@ -221,9 +242,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             force=args.force,
             no_up=args.no_up,
         )
-        return _run_with_exit_codes(
-            lambda: run_dev(dev_args, stdin=sys.stdin, stdout=sys.stdout)
-        )
+        return run_dev(dev_args, stdin=sys.stdin, stdout=sys.stdout)
 
     admin_bootstrap: bool | None
     if args.no_admin:
@@ -248,13 +267,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Tristate: --no-https → False; absence → None (let the standalone
         # flow apply the wizard's TRUE default).
         enforce_https=False if args.no_https else None,
+        pretty_urls=args.pretty_urls,
         force=args.force,
         no_up=args.no_up,
     )
 
-    return _run_with_exit_codes(
-        lambda: run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
-    )
+    return run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
+
+
+def _validate_mode_compatibility(args: argparse.Namespace) -> None:
+    """Raise PromptError when an argument combination is invalid for args.mode.
+
+    Cross-flag interactions are checked here, before any flow runs, so the
+    operator sees the same ``error: ...`` prefix and exit-code-2 path the
+    flows themselves use.
+
+    Today's policy is selective, not symmetric. Most standalone-only flags
+    (``--demo``, ``--demo-seed``, ``--admin-user``, ``--admin-email``,
+    ``--no-admin``, ``--edition``, ``--domain``) are silently dropped when
+    ``--mode dev`` is passed: the dev flow does not read them and no
+    operator-facing harm follows from ignoring them. Same direction the
+    other way — dev-only flags (``--pma-port``, ``--dev-domain``,
+    ``--mariadb-*``, ``--use-*-db``, ``--external-db-host``,
+    ``--local-user-*``, ``--work-dir-host``) pass through silently in
+    standalone mode because the dev surface is a superset.
+
+    ``--pretty-urls`` is the one explicit exception: a fresh install
+    rendered with ``--mode dev --pretty-urls`` would silently ship a stack
+    with ``WEBTREES_REWRITE_URLS=0`` (env.dev.j2 hard-codes it) — the
+    operator's intent vanishes with no trace. Hard-rejecting at the CLI
+    layer surfaces the mismatch and points at the .env knob the dev flow
+    actually reads.
+    """
+    # TODO: lift into a flag→message registry once a second explicit
+    # exception lands; revisit argparse subparsers if dev/standalone flag
+    # sets diverge enough that the flat parser stops carrying its weight.
+    if args.mode == "dev" and args.pretty_urls:
+        raise PromptError(
+            "--pretty-urls is standalone-only. In dev mode set "
+            "WEBTREES_REWRITE_URLS=1 in .env (scripts/configuration "
+            "writes it into config.ini.php on install)."
+        )
 
 
 def _run_with_exit_codes(run_fn: Callable[[], int]) -> int:

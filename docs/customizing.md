@@ -172,6 +172,7 @@ rather than written by the wizard. Add them by hand when you need them:
 | `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` to roll an install with `FALSE`. The runtime fallback when the key is unset entirely is `FALSE`. Cert provisioning itself (Let's Encrypt, bring-your-own) is a separate concern — see issue #44 for that workflow. |
 | `WEBTREES_VERSION` | Pins the webtrees image tag. The wizard writes this; bump it manually for an out-of-cycle upgrade. |
 | `APP_PORT` | Host port published by the standalone overlay (default `28080` — the 28k range stays out of the 80/8080 drive-by-scan band; override with `--port`). |
+| `WEBTREES_REWRITE_URLS` | `1` enables webtrees pretty URLs (`/tree/.../individual/...` instead of `?route=...`); `0` keeps query-string routing. The wizard wires this from `--pretty-urls`. The entrypoint applies it on first boot only (gated on the `.webtrees-bootstrapped` marker inside the app volume); webtrees has no admin-UI toggle for `rewrite_urls`. To flip the value post-install, run `docker compose exec phpfpm php /var/www/html/public/index.php config-ini --rewrite-urls` (or `--no-rewrite-urls`) — the same CLI the entrypoint invokes. |
 | `MARIADB_HOST` / `MARIADB_PORT` | Override when you point at an external database (see above). |
 
 The wizard's `.env` carries a comment block noting that subsequent runs

@@ -62,6 +62,7 @@ def _args(**overrides) -> StandaloneArgs:
         demo=False,
         demo_seed=42,
         enforce_https=True,
+        pretty_urls=False,
         force=True,
         no_up=True,
     )
