@@ -330,8 +330,17 @@ def _list_surviving_volumes(work_dir: Path) -> list[str]:
     `compose up` they are silently re-mounted with their stale data —
     the installer's freshly-generated admin password would then never
     match the running stack.
+
+    When the project name cannot be derived (cwd is `/work` and
+    COMPOSE_PROJECT_NAME is unset — typical for the `--no-admin
+    --no-up` CI smoke cells that never materialise a secrets volume)
+    we cannot scope the scan, so report "nothing surviving" rather
+    than aborting an otherwise-valid run.
     """
-    project = _compose_project_name(work_dir)
+    try:
+        project = _compose_project_name(work_dir)
+    except PrereqError:
+        return []
     result = subprocess.run(
         [
             "docker", "volume", "ls",
