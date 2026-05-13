@@ -292,8 +292,16 @@ setup_webtrees_bootstrap() {
     # all factories; Console::bootstrap() then reads config.ini.php and opens
     # the DB connection. Without the Webtrees::bootstrap() prefix
     # Registry::container() throws "must not be accessed before initialization".
+    # 60s upper bound + 5s SIGKILL grace: an empty-DB migration completes in
+    # seconds, but PDO's default read timeout is unbounded — a network blip
+    # would leave the entrypoint hanging until docker/orchestrator kills the
+    # container. 60 covers PDO connect-warmup on a cold runner plus the
+    # actual migration; -k 5 forces SIGKILL if SIGTERM does not propagate
+    # through future su variants. busybox timeout exits 143 on SIGTERM /
+    # 137 on SIGKILL; GNU timeout uses 124 — distinguish from real failure.
     log_success "Running webtrees DB schema migration"
-    if ! su www-data -s /bin/sh -c '
+    set +e
+    timeout -k 5 60 su www-data -s /bin/sh -c '
         php -d display_errors=0 -r "
             require \"/var/www/html/vendor/autoload.php\";
             Fisharebest\\Webtrees\\Webtrees::new()->bootstrap();
@@ -307,10 +315,20 @@ setup_webtrees_bootstrap() {
                 );
             echo \"schema ok\n\";
         "
-    '; then
-        log_error "Webtrees DB schema migration failed"
-        return 1
-    fi
+    '
+    migration_rc=$?
+    set -e
+    case "$migration_rc" in
+        0) ;;
+        124|137|143)
+            log_error "Webtrees DB schema migration timed out after 60s (exit $migration_rc)"
+            return 1
+            ;;
+        *)
+            log_error "Webtrees DB schema migration failed (exit $migration_rc)"
+            return 1
+            ;;
+    esac
 
     # Idempotency: skip user-create if the user already exists.
     if su www-data -s /bin/sh -c "
