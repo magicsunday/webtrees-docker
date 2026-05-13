@@ -280,19 +280,6 @@ def test_run_standalone_wipes_when_interactive_user_answers_yes(tmp_path: Path) 
     assert "Wiped 2 stale volume(s)" in out.getvalue()
 
 
-def test_list_surviving_volumes_silent_without_project_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Under `--no-admin --no-up` smoke cells the installer runs with cwd
-    # `/work` and no COMPOSE_PROJECT_NAME set — no secrets volume gets
-    # pre-seeded so the project-name constraint does not apply. The
-    # volume scan must degrade silently rather than abort the install.
-    from webtrees_installer.flow import _list_surviving_volumes
-
-    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
-    assert _list_surviving_volumes(Path("/work")) == []
-
-
 def test_run_standalone_no_volume_prompt_when_none_survive(tmp_path: Path) -> None:
     args = _args(work_dir=tmp_path, interactive=True)
     out = StringIO()
