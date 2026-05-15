@@ -116,7 +116,10 @@ external Docker network. The trust-proxy gate in
 `rootfs/etc/nginx/includes/trust-proxy-map.conf` accepts
 `X-Forwarded-Proto: https` only from `172.16.0.0/12` (Docker's default
 user-bridge range). Operators on custom Docker networks outside that
-range need the bind-mount workaround documented in customizing.md.
+range set `NGINX_TRUSTED_PROXIES=<cidr>` (env var consumed by the nginx
+container; see [`customizing.md` → *HTTPS trust gate*](customizing.md)).
+A bind-mount workaround is still available for the rare case of needing
+to *remove* a baked default CIDR.
 
 ## Dev mode
 

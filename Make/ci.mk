@@ -142,7 +142,9 @@ ci-nginx-config: .logo ## Runs the nginx config syntax + trust-gate regression t
 			echo "::error::docker pull failed for $$NGINX_IMAGE" >&2; \
 			exit 1; \
 		}; \
-		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-nginx-config.sh
+		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-nginx-config.sh; \
+		echo -e "${FBLUE}▶ trust-proxy-extra entrypoint tests${FRESET}"; \
+		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-trust-proxy-extra.sh
 
 ci-yamllint: .logo ## Lints workflow + compose YAML files.
 	echo -e "${FBLUE}▶ yamllint${FRESET}"

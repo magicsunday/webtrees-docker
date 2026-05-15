@@ -146,6 +146,23 @@ healthy. Cause: Traefik is on network `proxy` but the wizard joined
 the stack to `traefik`. Run `docker network ls` to confirm, then
 re-render with `--traefik-network <correct-name> --force`.
 
+### Infinite-redirect loop with a custom-subnet Traefik network
+
+If your Traefik network uses a non-default subnet (e.g.
+`--subnet 10.42.0.0/16`), the trust gate in
+`rootfs/etc/nginx/includes/trust-proxy-map.conf` refuses to honour
+`X-Forwarded-Proto: https` from Traefik and the browser ends up in an
+`ERR_TOO_MANY_REDIRECTS` loop. Either move Traefik onto a network in
+`172.16.0.0/12` (the default Docker user-bridge pool) or set
+`NGINX_TRUSTED_PROXIES` to the Traefik subnet:
+
+```bash
+NGINX_TRUSTED_PROXIES=10.42.0.0/16 docker compose up -d
+```
+
+See [`customizing.md` → *HTTPS trust gate*](customizing.md) for the
+hard rules the entrypoint enforces on the env-var value.
+
 ### Mixed-content warnings under `ENFORCE_HTTPS=TRUE` + `--no-https`
 
 Don't combine those two — the wizard rejects the combination

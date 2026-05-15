@@ -123,6 +123,11 @@ services:
         image: ${DOCKER_SERVER}/webtrees/nginx:${WEBTREES_NGINX_VERSION}
         environment:
             - ENFORCE_HTTPS
+            # Optional extension of the X-Forwarded-Proto trust gate's
+            # CIDR set. Comma-separated; empty by default so only the
+            # baked conservative CIDRs (127.0.0.0/8, ::1/128, 172.16.0.0/12,
+            # fc00::/7) apply. See docs/customizing.md.
+            - NGINX_TRUSTED_PROXIES=${NGINX_TRUSTED_PROXIES:-}
         healthcheck:
             # Probe the login page rather than `/` because `/` returns 404
             # by design when no tree exists yet (operator imports the GEDCOM

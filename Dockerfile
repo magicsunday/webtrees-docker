@@ -424,6 +424,12 @@ COPY rootfs/etc/nginx/conf.d /etc/nginx/conf.d
 COPY rootfs/etc/nginx/includes /etc/nginx/includes
 COPY rootfs/etc/nginx/templates /etc/nginx/templates
 
+# Entrypoint hooks that the upstream nginx:1.30-alpine image runs from
+# /docker-entrypoint.d/ before exec'ing nginx. Used to render
+# operator-supplied NGINX_TRUSTED_PROXIES into trust-proxy-extra.conf.
+COPY rootfs/docker-entrypoint.d /docker-entrypoint.d
+RUN chmod +x /docker-entrypoint.d/*.sh
+
 # Empty override directory — users mount their own snippets in.
 RUN mkdir -p /etc/nginx/conf.d/custom
 

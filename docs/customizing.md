@@ -197,40 +197,45 @@ port.
 
 If your reverse proxy lives on a custom Docker network outside
 `172.16.0.0/12` (e.g. `--subnet=10.42.0.0/16`), the redirect will fire
-for every request and the browser will loop. Two workarounds:
+for every request and the browser will loop. Set `NGINX_TRUSTED_PROXIES`
+to extend the trust set:
 
-1. **Bind-mount a replacement include** in your `compose.override.yaml`.
-   The mount **replaces** the baked-in file rather than extending it, so
-   the override must restate every CIDR the gate needs — including
-   loopback, or the healthcheck breaks (it probes from `127.0.0.1`).
-   To stay in sync with the image's current shape, extract the baseline
-   from the container and add your CIDR rather than hand-rolling the
-   block:
+```dotenv
+# .env or compose env block
+NGINX_TRUSTED_PROXIES=10.42.0.0/16
+# multiple CIDRs:
+NGINX_TRUSTED_PROXIES=10.42.0.0/16,192.168.10.0/24
+```
 
-   ```bash
-   docker run --rm ghcr.io/magicsunday/webtrees/nginx:<tag> \
-       cat /etc/nginx/includes/trust-proxy-map.conf > trust-proxy-map.conf
-   # then add `<your-cidr> 1;` inside the geo block — keep the existing
-   # 127.0.0.0/8, ::1, 172.16.0.0/12, and fc00::/7 entries intact.
-   ```
+The entrypoint rewrites
+`/etc/nginx/includes/trust-proxy-extra.conf` on every container start
+into a second `geo` block whose CIDRs are OR-merged with the baked
+defaults into `$trusted_proxy`. Hard rules enforced by the entrypoint
+(fail-closed — startup aborts loudly on violation):
 
-   ```yaml
-   services:
-     nginx:
-       volumes:
-         - ./trust-proxy-map.conf:/etc/nginx/includes/trust-proxy-map.conf:ro
-   ```
+| Refusal | Why |
+|---|---|
+| Value longer than 4 KiB or more than 256 entries | DoS shield against a copy-paste accident or a compromised env source. |
+| Characters outside `[0-9a-fA-F.:/,\s]` | nginx-directive injection vector — a newline inside one comma chunk could otherwise inject `default 1;` into the geo block and trust every client. |
+| Wildcard CIDR (`0.0.0.0/0`, `::/0`, anything ending in `/0`) | Trusts every client, defeating the gate. |
+| Prefix length outside `/0..32` (IPv4) or `/0..128` (IPv6) | nginx would refuse the rendered config anyway; failing here surfaces a clear entrypoint error. |
+| `nginx -t` failure on the rendered file | Duplicate CIDR, garbled IPv6 form, or any other late-stage rejection is attributed to this script, not to an opaque master-process crash. |
 
-   This approach picks up future hardening tweaks to the gate
-   automatically — the next image bump refreshes the baseline; the
-   operator only re-adds their custom CIDR.
+If you need to *remove* one of the baked default CIDRs (rare — operators
+on networks colliding with `172.16.0.0/12` who can't move) the env var
+is insufficient because the design is additive. Bind-mount a
+replacement `trust-proxy-map.conf` instead:
 
-2. **Move the reverse proxy onto a network in `172.16.0.0/12`** —
-   `docker network create traefik` without an explicit `--subnet` uses
-   the default pool.
+```yaml
+services:
+  nginx:
+    volumes:
+      - ./trust-proxy-map.conf:/etc/nginx/includes/trust-proxy-map.conf:ro
+```
 
-A future `NGINX_TRUSTED_PROXIES` env var (issue #89) will fold this into
-the wizard so the bind-mount workaround is no longer needed.
+Move the reverse proxy onto a network in `172.16.0.0/12` as a third
+option — `docker network create traefik` without `--subnet` uses the
+default pool.
 
 **Sibling-container caveat:** the trust set covers `172.16.0.0/12`, which
 is the entire Docker user-bridge range. Every container in the same
