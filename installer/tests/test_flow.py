@@ -62,6 +62,7 @@ def _args(**overrides) -> StandaloneArgs:
         proxy_mode="standalone",
         app_port=8080,
         domain=None,
+        traefik_network="traefik",
         admin_bootstrap=True,
         admin_user="admin",
         admin_email="admin@example.org",

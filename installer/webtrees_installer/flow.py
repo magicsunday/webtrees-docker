@@ -47,6 +47,7 @@ class StandaloneArgs:
     proxy_mode: str | None
     app_port: int | None
     domain: str | None
+    traefik_network: str
     admin_bootstrap: bool | None
     admin_user: str | None
     admin_email: str | None
@@ -216,6 +217,7 @@ def run_standalone(
         proxy_mode=proxy_mode,
         app_port=app_port,
         domain=domain,
+        traefik_network=args.traefik_network,
         admin_bootstrap=admin_bootstrap,
         admin_user=admin_user,
         admin_email=admin_email,

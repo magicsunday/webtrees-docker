@@ -63,6 +63,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Public domain (Traefik mode only).",
     )
     parser.add_argument(
+        "--traefik-network",
+        dest="traefik_network",
+        default="traefik",
+        help="External Docker network name the rendered stack joins in "
+             "Traefik proxy mode. Both the `traefik.docker.network` "
+             "label and the `networks:` section receive this value. "
+             "Default `traefik`; override when your Traefik runs on a "
+             "differently-named network (e.g. `proxy`, `edge-net`).",
+    )
+    parser.add_argument(
         "--mode",
         choices=["standalone", "dev"],
         default="standalone",
@@ -262,6 +272,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         proxy_mode=args.proxy_mode,
         app_port=args.app_port,
         domain=args.domain,
+        traefik_network=args.traefik_network,
         admin_bootstrap=admin_bootstrap,
         admin_user=args.admin_user,
         admin_email=args.admin_email,

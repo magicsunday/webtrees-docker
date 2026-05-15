@@ -206,6 +206,38 @@ def test_main_accepts_no_https_with_proxy_standalone():
     assert flow_args.enforce_https is False
 
 
+def test_main_traefik_network_default_passes_through():
+    """`--traefik-network` defaults to `traefik` and reaches
+    StandaloneArgs unchanged when omitted."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core",
+            "--proxy", "traefik", "--domain", "webtrees.example.com",
+        ])
+
+    assert exit_code == 0
+    assert run_mock.called
+    flow_args = run_mock.call_args.args[0]
+    assert flow_args.traefik_network == "traefik"
+
+
+def test_main_traefik_network_custom_value_propagates():
+    """Operator on a Traefik network named `proxy` (or similar) passes
+    the flag and the rendered stack joins that network instead."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core",
+            "--proxy", "traefik", "--domain", "webtrees.example.com",
+            "--traefik-network", "proxy",
+        ])
+
+    assert exit_code == 0
+    flow_args = run_mock.call_args.args[0]
+    assert flow_args.traefik_network == "proxy"
+
+
 def test_parser_pretty_urls_flag_defaults_off_and_flips_to_true():
     """`--pretty-urls` is opt-in: absent → False, present → True."""
     parser = build_parser()

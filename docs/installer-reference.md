@@ -39,6 +39,7 @@ password (printed once in the install banner), then runs
 | `--proxy standalone\|traefik` | Reverse-proxy mode. `standalone` publishes a host port; `traefik` emits Traefik labels and joins the `traefik` external network. |
 | `--port <N>` | Host port nginx binds in standalone mode. Default 28080; falls back to 28081 on first conflict, then prompts. |
 | `--domain <host>` | Public domain for Traefik mode. Required when `--proxy traefik`. |
+| `--traefik-network <name>` | External Docker network name the rendered stack joins in Traefik mode. Default `traefik`. |
 
 ## Re-install with new options
 

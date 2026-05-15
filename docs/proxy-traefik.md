@@ -13,7 +13,7 @@ Traefik side is a one-time setup the operator owns.
 
 | Pre-requisite | Why |
 |---|---|
-| **A Traefik instance reachable on a Docker network named `traefik`** | The wizard joins the rendered stack to an external network whose name is currently hard-coded to `traefik` in the rendered compose. Operators whose Traefik runs on a network with a different name need the override workflow at the bottom of this page. A `--traefik-network <name>` installer flag is tracked separately. |
+| **A Traefik instance reachable on a Docker network** | The wizard joins the rendered stack to an external network whose name defaults to `traefik`. Override at install time with `--traefik-network <name>` if your Traefik runs on a differently-named network (e.g. `proxy`, `edge-net`). |
 | **An ACME / Let's Encrypt resolver on that Traefik** | Webtrees ships `ENFORCE_HTTPS=TRUE`; the rendered router pins `tls=true` + the `websecure` entrypoint. Without a working cert resolver, browsers will hit a TLS error before reaching webtrees. The cert workflow itself is tracked in issue #44 — this walkthrough assumes the Traefik admin has already wired ACME (e.g. via `traefik.yml` `certificatesResolvers`). |
 | **A DNS record pointing the chosen hostname at the Traefik host** | A `webtrees.example.com` A or CNAME record must resolve to the IP Traefik publishes its `websecure` entrypoint on, otherwise ACME's HTTP-01 / DNS-01 challenge cannot complete. |
 | **Traefik configured to accept Docker labels** | `--providers.docker=true` on the Traefik command line (or the equivalent file-provider config). The wizard emits standard `traefik.http.routers.*` labels; nothing custom. |
@@ -63,21 +63,19 @@ distinguish them by the project name in the router label namespace.
 
 ## Custom Traefik network names
 
-The wizard currently renders `traefik` as the network name in both the
-`traefik.docker.network` label and the `networks:` section. To use a
-different name (e.g. `proxy`, `edge-net`), render the stack with
-`--no-up`, then patch both occurrences in `compose.yaml` before
-bringing the stack up:
+If your Traefik runs on a network named something other than
+`traefik` (e.g. `proxy`, `edge-net`):
 
 ```bash
-./install --proxy traefik --domain webtrees.example.com --no-up
-sed -i 's|name: traefik|name: proxy|' compose.yaml
-sed -i 's|traefik.docker.network: "traefik"|traefik.docker.network: "proxy"|' compose.yaml
-docker compose up -d
+./install \
+    --proxy traefik \
+    --domain webtrees.example.com \
+    --traefik-network proxy \
+    --edition full
 ```
 
-A `--traefik-network <name>` installer flag (issue #93) will land in a
-later release so the manual patch is no longer needed.
+The wizard re-emits both `traefik.docker.network` and the `networks:`
+section against the new name.
 
 ## Adding to an existing compose stack
 
