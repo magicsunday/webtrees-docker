@@ -698,9 +698,10 @@ def test_wipe_volumes_noop_on_empty_list() -> None:
 
 
 def test_wipe_volumes_translates_docker_failure_to_prereq_error() -> None:
-    """A docker-daemon failure on `docker volume rm -f` must not leak
-    past the exit-code translator. Mirrors the precedent set by
-    _write_admin_password_secret."""
+    """A docker-daemon failure on EVERY `docker volume rm -f` invocation
+    surfaces all volumes in the PrereqError. Per-volume iteration means
+    each name gets its own line; the wrap collects them rather than
+    short-circuiting on the first failure."""
     import subprocess
 
     fake_failure = subprocess.CalledProcessError(
@@ -715,10 +716,61 @@ def test_wipe_volumes_translates_docker_failure_to_prereq_error() -> None:
         real_wipe_volumes(["mywebtrees_database", "mywebtrees_secrets"])
 
     msg = str(exc_info.value)
-    assert "failed to remove docker volumes" in msg
+    assert "failed to remove the following docker volumes" in msg
     assert "mywebtrees_database" in msg
     assert "mywebtrees_secrets" in msg
     assert "volume is in use" in msg
+    assert "docker compose -p <project> down -v" in msg
+
+
+def test_wipe_volumes_collects_partial_failures_without_aborting() -> None:
+    """Per-volume iteration: a held-by-sibling-stack volume fails its
+    own rm without short-circuiting the rest. The caller still gets a
+    PrereqError so they know cleanup is incomplete, but only the
+    actually-stuck volumes show up — the successfully-wiped ones
+    aren't in the list (so the operator doesn't try to clean up state
+    that's already gone)."""
+    import subprocess
+
+    # First call succeeds, second fails (held by sibling stack),
+    # third succeeds. Exercises the iterate-and-collect path.
+    fake_failure = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["docker", "volume", "rm", "-f", "mywebtrees_database"],
+        stderr="Error response from daemon: volume is in use",
+    )
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=[completed, fake_failure, completed],
+    ), pytest.raises(PrereqError) as exc_info:
+        real_wipe_volumes(
+            ["mywebtrees_secrets", "mywebtrees_database", "mywebtrees_app"]
+        )
+
+    msg = str(exc_info.value)
+    assert "mywebtrees_database" in msg
+    assert "volume is in use" in msg
+    # The two volumes that succeeded must NOT show up in the failure
+    # list — they're already gone and re-listing them would mislead
+    # the operator.
+    assert "mywebtrees_secrets" not in msg
+    assert "mywebtrees_app" not in msg
+
+
+def test_wipe_volumes_succeeds_silently_when_every_call_succeeds() -> None:
+    """All three volumes wipe cleanly — no exception, three subprocess
+    calls observed."""
+    import subprocess
+
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=[completed, completed, completed],
+    ) as run_mock:
+        real_wipe_volumes(["mywebtrees_secrets", "mywebtrees_database", "mywebtrees_app"])
+
+    assert run_mock.call_count == 3
 
 
 def test_list_surviving_volumes_translates_missing_docker_binary(
@@ -752,7 +804,7 @@ def test_wipe_volumes_translates_missing_docker_binary() -> None:
         real_wipe_volumes(["mywebtrees_database"])
 
     msg = str(exc_info.value)
-    assert "failed to remove docker volumes" in msg
+    assert "failed to remove the following docker volumes" in msg
     assert "Permission denied" in msg
 
 

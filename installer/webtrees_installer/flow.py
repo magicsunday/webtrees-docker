@@ -456,27 +456,40 @@ def _list_surviving_volumes(work_dir: Path) -> list[str]:
 
 
 def _wipe_volumes(volumes: list[str]) -> None:
-    """Force-remove the named docker volumes. No-op on an empty list."""
+    """Force-remove the named docker volumes one at a time.
+
+    No-op on an empty list. Iterates per-volume so a single
+    held-by-sibling-stack volume cannot trip the whole wipe and leave
+    the operator with a partial-wipe state: every volume gets its own
+    `docker volume rm -f` invocation. Successes proceed; failures are
+    collected and surfaced as a single PrereqError at the end so the
+    operator can see exactly which volumes still need manual cleanup.
+    """
     if not volumes:
         return
-    try:
-        subprocess.run(
-            ["docker", "volume", "rm", "-f", *volumes],
-            check=True, capture_output=True, text=True,
-        )
-    except (subprocess.CalledProcessError, OSError) as exc:
-        # Docker may refuse the wipe if one of the listed volumes is
-        # still in use (a sibling stack mounting `<project>_database`,
-        # for example) or if the daemon dropped the socket mid-call;
-        # OSError additionally covers the docker binary missing from
-        # PATH or being unexecutable. Either path leaves the operator
-        # in a possibly-partial-wipe state — a richer recovery story
-        # is tracked separately. Surface PrereqError so the CLI exits
-        # cleanly with the underlying detail instead of a traceback.
+
+    failures: list[tuple[str, str]] = []
+    for volume in volumes:
+        try:
+            subprocess.run(
+                ["docker", "volume", "rm", "-f", volume],
+                check=True, capture_output=True, text=True,
+            )
+        except (subprocess.CalledProcessError, OSError) as exc:
+            # Common case: the volume is still mounted by another stack
+            # sharing the project-name prefix. Daemon-down / docker-
+            # missing also lands here. Record and keep going.
+            failures.append((volume, _extract_subprocess_detail(exc)))
+
+    if failures:
+        lines = [f"  - {name}: {detail}" for name, detail in failures]
         raise PrereqError(
-            f"failed to remove docker volumes ({', '.join(volumes)}):"
-            f" {_extract_subprocess_detail(exc)}"
-        ) from exc
+            "failed to remove the following docker volumes "
+            "(other volumes in the same batch may have succeeded; "
+            "run `docker compose -p <project> down -v` to release "
+            "any remaining mounts, then re-run the installer):\n"
+            + "\n".join(lines)
+        )
 
 
 def _handle_surviving_volumes(
