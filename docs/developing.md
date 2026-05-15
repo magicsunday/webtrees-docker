@@ -61,8 +61,34 @@ compose.pma.yaml + compose.development.yaml`, plus
 `./app` into phpfpm. Bring the stack up with `make up`; webtrees lives
 at `http://localhost:50010`, phpMyAdmin at `http://localhost:50011`.
 
+Hostname customisation: pass `--dev-domain webtrees.local` (or any
+Traefik-resolvable host) to land the stack on that domain instead of
+`localhost:50010`. The wizard wires it through to `compose.traefik.yaml`
+and stores it in `.env` as `DEV_DOMAIN`. Re-run the install flow at
+any point with the same value to roll the change without touching the
+DB.
+
 Use `./switch standalone` to flip back to the self-host stack for
 browser testing without losing your dev DB creds.
+
+### Iterating on entrypoint or nginx config
+
+The compose dev overlay bind-mounts `rootfs/etc/nginx/` and
+`rootfs/docker-entrypoint.sh` from the source tree, so edits land live:
+
+```bash
+# nginx config tweak
+docker compose restart nginx
+
+# entrypoint script change
+docker compose down phpfpm && docker compose up -d phpfpm
+```
+
+PHP application code under `app/` is live by default — restart phpfpm
+only when composer autoloader caches need refreshing
+(`docker compose restart phpfpm`). Frontend assets compile via the
+buildbox; see `make help` for the asset targets in the corresponding
+module's working tree.
 
 ## Wizard Development
 
