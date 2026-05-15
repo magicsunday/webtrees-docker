@@ -58,7 +58,7 @@ services:
         restart: unless-stopped
         environment:
             ENVIRONMENT: production
-            ENFORCE_HTTPS: "{% if enforce_https %}TRUE{% else %}FALSE{% endif %}"
+            ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
             WEBTREES_VERSION: "{{ webtrees_version }}"
             WEBTREES_AUTO_SEED: "true"
             MARIADB_HOST: db
@@ -96,7 +96,7 @@ services:
                 condition: service_healthy
         restart: unless-stopped
         environment:
-            ENFORCE_HTTPS: "{% if enforce_https %}TRUE{% else %}FALSE{% endif %}"
+            ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
         networks:
             - default
             - traefik

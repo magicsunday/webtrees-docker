@@ -45,13 +45,18 @@ ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make hel
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 	echo -e "${FBLUE}▶ pytest (installer)${FRESET}"
+	# `apt-get install make` brings GNU make into the throwaway container
+	# so the Makefile-render tests (test_render_makefile_parses_under_make_n
+	# + test_render_makefile_switch_flips_env) actually exercise the
+	# rendered Makefile instead of skipping. ~5MB extra image bytes,
+	# transparent under the pip-cache volume reuse.
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
 		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
-		-c "pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
+		-c "apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends make >/dev/null && pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
 
 # All four ci-{ruff,mypy,vulture,cpd} targets share the same install
 # step against the installer's `.[static]` optional-deps. The targets

@@ -51,7 +51,7 @@ services:
         restart: unless-stopped
         environment:
             ENVIRONMENT: production
-            ENFORCE_HTTPS: "TRUE"
+            ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
             WEBTREES_VERSION: "2.2.6"
             WEBTREES_AUTO_SEED: "true"
             MARIADB_HOST: db
@@ -84,7 +84,7 @@ services:
                 condition: service_healthy
         restart: unless-stopped
         environment:
-            ENFORCE_HTTPS: "TRUE"
+            ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
         ports:
             - "${APP_PORT:-28080}:80"
         healthcheck:

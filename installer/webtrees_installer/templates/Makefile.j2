@@ -5,7 +5,7 @@
 # Every target is a thin docker compose wrapper. Run `make` without
 # arguments (or `make help`) for a one-screen overview.
 
-.PHONY: help up down restart logs pull shell cli backup restore
+.PHONY: help up down restart logs pull shell cli backup restore switch-https switch-http
 
 .DEFAULT_GOAL := help
 
@@ -22,6 +22,8 @@ help: ## Show this help.
 	@echo "  make backup > backup.sql.gz"
 	@echo "                             Dump the database to stdout (gzipped)"
 	@echo "  make restore FILE=<path>   Restore a database dump produced by 'make backup'"
+	@echo "  make switch-https          Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm"
+	@echo "  make switch-http           Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm"
 
 up: ## Start the stack detached.
 	docker compose up -d
@@ -78,3 +80,40 @@ restore: ## Restore a database dump produced by 'make backup'. Usage: make resto
 	fi
 	@gunzip -c "$$FILE" | docker compose exec -T db sh -c \
 		'mariadb --user="$$MARIADB_USER" --password="$$(cat "$$MARIADB_PASSWORD_FILE")" "$$MARIADB_DATABASE"'
+
+# switch-https / switch-http flip ENFORCE_HTTPS in .env, then restart
+# the two services that read it (nginx for the 301 redirect, phpfpm
+# for the HSTS / cookie-secure flags webtrees emits). Volumes survive
+# the restart so user data + config.ini.php + media stay untouched.
+# Both targets are idempotent — running switch-https twice is a no-op.
+#
+# The sed rewrite preserves the line position and handles three
+# starting shapes (`ENFORCE_HTTPS=TRUE`, `ENFORCE_HTTPS=FALSE`, missing
+# from the file). On the missing-from-file path we append rather than
+# fail — the entrypoint already defaults to disabled when the var is
+# absent, so appending makes the new value durable across restarts.
+switch-https: ## Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm.
+	@if [ ! -f .env ]; then \
+		echo "switch-https: .env not found; run from your install directory" >&2; \
+		exit 1; \
+	fi
+	@if grep -qE '^ENFORCE_HTTPS=' .env; then \
+		sed -i -E 's|^ENFORCE_HTTPS=.*|ENFORCE_HTTPS=TRUE|' .env; \
+	else \
+		echo "ENFORCE_HTTPS=TRUE" >> .env; \
+	fi
+	@echo "ENFORCE_HTTPS=TRUE; restarting nginx + phpfpm…"
+	docker compose up -d --force-recreate --no-deps nginx phpfpm
+
+switch-http: ## Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm.
+	@if [ ! -f .env ]; then \
+		echo "switch-http: .env not found; run from your install directory" >&2; \
+		exit 1; \
+	fi
+	@if grep -qE '^ENFORCE_HTTPS=' .env; then \
+		sed -i -E 's|^ENFORCE_HTTPS=.*|ENFORCE_HTTPS=FALSE|' .env; \
+	else \
+		echo "ENFORCE_HTTPS=FALSE" >> .env; \
+	fi
+	@echo "ENFORCE_HTTPS=FALSE; restarting nginx + phpfpm…"
+	docker compose up -d --force-recreate --no-deps nginx phpfpm

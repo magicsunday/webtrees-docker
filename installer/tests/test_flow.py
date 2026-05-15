@@ -365,8 +365,12 @@ def test_run_standalone_allows_no_https_when_standalone_chosen_at_prompt(
         exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
 
     assert exit_code == 0
+    # Post-#45 the compose.yaml carries `${ENFORCE_HTTPS:-FALSE}` literal
+    # (so `make switch-https` can flip the value without re-render). The
+    # actual TRUE/FALSE picked by the wizard lands in .env.
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
-    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "FALSE"
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    assert "ENFORCE_HTTPS=FALSE" in (tmp_path / ".env").read_text()
 
 
 def test_run_standalone_allows_default_enforce_https_when_traefik_chosen_at_prompt(
@@ -375,7 +379,10 @@ def test_run_standalone_allows_default_enforce_https_when_traefik_chosen_at_prom
     """Wizard-default path: operator picks traefik at the prompt without
     passing --no-https (args.enforce_https is None). The new flow.py guard
     uses `is False`, so None must fall through and the stack must render
-    with ENFORCE_HTTPS=TRUE (the wizard default)."""
+    with ENFORCE_HTTPS=TRUE (the wizard default).
+
+    Post-#45 the literal lives in .env (compose.yaml carries the
+    substitution form so `make switch-https` works at runtime)."""
     args = _args(
         work_dir=tmp_path,
         interactive=True,
@@ -391,7 +398,8 @@ def test_run_standalone_allows_default_enforce_https_when_traefik_chosen_at_prom
 
     assert exit_code == 0
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
-    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "TRUE"
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    assert "ENFORCE_HTTPS=TRUE" in (tmp_path / ".env").read_text()
 
 
 def test_run_standalone_writes_admin_password_to_secrets_init(tmp_path: Path) -> None:

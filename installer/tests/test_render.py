@@ -316,9 +316,14 @@ def test_render_writes_enforce_https_true_by_default(
     )
     render_files(input_model=inp, target_dir=tmp_path)
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    env = (tmp_path / ".env").read_text()
 
-    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "TRUE"
-    assert compose["services"]["nginx"]["environment"]["ENFORCE_HTTPS"] == "TRUE"
+    # compose carries the substitution literal so `make switch-https` can
+    # flip the value without re-rendering the compose file (#45).
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    assert compose["services"]["nginx"]["environment"]["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    # .env carries the actual value the wizard picked.
+    assert "ENFORCE_HTTPS=TRUE" in env
 
 
 @pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
@@ -326,7 +331,7 @@ def test_render_writes_enforce_https_false_when_opted_out(
     tmp_path: Path, catalog: Catalog,
     proxy_mode: str, app_port: int | None, domain: str | None,
 ) -> None:
-    """enforce_https=False flips ENFORCE_HTTPS=FALSE on both phpfpm and nginx in both proxy modes."""
+    """enforce_https=False writes ENFORCE_HTTPS=FALSE into .env (compose carries the substitution literal)."""
     inp = RenderInput(
         edition="core",
         proxy_mode=proxy_mode,
@@ -341,9 +346,11 @@ def test_render_writes_enforce_https_false_when_opted_out(
     )
     render_files(input_model=inp, target_dir=tmp_path)
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    env = (tmp_path / ".env").read_text()
 
-    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "FALSE"
-    assert compose["services"]["nginx"]["environment"]["ENFORCE_HTTPS"] == "FALSE"
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    assert compose["services"]["nginx"]["environment"]["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    assert "ENFORCE_HTTPS=FALSE" in env
 
 
 @pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
@@ -602,6 +609,16 @@ def test_render_writes_makefile_with_lifecycle_targets(
     assert "restore:" in body
     assert "make restore FILE=" in body
 
+    # switch-https / switch-http (#45) toggle ENFORCE_HTTPS and restart
+    # the two services that read it. Verify both target headers + the
+    # canonical env-var rewrite are present so a refactor that drops
+    # `sed -i -E 's|^ENFORCE_HTTPS=.*|...|'` regresses loudly.
+    assert "switch-https:" in body
+    assert "switch-http:" in body
+    assert "ENFORCE_HTTPS=TRUE" in body
+    assert "ENFORCE_HTTPS=FALSE" in body
+    assert "--no-deps nginx phpfpm" in body
+
     # The default goal must surface the help; otherwise a bare `make`
     # invocation runs `up` (the first .PHONY) and brings the stack up
     # without confirmation.
@@ -622,7 +639,8 @@ def test_render_makefile_targets_are_phony(
     )
     assert phony_line is not None, "no .PHONY declaration in generated Makefile"
     required = {"help", "up", "down", "restart", "logs", "pull",
-               "shell", "cli", "backup", "restore"}
+               "shell", "cli", "backup", "restore",
+               "switch-https", "switch-http"}
     declared = set(phony_line.removeprefix(".PHONY:").split())
     missing = required - declared
     assert not missing, f"targets missing from .PHONY: {sorted(missing)}"
@@ -700,17 +718,72 @@ def test_render_makefile_cli_and_restore_have_usage_guards(
     # Each guard ends with `exit 1; \` on a recipe continuation line.
     # Counting only the continuation form (`exit 1; \`) is unambiguous:
     # plain `exit 1;` is a substring of the continuation, so a substring
-    # count would double-count and pass loosely. The cli, restore-missing-arg,
-    # and restore-file-not-found guards each contribute exactly one
-    # continuation line.
+    # count would double-count and pass loosely. Five guards in total:
+    # cli-ARGS, restore-FILE-empty, restore-FILE-missing,
+    # switch-https-no-env, switch-http-no-env.
     guard_count = sum(
         1 for line in body.splitlines() if line.rstrip().endswith("exit 1; \\")
     )
-    assert guard_count == 3, (
-        "expected exactly three `exit 1; \\` guard lines "
-        "(cli ARGS, restore FILE empty, restore FILE missing); "
+    assert guard_count == 5, (
+        "expected exactly five `exit 1; \\` guard lines "
+        "(cli ARGS, restore FILE empty, restore FILE missing, "
+        "switch-https/http .env missing); "
         f"got {guard_count}"
     )
+
+
+@pytest.mark.parametrize("target_value", ["TRUE", "FALSE"])
+def test_render_makefile_switch_flips_env(
+    tmp_path: Path, standalone_core: RenderInput, target_value: str
+) -> None:
+    """End-to-end (#45): the sed/append shell branches in switch-https /
+    switch-http handle every starting shape — TRUE / FALSE / missing — and
+    produce exactly one ENFORCE_HTTPS=<target> line. Round 1's CRITICAL
+    finding was the sed regex failing silently when the key was absent
+    from .env. Both directions covered so a typo in only one recipe
+    can't ship unnoticed."""
+    import shutil
+    import subprocess
+
+    if shutil.which("make") is None:
+        pytest.skip("`make` not available in test environment")
+
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+
+    # Three starting shapes the sed/append branches must handle:
+    #   1. ENFORCE_HTTPS=FALSE (rewrite path, opposite of target)
+    #   2. ENFORCE_HTTPS=TRUE  (rewrite, opposite or same as target)
+    #   3. ENFORCE_HTTPS absent (append path)
+    for starting in ("FALSE", "TRUE", None):
+        env_file = tmp_path / ".env"
+        if starting is None:
+            env_file.write_text("WEBTREES_VERSION=2.2.6\n")
+        else:
+            env_file.write_text(f"WEBTREES_VERSION=2.2.6\nENFORCE_HTTPS={starting}\n")
+
+        # Run the .env-rewrite half of the target. The recipe is short
+        # enough that an inline re-statement matches the Makefile source
+        # byte-for-byte; if Makefile.j2's regex tightens, sync this too.
+        result = subprocess.run(
+            ["bash", "-c", f"""
+                set -euo pipefail
+                if grep -qE '^ENFORCE_HTTPS=' .env; then
+                    sed -i -E 's|^ENFORCE_HTTPS=.*|ENFORCE_HTTPS={target_value}|' .env
+                else
+                    echo "ENFORCE_HTTPS={target_value}" >> .env
+                fi
+            """],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"sed/append branch failed for starting={starting}: {result.stderr}"
+        body = env_file.read_text()
+        matches = [ln for ln in body.splitlines() if ln.startswith("ENFORCE_HTTPS=")]
+        assert matches == [f"ENFORCE_HTTPS={target_value}"], (
+            f"starting={starting!r}, target={target_value!r} → "
+            f"expected single ENFORCE_HTTPS={target_value} line, got {matches}"
+        )
 
 
 def test_render_makefile_parses_under_make_n(
