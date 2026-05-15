@@ -1,0 +1,103 @@
+volumes:
+    secrets:
+    database:
+    app:
+    media:
+
+services:
+    init:
+        image: alpine:3.23
+        restart: "no"
+        volumes:
+            - secrets:/secrets
+        command:
+            - sh
+            - -ec
+            - |
+                umask 077
+                for name in mariadb_root_password mariadb_password; do
+                  if [ ! -s "/secrets/$$name" ]; then
+                    head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/secrets/$$name"
+                  fi
+                done
+                chmod 444 /secrets/*
+
+    db:
+        image: mariadb:11.8
+        depends_on:
+            init:
+                condition: service_completed_successfully
+        restart: unless-stopped
+        environment:
+            MARIADB_ROOT_PASSWORD_FILE: /secrets/mariadb_root_password
+            MARIADB_USER: webtrees
+            MARIADB_PASSWORD_FILE: /secrets/mariadb_password
+            MARIADB_DATABASE: webtrees
+        volumes:
+            - secrets:/secrets:ro
+            - database:/var/lib/mysql
+        healthcheck:
+            test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+
+    phpfpm:
+        image: ghcr.io/magicsunday/webtrees/php-full:2.2.6-php8.5
+        depends_on:
+            db:
+                condition: service_healthy
+        restart: unless-stopped
+        environment:
+            ENVIRONMENT: production
+            ENFORCE_HTTPS: "TRUE"
+            WEBTREES_VERSION: "2.2.6"
+            WEBTREES_AUTO_SEED: "true"
+            MARIADB_HOST: db
+            MARIADB_USER: webtrees
+            MARIADB_PASSWORD_FILE: /secrets/mariadb_password
+            MARIADB_DATABASE: webtrees
+            WEBTREES_REWRITE_URLS: "0"
+        healthcheck:
+            test: ["CMD-SHELL", "pgrep php-fpm > /dev/null || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 3
+            start_period: 5s
+        volumes:
+            - secrets:/secrets:ro
+            - app:/var/www/html
+            - media:/var/www/html/data/media
+
+    nginx:
+        image: ghcr.io/magicsunday/webtrees/nginx:1.30-r1
+        depends_on:
+            phpfpm:
+                condition: service_healthy
+        restart: unless-stopped
+        environment:
+            ENFORCE_HTTPS: "TRUE"
+        ports:
+            - "${APP_PORT:-28080}:80"
+        healthcheck:
+            # Probe the login page rather than `/` because `/` returns 404
+            # by design when no tree exists yet (operator imports the GEDCOM
+            # post-install). The login route resolves as soon as
+            # config.ini.php, the schema, and any admin user exist.
+            # X-Forwarded-Proto: https tells nginx the upstream already
+            # terminated TLS, bypassing the enforce-https redirect (see
+            # rootfs/etc/nginx/conf.d/default.conf $isHttps logic). Keeps
+            # the healthcheck honest regardless of ENFORCE_HTTPS value.
+            test: ["CMD-SHELL", "curl -sf -H 'X-Forwarded-Proto: https' 'http://localhost/index.php?route=/login' -o /dev/null || exit 1"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            # The probe requires config.ini.php + DB schema + (optional)
+            # admin user — first-boot bootstrap on slow disks (NAS, cold
+            # composer cache) can exceed 30s. 60s covers WEBTREES_AUTO_SEED
+            # cleanly without dragging the docker-compose up wait time.
+            start_period: 60s
+        volumes:
+            - app:/var/www/html:ro
+            - media:/var/www/html/data/media:ro

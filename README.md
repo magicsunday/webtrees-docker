@@ -54,6 +54,19 @@ After the wizard finishes, your stack is reachable at the URL it printed.
 The first time you visit, webtrees runs its own setup wizard (or auto-
 provisions if you passed `--admin-user`).
 
+### Portainer? One-click via stack URL
+
+If you run Portainer, paste this URL into *Stacks → Add stack →
+Web URL* instead of running the curl one-liner:
+
+```text
+https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/templates/portainer/compose.yaml
+```
+
+The companion [`.env.example`](templates/portainer/.env.example) goes
+in the *Environment variables → Advanced mode* pane. Full walkthrough
+in [`docs/portainer.md`](docs/portainer.md).
+
 ## Editions
 
 | Edition | Image | Contains |

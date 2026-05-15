@@ -58,3 +58,6 @@ echo -e "  ${FGREEN}Latest tag:${FRESET}\t\t$$tag"
 	@echo -e "  ${FGREEN}LOCAL_USER_ID:${FRESET}\t${LOCAL_USER_ID}"
 	@echo -e "  ${FGREEN}LOCAL_GROUP_NAME:${FRESET}\t${LOCAL_GROUP_NAME}"
 	@echo -e "  ${FGREEN}LOCAL_GROUP_ID:${FRESET}\t${LOCAL_GROUP_ID}"
+
+portainer-templates: ## Regenerates templates/portainer/{compose.yaml,.env.example} from the installer's Jinja templates.
+	./scripts/render-portainer-templates.sh
