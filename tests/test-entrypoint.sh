@@ -18,11 +18,6 @@ set -o errexit -o nounset -o pipefail
 
 IMAGE="${TEST_IMAGE:-ghcr.io/magicsunday/webtrees/php:8.5}"
 
-# Source-tree entrypoint. Tests that exercise behavioural changes not yet
-# baked into the published image bind-mount this over /docker-entrypoint.sh
-# so the assertions match the on-disk source of truth.
-ENTRYPOINT_SRC="$(cd "$(dirname "$0")/.." && pwd)/rootfs/docker-entrypoint.sh"
-
 # Env vars setup_php needs to find — keeps the test focused on the seed
 # state machine rather than tripping over unrelated configuration paths.
 PHP_ENV=(
@@ -647,7 +642,6 @@ test_bootstrap_pretty_urls_flag_propagates() {
 
     # WEBTREES_REWRITE_URLS=1 → entrypoint should call config-ini with --rewrite-urls.
     docker run --rm \
-        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
@@ -689,7 +683,6 @@ test_bootstrap_pretty_urls_off_passes_no_rewrite_urls() {
     bootstrap_prep_volume "$vol"
 
     docker run --rm \
-        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
@@ -731,7 +724,6 @@ test_bootstrap_pretty_urls_accepts_lowercase_true_alias() {
     bootstrap_prep_volume "$vol"
 
     docker run --rm \
-        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
@@ -772,7 +764,6 @@ test_bootstrap_pretty_urls_unknown_value_falls_through() {
     bootstrap_prep_volume "$vol"
 
     docker run --rm \
-        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
@@ -814,7 +805,6 @@ test_bootstrap_pretty_urls_unset_omits_flag() {
     bootstrap_prep_volume "$vol"
 
     docker run --rm \
-        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -v "$vol:/var/www/html" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \

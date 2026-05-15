@@ -149,8 +149,14 @@ jobs:
                       # otherwise the build's matrix step reads the still
                       # unbumped versions.json on main and errors with
                       # "webtrees X not present in dev/versions.json".
-                      gh workflow run build.yml --ref "$branch" -f webtrees_version="$version" \
-                          || echo "::warning::build.yml dispatch for $version failed"
+                      # Let a dispatch failure exit non-zero so
+                      # notify-on-failure picks it up. The previous
+                      # `|| echo "::warning"` swallowed transient API
+                      # blips silently: the version-bump branch + PR
+                      # were already up, so the next cron tick saw the
+                      # bump as "in flight" and never re-dispatched —
+                      # operator had to notice the missing image.
+                      gh workflow run build.yml --ref "$branch" -f webtrees_version="$version"
 
                       # Tracking issue keeps the daily-cron signal visible in
                       # the issue tracker. Skip re-creating if a prior run

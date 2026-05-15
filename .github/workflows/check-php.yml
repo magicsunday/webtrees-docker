@@ -92,8 +92,14 @@ jobs:
                   # pure seed of a freshly-added minor must go through the
                   # issue-only review path.
                   if [ "$HAS_CHANGES" = "true" ]; then
-                      gh workflow run build.yml --ref main \
-                          || echo "::warning::build.yml dispatch failed"
+                      # Let a dispatch failure exit the job non-zero so
+                      # notify-on-failure picks it up. The previous
+                      # `|| echo "::warning"` swallowed transient GHA
+                      # API blips silently: the lockfile push made the
+                      # current digest the new baseline, so the next
+                      # cron tick saw `previous == current` and never
+                      # re-attempted the rebuild — a missed image bake.
+                      gh workflow run build.yml --ref main
                   fi
 
             - name: Scan for new PHP minor
