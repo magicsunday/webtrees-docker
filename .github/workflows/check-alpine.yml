@@ -22,6 +22,10 @@ permissions:
 jobs:
     check:
         runs-on: ubuntu-latest
+        # Default job timeout is 6h; a Docker Hub / curl hang would burn
+        # the full window before the next cron iteration. 20m covers a
+        # normal scan with comfortable headroom for transient slowdowns.
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@v6
 
@@ -52,7 +56,12 @@ jobs:
                   url="https://hub.docker.com/v2/repositories/library/alpine/tags/?name=3.&page_size=100&ordering=last_updated"
                   all_tags=""
                   while [ -n "$url" ] && [ "$url" != "null" ]; do
-                      page=$(curl -sf --retry 3 "$url") || {
+                      # --max-time caps the whole exchange (DNS + TCP +
+                      # TLS + body) per attempt so a Docker Hub hang
+                      # cannot stretch beyond the job's timeout-minutes
+                      # budget; --retry 3 still gives three goes within
+                      # that cap.
+                      page=$(curl -sf --retry 3 --max-time 30 "$url") || {
                           echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
                           exit 0
                       }
@@ -91,7 +100,16 @@ jobs:
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
                           && [ "$ver" != "$pinned_minor" ]; then
                           title="Alpine ${ver} available — consider bumping installer/webtrees_installer/_alpine.py"
-                          if gh issue list --state all --search "$title in:title" --json number --jq 'length' | grep -q '^0$'; then
+                          # Split the gh-list capture from the predicate so a
+                          # transient gh-CLI failure (rate limit, network blip,
+                          # auth glitch) propagates as a workflow-level failure
+                          # rather than being swallowed by the pipefail-vs-if
+                          # interaction that silently skips the create branch.
+                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
+                              echo "::error::gh issue list failed for '$title'"
+                              exit 1
+                          }
+                          if [ "$existing" = "0" ]; then
                               gh issue create \
                                   --title "$title" \
                                   --body "Docker Hub publishes an \`alpine:${ver}\` tag that is newer than the installer's current pin (\`alpine:${pinned_minor}\`). Review the Alpine ${ver} release notes for breaking changes in busybox / musl, then bump \`webtrees_installer._alpine.ALPINE_BASE_IMAGE\` and re-run the smoke matrix."
@@ -104,6 +122,7 @@ jobs:
         needs: [check]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             issues: write
         steps:

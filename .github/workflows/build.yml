@@ -18,6 +18,10 @@ jobs:
     matrix:
         name: Build matrix
         runs-on: ubuntu-latest
+        # Light job (jq over dev/versions.json + a few jq pipes); 5m
+        # leaves comfortable headroom for transient slowdowns without
+        # letting a hung step soak the GHA 6h default.
+        timeout-minutes: 5
         outputs:
             php_entries: ${{ steps.set.outputs.php_entries }}
             nginx_tag: ${{ steps.set.outputs.nginx_tag }}
@@ -56,6 +60,10 @@ jobs:
         name: php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
         needs: matrix
         runs-on: ubuntu-latest
+        # Multi-arch buildx (linux/amd64 + linux/arm64) under qemu is the
+        # slow path; 60m covers a clean build with composer install +
+        # transitive deps, leaving headroom for transient GHCR pushes.
+        timeout-minutes: 60
         permissions:
             contents: read
             packages: write
@@ -104,6 +112,8 @@ jobs:
         name: php-full ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
         needs: matrix
         runs-on: ubuntu-latest
+        # Same shape + budget as build-php (multi-arch buildx + composer).
+        timeout-minutes: 60
         permissions:
             contents: read
             packages: write
@@ -152,6 +162,9 @@ jobs:
         name: nginx ${{ needs.matrix.outputs.nginx_tag }}
         needs: matrix
         runs-on: ubuntu-latest
+        # Smaller build than the PHP stages (no composer) but still
+        # multi-arch buildx + nginx -t at build time. 30m covers it.
+        timeout-minutes: 30
         permissions:
             contents: read
             packages: write
@@ -190,6 +203,9 @@ jobs:
         name: installer ${{ needs.matrix.outputs.installer_tag }}
         needs: matrix
         runs-on: ubuntu-latest
+        # Slim Python image build (no compiled deps); 20m comfortably
+        # covers a clean build + GHCR push.
+        timeout-minutes: 20
         permissions:
             contents: read
             packages: write
@@ -221,6 +237,11 @@ jobs:
         name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
         needs: [matrix, build-php, build-php-full, build-nginx, build-installer]
         runs-on: ubuntu-latest
+        # Smoke pulls the just-built images and brings the stack up to
+        # the login probe. 30m absorbs slow first-boot bootstraps on
+        # GHA's variable cold-start performance (DB schema migration +
+        # AUTO_SEED).
+        timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
@@ -394,6 +415,10 @@ jobs:
         name: demo-import E2E
         needs: [matrix, smoke-test]
         runs-on: ubuntu-latest
+        # Full stack-up + GEDCOM import; 30m absorbs the slow first-boot
+        # bootstrap (DB schema migration + AUTO_SEED + admin user) before
+        # the import even starts.
+        timeout-minutes: 30
         # The smoke-test matrix's demo cell only proves the wizard emits
         # demo.ged with the right GEDCOM header; the actual tree-import CLI
         # path needs a running stack with a healthy DB and a populated
@@ -497,6 +522,7 @@ jobs:
         needs: [matrix, build-php, build-php-full, build-nginx, build-installer, smoke-test, demo-import-e2e]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             issues: write
         steps:

@@ -70,7 +70,11 @@ qemu emulation; rely on CI for the full matrix.
   `add-hosts:` input on `docker/build-push-action` instead of
   `echo … >> /etc/hosts`.
 - **`grep -q` SIGPIPE inside a pipefail pipeline** — feed the body via a
-  `<<<` here-string instead of `printf … |`.
+  `<<<` here-string instead of `printf … |`, or eliminate the pipeline
+  entirely by capturing the upstream output into a variable
+  (`out=$(cmd) || exit 1`) and operating on `"$out"` from there. The
+  captured-variable form also surfaces the upstream command's exit
+  status, which the pipefail-vs-`if` shape silently swallows.
 
 ## Out of scope for this file
 

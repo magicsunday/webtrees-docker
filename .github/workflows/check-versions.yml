@@ -23,6 +23,10 @@ permissions:
 jobs:
     check:
         runs-on: ubuntu-latest
+        # Default job timeout is 6h; a GitHub/Packagist hang would burn
+        # the full window before the next cron iteration. 20m covers a
+        # normal upstream-release probe with headroom for slowdowns.
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@v6
 
@@ -150,8 +154,15 @@ jobs:
 
                       # Tracking issue keeps the daily-cron signal visible in
                       # the issue tracker. Skip re-creating if a prior run
-                      # already filed one.
-                      if gh issue list --state all --search "$issue_title in:title" --json number --jq 'length' | grep -q '^0$'; then
+                      # already filed one. Capture the count separately so a
+                      # transient gh-CLI failure propagates as a workflow-
+                      # level failure rather than being swallowed by the
+                      # pipefail-vs-if interaction that silently skips create.
+                      existing=$(gh issue list --state all --search "$issue_title in:title" --json number --jq 'length') || {
+                          echo "::error::gh issue list failed for '$issue_title'"
+                          exit 1
+                      }
+                      if [ "$existing" = "0" ]; then
                           gh issue create \
                               --title "$issue_title" \
                               --body "Upstream released webtrees \`${version}\`. Auto-bump PR: ${pr_url}. Build workflow was dispatched against \`${branch}\` with input \`webtrees_version=${version}\`; track the run in the Actions tab."
@@ -171,6 +182,7 @@ jobs:
         needs: [check]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             issues: write
         steps:

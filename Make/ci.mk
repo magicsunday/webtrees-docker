@@ -17,13 +17,13 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-healthcheck-lockstep ci-lockstep-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-healthcheck-lockstep ci-lockstep-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -47,6 +47,7 @@ ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 	echo -e "${FBLUE}▶ pytest (installer)${FRESET}"
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
+		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
@@ -61,6 +62,7 @@ ci-ruff: .logo ## Lints the installer Python package with ruff.
 	echo -e "${FBLUE}▶ ruff${FRESET}"
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
+		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
@@ -70,6 +72,7 @@ ci-mypy: .logo ## Type-checks the installer Python package with mypy --strict.
 	echo -e "${FBLUE}▶ mypy --strict${FRESET}"
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
+		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
@@ -82,6 +85,7 @@ ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
 	# unused functions/imports/variables that the codebase no longer needs.
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
+		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
@@ -95,6 +99,7 @@ ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint d
 	# (min-similarity-lines).
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
+		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
@@ -248,6 +253,51 @@ ci-readme-badge-lockstep: .logo ## Asserts the README webtrees badge tracks dev/
 		echo "::error::README.md webtrees badge no longer queries \$$[0].webtrees — update either the badge or ci-readme-badge-lockstep so both ends stay in sync." >&2; \
 		exit 1; \
 	}
+
+ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period mirrors the installer templates.
+	echo -e "${FBLUE}▶ healthcheck lockstep${FRESET}"
+	# The nginx healthcheck stanza ships in three places: the dev-stack
+	# root compose.yaml and the two wizard-rendered installer templates
+	# (compose.standalone.j2 + compose.traefik.j2). They must all agree
+	# on start_period; a drift means dev-stack operators get a different
+	# bootstrap-tolerance window than wizard-rendered production stacks.
+	# The two installer templates are already pinned via test_render_*
+	# (parametrised over both proxy modes); this check covers the root.
+	#
+	# yq parses YAML structurally so the three start_periods on the db /
+	# phpfpm / nginx healthchecks do not collide — we always pull
+	# services.nginx.healthcheck.start_period. mikefarah/yq runs in a
+	# throwaway container so the host needs no yq install.
+	#
+	# The two .j2 templates use sed because Jinja braces (`{% if %}`)
+	# break a pure YAML parser. The `sed -n '/nginx:/,$p' | head -1`
+	# pattern assumes nginx is the LAST service in both templates so
+	# `head -1` reliably lands on nginx's start_period. If a future
+	# template appends a service after nginx, tighten the sed range to
+	# `/^    nginx:/,/^    [a-z][a-z_-]*:$/` and re-run ci-lockstep-tests
+	# (test-lockstep.sh's drift fixtures pin both templates and would
+	# trip if the extracted value silently regresses).
+	root_value=$$(docker run --rm -v "$(PWD):/work" -w /work \
+			mikefarah/yq:latest \
+			'.services.nginx.healthcheck.start_period' compose.yaml); \
+		standalone_value=$$(sed -n '/^    nginx:/,$$p' \
+			installer/webtrees_installer/templates/compose.standalone.j2 \
+			| grep -E '^[[:space:]]+start_period:' \
+			| head -1 | awk '{print $$2}'); \
+		traefik_value=$$(sed -n '/^    nginx:/,$$p' \
+			installer/webtrees_installer/templates/compose.traefik.j2 \
+			| grep -E '^[[:space:]]+start_period:' \
+			| head -1 | awk '{print $$2}'); \
+		if [ -z "$$root_value" ] || [ "$$root_value" = "null" ] \
+			|| [ -z "$$standalone_value" ] || [ -z "$$traefik_value" ]; then \
+			echo "::error::healthcheck start_period not found (root='$$root_value', standalone='$$standalone_value', traefik='$$traefik_value')" >&2; \
+			exit 1; \
+		fi; \
+		if [ "$$root_value" != "$$standalone_value" ] || [ "$$root_value" != "$$traefik_value" ]; then \
+			echo "::error::nginx healthcheck start_period drift — compose.yaml='$$root_value' vs standalone='$$standalone_value' vs traefik='$$traefik_value'" >&2; \
+			exit 1; \
+		fi; \
+		echo "  canonical start_period: $$root_value"
 
 ci-lockstep-tests: .logo ## Failure-path tests for the ci-*-lockstep drift checks.
 	echo -e "${FBLUE}▶ lockstep failure-path tests${FRESET}"

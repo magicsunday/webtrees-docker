@@ -136,7 +136,11 @@ services:
             interval: 10s
             timeout: 5s
             retries: 3
-            start_period: 5s
+            # The probe requires config.ini.php + DB schema + (optional)
+            # admin user — first-boot bootstrap on slow disks (NAS, cold
+            # composer cache) can exceed 30s. 60s covers WEBTREES_AUTO_SEED
+            # cleanly without dragging the docker-compose up wait time.
+            start_period: 60s
         restart: unless-stopped
         volumes:
             - app:/var/www/html:ro

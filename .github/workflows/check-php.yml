@@ -23,6 +23,10 @@ permissions:
 jobs:
     check:
         runs-on: ubuntu-latest
+        # Default job timeout is 6h; a GHCR / Docker Hub hang would burn
+        # the full window before the next cron iteration. 20m covers a
+        # normal digest probe with headroom for transient slowdowns.
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@v6
 
@@ -114,7 +118,14 @@ jobs:
                       if [ "$(printf '%s\n%s\n' "$max_known" "$ver" | sort -V | head -1)" = "$max_known" ] \
                           && [ "$ver" != "$max_known" ]; then
                           title="PHP ${ver} available — consider adding to dev/versions.json"
-                          if gh issue list --state all --search "$title in:title" --json number --jq 'length' | grep -q '^0$'; then
+                          # Split the gh-list capture from the predicate so a
+                          # transient gh-CLI failure propagates as workflow-level
+                          # failure rather than silently skipping the create.
+                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
+                              echo "::error::gh issue list failed for '$title'"
+                              exit 1
+                          }
+                          if [ "$existing" = "0" ]; then
                               gh issue create \
                                   --title "$title" \
                                   --body "Docker Hub ships a \`php:${ver}-fpm-alpine\` tag that is newer than the highest version currently tracked (\`${max_known}\`). Adding it to dev/versions.json bumps the build matrix to cover the new minor. Review for breaking changes before merging."
@@ -127,6 +138,7 @@ jobs:
         needs: [check]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             issues: write
         steps:

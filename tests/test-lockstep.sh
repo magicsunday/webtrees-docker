@@ -212,6 +212,77 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-healthcheck-lockstep — start_period drift between root + installer template
+# ──────────────────────────────────────────────────────────────────────
+# Helper: rewrite a `start_period:` line that lives AFTER `nginx:` to a
+# specified value (or blank it). The two-step (grep -n + sed range)
+# anchors the substitution to the nginx-or-later region of the file so
+# db/phpfpm start_period lines above it cannot be mutated even if a
+# future canonical value collides with theirs.
+#
+# The pre/post-mutation hash assertion guards against the canonical
+# value ever leaving the `[0-9]+s` shape (e.g. someone bumping to `1m`):
+# the sed pattern would no-op silently and the failure-path test would
+# falsely succeed via assert_lockstep_fails seeing no drift. Fail loud
+# so the helper itself trips before the recipe is even invoked.
+mutate_nginx_start_period() {
+    local file=$1 new_value=$2
+    local nginx_line
+    nginx_line=$(grep -n '^    nginx:' "$file" | head -1 | cut -d: -f1)
+    [ -n "$nginx_line" ] || {
+        echo "FAIL: $file has no '    nginx:' anchor (indent changed?)"
+        return 1
+    }
+    local before_hash after_hash
+    before_hash=$(md5sum "$file" | awk '{print $1}')
+    sed -i "${nginx_line},\$ s|\\(start_period:\\) [0-9]*s|\\1 ${new_value}|" "$file"
+    after_hash=$(md5sum "$file" | awk '{print $1}')
+    if [ "$before_hash" = "$after_hash" ]; then
+        echo "FAIL: mutate_nginx_start_period made no change to $file" \
+             "— canonical start_period value may have left the [0-9]+s shape;" \
+             "update the sed pattern in this helper"
+        return 1
+    fi
+}
+
+echo "Setting up: compose.yaml nginx start_period mutated to 99s"
+mutate_nginx_start_period "$worktree/compose.yaml" "99s"
+assert_lockstep_fails \
+    "ci-healthcheck-lockstep: compose.yaml drift surfaces a clear error" \
+    ci-healthcheck-lockstep \
+    "start_period drift"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-healthcheck-lockstep — traefik-side drift
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: compose.traefik.j2 nginx start_period mutated to 99s"
+# Exercises the traefik leg of the 3-way OR — without this case a
+# regression that drops the traefik comparison would not be caught.
+mutate_nginx_start_period \
+    "$worktree/installer/webtrees_installer/templates/compose.traefik.j2" "99s"
+assert_lockstep_fails \
+    "ci-healthcheck-lockstep: traefik template drift surfaces a clear error" \
+    ci-healthcheck-lockstep \
+    "start_period drift"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-healthcheck-lockstep — start_period missing entirely on one side
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: installer template nginx start_period blanked"
+# Blank the value (keep the key) so the file shape stays parseable and
+# the failure is "not found", not a Jinja syntax error. Same anchored
+# helper so db/phpfpm lines above nginx are never touched.
+mutate_nginx_start_period \
+    "$worktree/installer/webtrees_installer/templates/compose.standalone.j2" ""
+assert_lockstep_fails \
+    "ci-healthcheck-lockstep: blank start_period in template fails the lookup" \
+    ci-healthcheck-lockstep \
+    "start_period not found"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # ci-readme-badge-lockstep — README badge URL drifted away from `$[0].webtrees`
 # ──────────────────────────────────────────────────────────────────────
 echo "Setting up: README webtrees badge query changed to \$[*].webtrees"
