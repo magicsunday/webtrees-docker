@@ -70,6 +70,13 @@ jobs:
                   git config user.name 'github-actions[bot]'
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
+                  # Accumulator for dispatch failures inside the loop —
+                  # we want every version to get its branch + PR even
+                  # if one dispatch flakes, then exit non-zero after
+                  # the loop so notify-on-failure picks up the
+                  # accumulated list.
+                  dispatch_failures=""
+
                   while IFS= read -r version; do
                       [ -z "$version" ] && continue
                       branch="auto-bump/webtrees-${version}"
@@ -149,14 +156,19 @@ jobs:
                       # otherwise the build's matrix step reads the still
                       # unbumped versions.json on main and errors with
                       # "webtrees X not present in dev/versions.json".
-                      # Let a dispatch failure exit non-zero so
-                      # notify-on-failure picks it up. The previous
-                      # `|| echo "::warning"` swallowed transient API
-                      # blips silently: the version-bump branch + PR
-                      # were already up, so the next cron tick saw the
-                      # bump as "in flight" and never re-dispatched —
-                      # operator had to notice the missing image.
-                      gh workflow run build.yml --ref "$branch" -f webtrees_version="$version"
+                      #
+                      # Collect-then-fail-at-end semantics: a transient
+                      # gh-CLI 5xx mid-loop must NOT short-circuit the
+                      # remaining iterations (orphan-PR + skipped-version
+                      # cascade). Append the failure to a list, finish
+                      # the iteration's cleanup (tracking issue, return
+                      # to main), and exit non-zero only after the loop
+                      # so notify-on-failure picks it up while later
+                      # versions still get their branches + PRs.
+                      if ! gh workflow run build.yml --ref "$branch" -f webtrees_version="$version"; then
+                          dispatch_failures="${dispatch_failures}${version} "
+                          echo "::warning::build.yml dispatch for $version failed; loop continues, exit non-zero at end"
+                      fi
 
                       # Tracking issue keeps the daily-cron signal visible in
                       # the issue tracker. Skip re-creating if a prior run
@@ -182,6 +194,11 @@ jobs:
                       git checkout main
                       git reset --hard origin/main
                   done <<< "${{ steps.find.outputs.new }}"
+
+                  if [ -n "$dispatch_failures" ]; then
+                      echo "::error::build.yml dispatch failed for: ${dispatch_failures% }"
+                      exit 1
+                  fi
 
     notify-on-failure:
         name: Notify on workflow failure
