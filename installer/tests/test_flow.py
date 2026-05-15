@@ -862,3 +862,23 @@ def test_list_surviving_volumes_falls_back_when_subprocess_emits_no_stderr(
     assert "failed to list docker volumes" in msg
     assert msg.rstrip().split(":")[-1].strip() != ""
     assert "returned non-zero exit status" in msg or "<no detail>" in msg
+
+
+def test_compute_stage_total_no_up_only_render() -> None:
+    """--no-up skips bring_up and demo-import → only render stage runs."""
+    from webtrees_installer.flow import _compute_stage_total
+    assert _compute_stage_total(no_up=True, demo=False) == 1
+    assert _compute_stage_total(no_up=True, demo=True) == 1, (
+        "demo flag is meaningless under --no-up (no stack to import into); "
+        "must not add a phantom stage to the [N/M] denominator"
+    )
+
+
+def test_compute_stage_total_bringing_up_without_demo() -> None:
+    from webtrees_installer.flow import _compute_stage_total
+    assert _compute_stage_total(no_up=False, demo=False) == 2
+
+
+def test_compute_stage_total_full_with_demo() -> None:
+    from webtrees_installer.flow import _compute_stage_total
+    assert _compute_stage_total(no_up=False, demo=True) == 3

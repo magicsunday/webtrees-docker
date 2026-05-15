@@ -15,6 +15,7 @@ from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._docker import run_docker
 from webtrees_installer.demo import generate_tree
 from webtrees_installer._cli_resolve import resolve_enforce_https
+from webtrees_installer._progress import ProgressReporter
 from webtrees_installer._term import Term
 from webtrees_installer.gedcom import serialize
 from webtrees_installer.ports import PortStatus, probe_port
@@ -230,10 +231,20 @@ def run_standalone(
         enforce_https=enforce_https,
         pretty_urls=args.pretty_urls,
     )
-    render_files(input_model=render_input, target_dir=work_dir)
 
-    if admin_password is not None:
-        _write_admin_password_secret(work_dir=work_dir, password=admin_password)
+    progress = ProgressReporter(
+        total=_compute_stage_total(no_up=args.no_up, demo=args.demo),
+        stream=stdout,
+    )
+
+    # Stage 1: render + write admin password secret. The secret write
+    # spins up a one-shot helper container which can take 1-2s on a cold
+    # docker daemon, so pulling it under the same stage that prints
+    # `[1/M]` keeps that work visible rather than silent.
+    with progress.stage("Rendering compose.yaml + .env"):
+        render_files(input_model=render_input, target_dir=work_dir)
+        if admin_password is not None:
+            _write_admin_password_secret(work_dir=work_dir, password=admin_password)
 
     _print_banner(
         stdout=stdout,
@@ -247,6 +258,11 @@ def run_standalone(
         no_up=args.no_up,
     )
 
+    # GEDCOM generation is CPU-bound and finishes in < 100 ms — running
+    # it outside a `progress.stage(...)` frame keeps the [N/M] layout
+    # stable for the --no-up + --demo combination (which writes the
+    # GEDCOM but does not import). On the rare failure path (disk full)
+    # the operator sees the python traceback, not a dangling stage.
     demo_gedcom: Path | None = None
     if args.demo:
         demo_gedcom = _write_demo_gedcom(work_dir=work_dir, seed=args.demo_seed)
@@ -255,12 +271,16 @@ def run_standalone(
             print(f"{term.success('✓')} Demo GEDCOM written to {demo_gedcom}", file=stdout)
 
     if not args.no_up:
-        # bring_up may raise StackError; let it bubble. The CLI layer
-        # catches it and returns exit code 3 so the error goes through
-        # the same stderr channel as PrereqError / PromptError.
-        bring_up(work_dir=work_dir)
+        # bring_up may raise StackError; the context manager emits ✘ Xs
+        # on the failure path, then the exception bubbles to the CLI
+        # layer (exit code 3, same channel as PrereqError / PromptError).
+        with progress.stage(
+            "Bringing up the stack (first run pulls images; this can take a minute)"
+        ):
+            bring_up(work_dir=work_dir, progress=progress)
         if demo_gedcom is not None:
-            _import_demo_tree(work_dir=work_dir, gedcom_path=demo_gedcom)
+            with progress.stage("Importing demo tree"):
+                _import_demo_tree(work_dir=work_dir, gedcom_path=demo_gedcom)
             if stdout:
                 term = Term.for_stream(stdout)
                 print(
@@ -269,6 +289,27 @@ def run_standalone(
                 )
 
     return 0
+
+
+def _compute_stage_total(*, no_up: bool, demo: bool) -> int:
+    """Number of ProgressReporter stages run_standalone will open.
+
+    Single source of truth for the `[N/M]` prefix — keep in lock-step
+    with the conditional `progress.stage(...)` blocks in
+    ``run_standalone``. A drift between this formula and the actual
+    stage count would print `[N/M]` lines whose denominator lies.
+
+    Layout:
+        1. render compose.yaml + .env (always)
+        2. bring up the stack (when ``no_up`` is False)
+        3. import demo tree (when ``no_up`` is False AND ``demo`` is True)
+    """
+    stages = 1
+    if not no_up:
+        stages += 1
+        if demo:
+            stages += 1
+    return stages
 
 
 def _resolve_port(

@@ -9,6 +9,7 @@ from pathlib import Path
 # ``webtrees_installer.stack._compose`` keep working. New call sites
 # import `run_docker` from `webtrees_installer._docker` directly.
 from webtrees_installer._docker import run_docker as _compose
+from webtrees_installer._progress import ProgressReporter
 
 
 class StackError(RuntimeError):
@@ -20,6 +21,7 @@ def bring_up(
     work_dir: Path,
     timeout_s: float = 120.0,
     poll_interval_s: float = 2.0,
+    progress: ProgressReporter | None = None,
 ) -> None:
     """Run `docker compose up -d` and block until nginx is healthy.
 
@@ -27,6 +29,11 @@ def bring_up(
     ``poll_interval_s`` seconds. The first poll is preceded by a sleep so
     the container has time to register a health state instead of the
     guaranteed-empty first read.
+
+    When ``progress`` is provided, ``ProgressReporter.tick()`` is called
+    on every poll iteration so the operator sees periodic "Ns elapsed"
+    output during the health-wait. The reporter's heartbeat throttle
+    governs how often a line actually prints.
 
     Raises:
         StackError: when ``docker compose up -d`` fails (with the stderr/
@@ -42,6 +49,14 @@ def bring_up(
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        # tick() first so the heartbeat throttle observes accumulated
+        # stage age, not the post-sleep wall. With defaults
+        # (poll_interval_s=2, ProgressReporter heartbeat_s=5) the first
+        # visible elapsed line lands at iteration ⌈5/2⌉+1 ≈ 4 s into
+        # the stage — well inside the issue's 10 s acceptance floor
+        # regardless of how slow `compose ps` is on a cold daemon.
+        if progress is not None:
+            progress.tick()
         time.sleep(poll_interval_s)
         inspect = _compose(
             [
