@@ -363,7 +363,10 @@ jobs:
                   # router serves 404. Probe the login page directly — its
                   # presence proves config.ini.php was written, the schema is
                   # in place, the admin user was created, and routes resolve.
-                  body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/index.php?route=/login")
+                  # Standalone installs default to ENFORCE_HTTPS=TRUE. Mirror
+                  # the container healthcheck's forwarded proto header so this
+                  # host-side probe does not follow nginx's redirect to :443.
+                  body=$(curl -fsSL -H 'X-Forwarded-Proto: https' "http://localhost:${SMOKE_PORT}/index.php?route=/login")
                   # head -50 closes the pipe after the 50th line; without the
                   # `|| true` the resulting SIGPIPE on `printf` would trip
                   # `set -o pipefail` and fail the step before grep even runs.
