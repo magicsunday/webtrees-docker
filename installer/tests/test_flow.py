@@ -12,7 +12,12 @@ import pytest
 import yaml
 
 from webtrees_installer.cli import build_parser
-from webtrees_installer.flow import StandaloneArgs, run_standalone
+from webtrees_installer.flow import (
+    StandaloneArgs,
+    _list_surviving_volumes as real_list_surviving_volumes,
+    _wipe_volumes as real_wipe_volumes,
+    run_standalone,
+)
 from webtrees_installer.prompts import PromptError
 from webtrees_installer.ports import PortStatus
 from webtrees_installer.prereq import PrereqError
@@ -646,3 +651,161 @@ def test_compose_project_name_raises_on_empty_env_value(
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "!@#$%")
     with pytest.raises(PrereqError, match="empty after normalisation"):
         _compose_project_name(tmp_path)
+
+
+def test_list_surviving_volumes_translates_docker_failure_to_prereq_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docker-daemon failure on `docker volume ls` must not leak past
+    the exit-code translator. The volume scan wraps subprocess.run in
+    try/except so cli.py's _run_with_exit_codes can translate it into
+    a clean exit 2 with the daemon's stderr.
+
+    Uses the module-top `real_list_surviving_volumes` alias to bypass
+    the autouse fixture's `_list_surviving_volumes` mock — the alias
+    was captured before the patch swapped the attribute on the flow
+    module."""
+    import subprocess
+
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "mywebtrees")
+    fake_failure = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["docker", "volume", "ls"],
+        stderr="Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
+    )
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=fake_failure,
+    ), pytest.raises(PrereqError) as exc_info:
+        real_list_surviving_volumes(tmp_path)
+
+    msg = str(exc_info.value)
+    assert "failed to list docker volumes" in msg
+    assert "mywebtrees" in msg
+    assert "Cannot connect to the Docker daemon" in msg
+
+
+def test_wipe_volumes_noop_on_empty_list() -> None:
+    """An empty volume list is a fast no-op: the caller did not even
+    bother to call us if there was nothing to wipe."""
+    # Real function via module-top alias; the autouse fixture does not
+    # patch _wipe_volumes so the bypass is precautionary here.
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=AssertionError("subprocess.run must not be called"),
+    ):
+        real_wipe_volumes([])
+
+
+def test_wipe_volumes_translates_docker_failure_to_prereq_error() -> None:
+    """A docker-daemon failure on `docker volume rm -f` must not leak
+    past the exit-code translator. Mirrors the precedent set by
+    _write_admin_password_secret."""
+    import subprocess
+
+    fake_failure = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["docker", "volume", "rm", "-f"],
+        stderr="Error response from daemon: volume is in use",
+    )
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=fake_failure,
+    ), pytest.raises(PrereqError) as exc_info:
+        real_wipe_volumes(["mywebtrees_database", "mywebtrees_secrets"])
+
+    msg = str(exc_info.value)
+    assert "failed to remove docker volumes" in msg
+    assert "mywebtrees_database" in msg
+    assert "mywebtrees_secrets" in msg
+    assert "volume is in use" in msg
+
+
+def test_list_surviving_volumes_translates_missing_docker_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Subprocess can fail BEFORE docker even runs — FileNotFoundError
+    when the binary isn't on PATH, PermissionError when the exec bit
+    is dropped or the socket refuses connect. These are OSError, NOT
+    CalledProcessError, so the wrap must catch both classes."""
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "mywebtrees")
+    fake_failure = FileNotFoundError(2, "No such file or directory", "docker")
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=fake_failure,
+    ), pytest.raises(PrereqError) as exc_info:
+        real_list_surviving_volumes(tmp_path)
+
+    msg = str(exc_info.value)
+    assert "failed to list docker volumes" in msg
+    assert "No such file or directory" in msg
+    assert "docker" in msg
+
+
+def test_wipe_volumes_translates_missing_docker_binary() -> None:
+    """Same OSError bypass as the list helper — wrap must catch it."""
+    fake_failure = PermissionError(13, "Permission denied", "/usr/bin/docker")
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=fake_failure,
+    ), pytest.raises(PrereqError) as exc_info:
+        real_wipe_volumes(["mywebtrees_database"])
+
+    msg = str(exc_info.value)
+    assert "failed to remove docker volumes" in msg
+    assert "Permission denied" in msg
+
+
+def test_list_surviving_volumes_coerces_bytes_stderr_to_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defensive: a future call site that drops `text=True` would hand
+    back bytes stderr. The detail-extractor must decode (replace mode)
+    rather than leak a `b'...'` literal into the PrereqError message."""
+    import subprocess
+
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "mywebtrees")
+    fake_failure = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["docker"],
+        stderr=b"Cannot connect to the Docker daemon",
+    )
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=fake_failure,
+    ), pytest.raises(PrereqError) as exc_info:
+        real_list_surviving_volumes(tmp_path)
+
+    msg = str(exc_info.value)
+    assert "Cannot connect to the Docker daemon" in msg
+    assert "b'" not in msg  # no bytes-literal leak
+
+
+@pytest.mark.parametrize("stderr_value", ["", "   ", None])
+def test_list_surviving_volumes_falls_back_when_subprocess_emits_no_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    stderr_value: str | None,
+) -> None:
+    """When stderr is empty / whitespace / None, _extract_subprocess_detail
+    falls back to `str(exc)` (CalledProcessError's default representation
+    carries the command + exit code, which is informative enough for the
+    operator). The message must never end in a bare `failed: ` with no
+    body."""
+    import subprocess
+
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "mywebtrees")
+    fake_failure = subprocess.CalledProcessError(
+        returncode=1, cmd=["docker", "volume", "ls"], stderr=stderr_value,
+    )
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        side_effect=fake_failure,
+    ), pytest.raises(PrereqError) as exc_info:
+        real_list_surviving_volumes(tmp_path)
+
+    msg = str(exc_info.value)
+    # Either str(exc)'s default "returned non-zero exit status" boilerplate
+    # OR the ultimate "<no detail>" fallback — never an empty tail.
+    assert "failed to list docker volumes" in msg
+    assert msg.rstrip().split(":")[-1].strip() != ""
+    assert "returned non-zero exit status" in msg or "<no detail>" in msg

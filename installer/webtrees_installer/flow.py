@@ -373,6 +373,41 @@ def _compose_project_name(work_dir: Path) -> str:
     return normalized
 
 
+def _extract_subprocess_detail(exc: Exception) -> str:
+    """Render a one-line diagnostic for both subprocess failure classes.
+
+    ``CalledProcessError`` carries the child's stderr; ``OSError``
+    (binary missing, exec bit dropped, socket EACCES at connect)
+    carries ``strerror`` plus a ``filename``. Either way the caller
+    wants the most-specific available detail folded into the
+    PrereqError message without branching at every wrap site.
+
+    Defensive about the stderr attribute's type: a future wrap site
+    that drops ``text=True`` (or hands a custom wrapper a non-string
+    stderr) would otherwise leak a ``b'...'`` literal into the
+    operator-facing message, or escape ``AttributeError`` past the
+    PrereqError translation when ``.strip()`` is called on a non-str.
+    """
+    stderr_raw = getattr(exc, "stderr", None)
+    if isinstance(stderr_raw, bytes):
+        stderr = stderr_raw.decode("utf-8", errors="replace").strip()
+    elif isinstance(stderr_raw, str):
+        stderr = stderr_raw.strip()
+    else:
+        stderr = ""
+    if stderr:
+        return stderr
+    # OSError / its subclasses: prefer strerror (+ filename when set).
+    strerror_raw = getattr(exc, "strerror", None)
+    strerror = strerror_raw if isinstance(strerror_raw, str) else ""
+    if strerror:
+        filename = getattr(exc, "filename", None)
+        return f"{strerror} ({filename})" if filename else strerror
+    # Last resort: str(exc) usually carries enough context even for
+    # exotic subclasses without stderr/strerror attributes.
+    return str(exc) or "<no detail>"
+
+
 def _list_surviving_volumes(work_dir: Path) -> list[str]:
     """Return docker volumes named `<project>_*` that already exist
     on the daemon.
@@ -393,14 +428,30 @@ def _list_surviving_volumes(work_dir: Path) -> list[str]:
         project = _compose_project_name(work_dir)
     except PrereqError:
         return []
-    result = subprocess.run(
-        [
-            "docker", "volume", "ls",
-            "--filter", f"name=^{project}_",
-            "--format", "{{.Name}}",
-        ],
-        check=True, capture_output=True, text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "docker", "volume", "ls",
+                "--filter", f"name=^{project}_",
+                "--format", "{{.Name}}",
+            ],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        # Catch both classes of failure:
+        #   * CalledProcessError — docker ran but returned non-zero
+        #     (daemon down, permission denied on the socket, filter
+        #     syntax reshaped on a future CLI version).
+        #   * OSError (incl. FileNotFoundError / PermissionError) —
+        #     subprocess never executed docker at all (binary missing
+        #     from PATH, exec bit dropped). Surface both as PrereqError
+        #     so cli.py's _run_with_exit_codes translates them into a
+        #     clean exit 2 with the underlying detail instead of a bare
+        #     Python traceback.
+        raise PrereqError(
+            f"failed to list docker volumes for project '{project}':"
+            f" {_extract_subprocess_detail(exc)}"
+        ) from exc
     return [name for name in result.stdout.splitlines() if name.strip()]
 
 
@@ -408,10 +459,24 @@ def _wipe_volumes(volumes: list[str]) -> None:
     """Force-remove the named docker volumes. No-op on an empty list."""
     if not volumes:
         return
-    subprocess.run(
-        ["docker", "volume", "rm", "-f", *volumes],
-        check=True, capture_output=True, text=True,
-    )
+    try:
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", *volumes],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        # Docker may refuse the wipe if one of the listed volumes is
+        # still in use (a sibling stack mounting `<project>_database`,
+        # for example) or if the daemon dropped the socket mid-call;
+        # OSError additionally covers the docker binary missing from
+        # PATH or being unexecutable. Either path leaves the operator
+        # in a possibly-partial-wipe state — a richer recovery story
+        # is tracked separately. Surface PrereqError so the CLI exits
+        # cleanly with the underlying detail instead of a traceback.
+        raise PrereqError(
+            f"failed to remove docker volumes ({', '.join(volumes)}):"
+            f" {_extract_subprocess_detail(exc)}"
+        ) from exc
 
 
 def _handle_surviving_volumes(
