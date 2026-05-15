@@ -195,6 +195,10 @@ Full procedure (DB dump, media tar, restore, scheduling): see
 - **Wizard hangs on a prompt** — you piped `curl` into `bash` without
   `--non-interactive`. Interactive prompts can't read from a pipe; add
   the flag or download the script first and run it directly.
+- **What are all the installer flags?** — see
+  [`docs/installer-reference.md`](docs/installer-reference.md) for a
+  scenario-oriented reference covering first-time install, re-install,
+  headless / non-interactive, Traefik, and dev mode.
 - **How do I update?** — see the *Updating to a new webtrees release*
   section above. The `upgrade` one-liner handles the common case.
 - **How do I back up?** — see [`docs/customizing.md`](docs/customizing.md#backup)
