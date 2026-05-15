@@ -17,13 +17,13 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-healthcheck-lockstep ci-lockstep-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-healthcheck-lockstep ci-lockstep-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -253,6 +253,37 @@ ci-readme-badge-lockstep: .logo ## Asserts the README webtrees badge tracks dev/
 		echo "::error::README.md webtrees badge no longer queries \$$[0].webtrees — update either the badge or ci-readme-badge-lockstep so both ends stay in sync." >&2; \
 		exit 1; \
 	}
+
+ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirrors agree across every documented site.
+	echo -e "${FBLUE}▶ port-default lockstep${FRESET}"
+	# Source of truth: installer/webtrees_installer/flow.py:_DEFAULT_PORT
+	# and _FALLBACK_PORT. The mirror block at flow.py:74-82 documents
+	# every file that must carry the same literal; this target enforces
+	# the discipline programmatically (mirrors ci-alpine-lockstep).
+	#
+	# Drift has happened before — docs/env-vars.md briefly fell back to
+	# `80` during the 28k-band introduction and stayed there until a
+	# retrospective audit caught it. With this check on every commit,
+	# the next bump moves all sites or trips the failure-path test.
+	pair=$$(./scripts/parse-port-defaults.sh) || exit 1; \
+		default_port=$${pair%:*}; \
+		fallback_port=$${pair#*:}; \
+		echo "  canonical default: $$default_port, fallback: $$fallback_port"; \
+		default_sites="compose.publish.yaml install upgrade switch README.md docs/customizing.md docs/developing.md docs/env-vars.md"; \
+		fallback_sites="README.md"; \
+		missing=""; \
+		for f in $$default_sites; do \
+			grep -qFw "$$default_port" "$$f" 2>/dev/null \
+				|| missing="$$missing $$f(default)"; \
+		done; \
+		for f in $$fallback_sites; do \
+			grep -qFw "$$fallback_port" "$$f" 2>/dev/null \
+				|| missing="$$missing $$f(fallback)"; \
+		done; \
+		if [ -n "$$missing" ]; then \
+			echo "::error::Port-default lockstep drift — these sites do not carry the canonical value:$$missing" >&2; \
+			exit 1; \
+		fi
 
 ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period mirrors the installer templates.
 	echo -e "${FBLUE}▶ healthcheck lockstep${FRESET}"

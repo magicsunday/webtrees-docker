@@ -283,6 +283,80 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-port-default-lockstep — default port drift in a mirror site
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: docs/env-vars.md APP_PORT default mutated from 28080 to 80"
+# docs/env-vars.md is the exact site that drifted historically (see the
+# recipe comment) — re-create the regression so the lockstep target
+# proves it catches it now.
+# shellcheck disable=SC2016  # markdown backticks are literal in the sed pattern
+sed -i 's|compose default `28080`|compose default `80`|' \
+    "$worktree/docs/env-vars.md"
+assert_lockstep_fails \
+    "ci-port-default-lockstep: docs/env-vars.md drift surfaces a clear error" \
+    ci-port-default-lockstep \
+    "docs/env-vars.md(default)"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-port-default-lockstep — fallback port drift in README
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: README.md fallback 28081 mutated"
+# README is the only site that mentions both the default and the
+# fallback port, so it is the canonical fallback mirror.
+sed -i 's|28081|99999|g' "$worktree/README.md"
+assert_lockstep_fails \
+    "ci-port-default-lockstep: README.md fallback drift surfaces a clear error" \
+    ci-port-default-lockstep \
+    "README.md(fallback)"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-port-default-lockstep — parser fails when _DEFAULT_PORT is missing
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: flow.py _DEFAULT_PORT line stripped"
+# Bypass the literal so the parser returns empty and trips its own
+# `::error::` annotation rather than silently emitting empty values
+# that would then make every mirror site falsely look drift-free.
+sed -i 's|^_DEFAULT_PORT = 28080$|# _DEFAULT_PORT removed for test|' \
+    "$worktree/installer/webtrees_installer/flow.py"
+assert_lockstep_fails \
+    "ci-port-default-lockstep: parser fails loud when _DEFAULT_PORT is missing" \
+    ci-port-default-lockstep \
+    "Could not parse _DEFAULT_PORT"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-port-default-lockstep — parser fails when _FALLBACK_PORT is missing
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: flow.py _FALLBACK_PORT line stripped"
+# Parity with the _DEFAULT_PORT case — both error branches in
+# scripts/parse-port-defaults.sh must trip on a missing constant.
+sed -i 's|^_FALLBACK_PORT = 28081$|# _FALLBACK_PORT removed for test|' \
+    "$worktree/installer/webtrees_installer/flow.py"
+assert_lockstep_fails \
+    "ci-port-default-lockstep: parser fails loud when _FALLBACK_PORT is missing" \
+    ci-port-default-lockstep \
+    "Could not parse _FALLBACK_PORT"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-port-default-lockstep — default == fallback collapses semantics
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: flow.py _FALLBACK_PORT mutated to equal _DEFAULT_PORT"
+# When the two constants share a value, flow.py:_resolve_port's
+# `if port == _FALLBACK_PORT` branch silently never fires — the
+# wizard would think it has a fallback when it doesn't. The parser
+# now asserts they differ.
+sed -i 's|^_FALLBACK_PORT = 28081$|_FALLBACK_PORT = 28080|' \
+    "$worktree/installer/webtrees_installer/flow.py"
+assert_lockstep_fails \
+    "ci-port-default-lockstep: parser rejects _DEFAULT_PORT == _FALLBACK_PORT" \
+    ci-port-default-lockstep \
+    "_DEFAULT_PORT and _FALLBACK_PORT must differ"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # ci-readme-badge-lockstep — README badge URL drifted away from `$[0].webtrees`
 # ──────────────────────────────────────────────────────────────────────
 echo "Setting up: README webtrees badge query changed to \$[*].webtrees"
