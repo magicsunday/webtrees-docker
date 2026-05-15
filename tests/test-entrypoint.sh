@@ -905,9 +905,18 @@ test_bootstrap_pretty_urls_unset_omits_flag() {
 # Mail tests bind-mount the source-tree entrypoint over the published
 # image's baked copy so they exercise the local setup_mail logic before
 # the next release tag ships it. Same pattern as the single-quote-
-# safety test above. Once a tagged image carries setup_mail's msmtp
-# logic, this overlay + the mail_tests_supported skip-guard can be
-# dropped together.
+# safety test above.
+#
+# REMOVAL TRIGGER: this scaffolding can be deleted once a tagged image
+# (post-#67 release) appears in dev/versions.json. Concretely, when the
+# next bump rolls dev/versions.json's row 0 to a tag whose php-base
+# layer contains `msmtp` in apk, drop:
+#   1. The `mail_tests_supported` guard + `_MAIL_TESTS_SUPPORTED` cache.
+#   2. All 9 `if ! mail_tests_supported; then ... return; fi` blocks.
+#   3. The `-v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro"` overlay in
+#      each mail test (so they exercise the baked entrypoint, not the
+#      bind-mounted source).
+# Verify with `docker run --rm <tagged-image> command -v msmtp`.
 #
 # Skip the whole mail block when msmtp isn't installed in the image
 # (i.e. when an older test image without the apk pin is selected). The
@@ -1247,6 +1256,81 @@ test_mail_msmtprc_perms_after_render() {
     rm -f "$out_file"
 }
 
+test_mail_smtp_refuses_planted_tmp_symlink() {
+    local name="mail: pre-planted /etc/msmtprc.tmp symlink does not redirect render (noclobber)"
+
+    if ! mail_tests_supported; then
+        results+=("PASS  $name — skipped: image predates msmtp install")
+        pass=$((pass + 1))
+        return
+    fi
+
+    # Pre-plant /etc/msmtprc.tmp as a symlink pointing at a sentinel
+    # target we control. Without noclobber the entrypoint's `cat >` would
+    # follow the symlink and truncate the target with msmtprc content
+    # (an arbitrary-file-corruption primitive). The set -C gate in
+    # setup_mail must refuse the redirect and leave the sentinel intact.
+    local out_file
+    out_file=$(mktemp)
+    docker run --rm \
+        --tmpfs /var/www:exec,uid=82,gid=82 \
+        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e MAIL_SMTP=relay.example.org:25 \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/bin/sh \
+        "$IMAGE" \
+        -c '
+            # Pre-plant the symlink + sentinel target before invoking the
+            # entrypoint that would otherwise rewrite /etc/msmtprc.
+            printf "SENTINEL\n" > /tmp/redirect-target
+            ln -sf /tmp/redirect-target /etc/msmtprc.tmp
+
+            /docker-entrypoint.sh true 2>&1
+            rc=$?
+
+            # The render must have failed loud OR produced the correct
+            # /etc/msmtprc without touching the sentinel target.
+            echo "rc=$rc"
+            echo "sentinel-content=$(cat /tmp/redirect-target)"
+            test -f /etc/msmtprc && grep -q "^host[[:space:]]\+relay.example.org" /etc/msmtprc && echo "msmtprc-ok" || echo "msmtprc-bad"
+            # The .tmp file should be gone (trap cleanup) or, if the
+            # render succeeded, replaced via mv. Either way it must NOT
+            # be a symlink pointing at the sentinel.
+            if [ -L /etc/msmtprc.tmp ]; then
+                echo "symlink-survives"
+            else
+                echo "symlink-cleared"
+            fi
+        ' \
+        > "$out_file" 2>&1
+
+    # Three independent assertions:
+    # 1. Sentinel content MUST NOT have been overwritten (the symlink
+    #    redirect would have corrupted it).
+    # 2. The real /etc/msmtprc MUST carry the operator's host directive
+    #    (the entrypoint must keep writing the right file, just refusing
+    #    the redirect).
+    # 3. The .tmp symlink MUST be gone (cleanup either via the explicit
+    #    rm -f before noclobber or via the RETURN/EXIT trap).
+    local ok=1
+    grep -q '^sentinel-content=SENTINEL$' "$out_file" || ok=0
+    grep -q '^msmtprc-ok$'                "$out_file" || ok=0
+    grep -q '^symlink-cleared$'           "$out_file" || ok=0
+
+    if [[ "$ok" == 1 ]]; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — symlink redirect or post-render cleanup contract broken")
+        results+=("      output: $(head -10 "$out_file")")
+        fail=$((fail + 1))
+    fi
+
+    rm -f "$out_file"
+}
+
 test_mail_php_sendmail_path_wired() {
     local name="mail: php-ini sendmail_path resolves to msmtp"
 
@@ -1316,6 +1400,7 @@ main() {
     test_mail_smtp_rejects_newline_injection
     test_mail_smtp_rejects_malformed_port
     test_mail_msmtprc_perms_after_render
+    test_mail_smtp_refuses_planted_tmp_symlink
     test_mail_php_sendmail_path_wired
 
     for line in "${results[@]}"; do

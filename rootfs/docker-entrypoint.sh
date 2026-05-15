@@ -586,8 +586,19 @@ setup_mail() {
 
     log_success "Setting up Mail configuration"
 
-    # Pre-clear any stale .tmp from a crash mid-render on a prior boot.
+    # Pre-clear any stale .tmp from a crash mid-render on a prior boot,
+    # then arm traps so every exit path performs the same cleanup —
+    # saves ~9 lines of duplicated `rm -f ${config}.tmp` and makes it
+    # impossible for a future refactor to leak the tmp. EXIT / INT /
+    # TERM / HUP catch signal-induced termination mid-render (e.g.
+    # `docker stop` during the heredoc write); RETURN catches the
+    # normal `return` paths. Without the signal traps, a SIGTERM
+    # between cat and mv would orphan a root-owned regular file at
+    # /etc/msmtprc.tmp that the next boot's symlink-race window could
+    # exploit before the line below clears it.
     rm -f "${config}.tmp"
+    # shellcheck disable=SC2064  # intentional early-bind: $config is loop-invariant
+    trap "rm -f '${config}.tmp'" EXIT INT TERM HUP RETURN
 
     # MAIL_SMTP is host[:port]. Split on the FIRST colon (not last —
     # bash %% would do greedy which mangles a port that contains digits
@@ -639,6 +650,14 @@ setup_mail() {
     # run a syslog daemon, so msmtp's default LOG_MAIL syslog target is
     # a black hole. Routing to /dev/stderr surfaces submission failures
     # in `docker logs` where the operator actually looks.
+    #
+    # Symlink-redirect hardening: `set -C` (noclobber) immediately
+    # before the heredoc refuses any pre-existing file at the target,
+    # including a symlink planted by an attacker with /etc write access.
+    # Anchored here (not earlier) so the early `return 1` validation
+    # branches above don't leak noclobber into the rest of the
+    # entrypoint shell. Lifted on every exit path below.
+    set -C
     if ! cat > "${config}.tmp" <<EOF
 # Auto-rendered by docker-entrypoint.sh setup_mail() from MAIL_* env
 # vars (#67). Do not bind-mount — overwritten on every container start.
@@ -655,10 +674,17 @@ ${from_line}
 ${domain_line}
 EOF
     then
-        rm -f "${config}.tmp"
-        log_error "Failed to render ${config}"
+        # noclobber refusal on a planted symlink lands here too — the
+        # log message names both failure modes so the operator can spot
+        # the symlink-redirect attempt.
+        set +C
+        log_error "Failed to render ${config} (disk full, /etc read-only, or planted symlink at ${config}.tmp)"
         return 1
     fi
+
+    # Lift noclobber so a future `>` in this function (none today, but
+    # belt-and-suspenders for refactors) doesn't trip on existing files.
+    set +C
 
     # chmod / chown BEFORE the swap so the file is never visible at the
     # wrong perms even briefly. www-data needs read access — PHP-FPM
@@ -666,19 +692,23 @@ EOF
     # root-owned 0600 file would block them. Group-readable by www-data
     # only (mode 0640) protects against future password-in-config leaks
     # without breaking the current functional path.
-    if ! chown root:www-data "${config}.tmp"; then
-        rm -f "${config}.tmp"
+    #
+    # The `--no-dereference` flags on chown make it refuse to follow a
+    # symlink (defense-in-depth on top of noclobber): if .tmp were
+    # somehow a symlink, chown -h would alter the symlink metadata
+    # rather than the target. busybox chmod doesn't have an equivalent
+    # flag, but at this point .tmp is guaranteed to be a regular file
+    # because noclobber would have refused a symlink earlier.
+    if ! chown -h root:www-data "${config}.tmp"; then
         log_error "Failed to chown ${config}.tmp to root:www-data"
         return 1
     fi
     if ! chmod 0640 "${config}.tmp"; then
-        rm -f "${config}.tmp"
         log_error "Failed to chmod 0640 ${config}.tmp"
         return 1
     fi
 
     if ! mv "${config}.tmp" "${config}"; then
-        rm -f "${config}.tmp"
         log_error "Failed to swap ${config} into place"
         return 1
     fi

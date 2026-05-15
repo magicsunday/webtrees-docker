@@ -253,6 +253,11 @@ RUN chmod +x /usr/local/bin/install-php-extensions && \
 # Custom PHP configuration
 COPY rootfs/usr/local/etc/php/conf.d/*.ini $PHP_INI_DIR/conf.d/
 
+# php-fpm pool overrides — `zz-catch-workers-output.conf` makes the FPM
+# master forward worker stdout/stderr to docker logs so msmtp (and any
+# other sendmail_path-invoked subprocess) submission errors are visible.
+COPY rootfs/usr/local/etc/php-fpm.d/*.conf /usr/local/etc/php-fpm.d/
+
 # Entrypoint
 COPY rootfs/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
