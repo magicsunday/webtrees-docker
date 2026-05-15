@@ -199,6 +199,11 @@ Full procedure (DB dump, media tar, restore, scheduling): see
   [`docs/installer-reference.md`](docs/installer-reference.md) for a
   scenario-oriented reference covering first-time install, re-install,
   headless / non-interactive, Traefik, and dev mode.
+- **How do I set up Traefik in front of webtrees?** — see
+  [`docs/proxy-traefik.md`](docs/proxy-traefik.md) for the end-to-end
+  walkthrough: pre-requisites, the install command, what labels the
+  wizard emits, and troubleshooting (TLS errors, router collisions,
+  wrong network).
 - **How do I update?** — see the *Updating to a new webtrees release*
   section above. The `upgrade` one-liner handles the common case.
 - **How do I back up?** — see [`docs/customizing.md`](docs/customizing.md#backup)
