@@ -212,7 +212,14 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
 # stage so the PHP runtime is built once.
 FROM php:${PHP_VERSION}-fpm-alpine AS php-base
 
-# docker-entrypoint.sh dependencies
+# docker-entrypoint.sh dependencies. `msmtp` provides the
+# `sendmail`-style binary that webtrees' PHPMailer can drive via
+# php.ini's `sendmail_path` when the operator wires MAIL_* env vars
+# (#67). Alpine dropped ssmtp upstream a couple of releases back; msmtp
+# is the actively-maintained replacement and consumes the same
+# `mailhub` / `rewriteDomain` / `hostname` semantics under different
+# directive names (host / from / domain).
+#
 # DL3018 (pin apk versions) intentionally suppressed: this image tracks a
 # rolling Alpine base (see check-alpine.yml), so pinning every package
 # patch version would generate churn on every base bump without
@@ -222,6 +229,7 @@ RUN apk update && \
     apk upgrade --no-cache && \
     apk add --no-cache \
     bash \
+    msmtp \
     tzdata
 
 # Add PHP extension installer

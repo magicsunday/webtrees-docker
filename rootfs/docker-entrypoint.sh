@@ -524,46 +524,164 @@ setup_environment() {
     return 0
 }
 
-# Configure mail settings
+# Render /etc/msmtprc from MAIL_* env vars (#67). The msmtp binary is
+# wired as PHP's sendmail_path via /usr/local/etc/php/conf.d/webtrees-mail.ini
+# so PHP's mail() / PHPMailer's sendmail transport reaches the operator's
+# SMTP relay. Writing the file from scratch each boot keeps it idempotent
+# — a restart with MAIL_SMTP changed produces the new value, not a stack
+# of conflicting directives.
+#
+# When MAIL_SMTP transitions from set → unset between boots, the function
+# REMOVES /etc/msmtprc so a stale config from the previous boot cannot
+# silently keep routing mail through the old relay.
+#
+# webtrees' built-in SMTP transport (Control panel → Site settings →
+# Email) bypasses msmtp entirely and remains the recommended path for
+# auth'd / TLS relays.
+#
+# Input validation:
+#   * MAIL_SMTP, MAIL_DOMAIN, MAIL_HOST values are written verbatim into
+#     the rendered file. A newline / CR inside any of them would let an
+#     operator-controlled value inject an extra msmtp directive (e.g. an
+#     additional `host` line redirecting outbound mail). Reject any
+#     value containing \n, \r, or other characters outside a safe set.
+#   * MAIL_SMTP must split as host:port with a numeric port, or host
+#     only (port defaults to 25). IPv6 literals are not supported via
+#     this env-var path — operators with v6-only relays bind-mount
+#     /etc/msmtprc directly.
 setup_mail() {
-    local mail_config_file="/etc/ssmtp/ssmtp.conf"
+    local config="/etc/msmtprc"
 
-    # Skip if mail configuration is not needed or file doesn't exist
-    if [ ! -f "$mail_config_file" ]; then
+    if [ -z "${MAIL_SMTP:-}" ]; then
+        # set → unset transition: drop the stale file. The `-f` ensures
+        # we don't fail on a fresh container where the file never
+        # existed.
+        if [ -e "$config" ]; then
+            rm -f "$config" || log_warn "Failed to remove stale ${config}"
+        fi
         return 0
     fi
 
+    # Reject newlines / CRs / tabs in any operator-supplied value before
+    # they reach the heredoc. The literal-newline NL / CR vars dodge the
+    # `$(printf '\n')` command-substitution trailing-newline-strip trap
+    # (same pattern as the trust-proxy-extra script).
+    local _NL
+    _NL='
+'
+    local _CR _TAB
+    _CR=$(printf '\r')
+    _TAB=$(printf '\t')
+    _setup_mail_reject_control() {
+        case "$1" in
+            *"$_NL"*|*"$_CR"*|*"$_TAB"*)
+                log_error "MAIL_$2 contains control characters; refusing to render ${config}"
+                return 1 ;;
+        esac
+        return 0
+    }
+    _setup_mail_reject_control "${MAIL_SMTP:-}"   "SMTP"   || return 1
+    _setup_mail_reject_control "${MAIL_DOMAIN:-}" "DOMAIN" || return 1
+    _setup_mail_reject_control "${MAIL_HOST:-}"   "HOST"   || return 1
+
     log_success "Setting up Mail configuration"
 
-    # Configure SMTP server
-    if [ -n "${MAIL_SMTP:-}" ]; then
-        echo "mailhub = $MAIL_SMTP" >> "$mail_config_file" || {
-            log_error "Failed to configure SMTP server"
-            return 1
-        }
+    # Pre-clear any stale .tmp from a crash mid-render on a prior boot.
+    rm -f "${config}.tmp"
+
+    # MAIL_SMTP is host[:port]. Split on the FIRST colon (not last —
+    # bash %% would do greedy which mangles a port that contains digits
+    # but is a no-op since ports are numeric anyway). A bare hostname
+    # falls back to port 25.
+    local host port
+    host="${MAIL_SMTP%%:*}"
+    if [ "${MAIL_SMTP}" = "${host}" ]; then
+        port=25
+    else
+        port="${MAIL_SMTP#*:}"
     fi
 
-    # Configure mail domain
-    if [ -n "${MAIL_DOMAIN:-}" ]; then
-        echo "rewriteDomain = $MAIL_DOMAIN" >> "$mail_config_file" || {
-            log_error "Failed to configure mail domain"
-            return 1
-        }
-    fi
-
-    # Configure mail hostname
-    if [ -n "${MAIL_HOST:-}" ]; then
-        echo "hostname = $MAIL_HOST" >> "$mail_config_file" || {
-            log_error "Failed to configure mail hostname"
-            return 1
-        }
-    fi
-
-    # Allow overwriting FROM Header by PHP
-    echo "FromLineOverride = YES" >> "$mail_config_file" || {
-        log_error "Failed to configure FromLineOverride"
+    if [ -z "$host" ]; then
+        log_error "MAIL_SMTP host part is empty; refusing to render ${config}"
         return 1
-    }
+    fi
+    case "$port" in
+        ''|*[!0-9]*)
+            log_error "MAIL_SMTP port '${port}' is not numeric; refusing to render ${config}"
+            return 1 ;;
+    esac
+
+    # The `from` directive controls the envelope sender msmtp uses when
+    # PHP didn't set one; MAIL_DOMAIN provides the right-hand side.
+    # webtrees usually sets a real From: header in the message body so
+    # this is a fallback for poorly-formed transactional mail.
+    local from_line=""
+    if [ -n "${MAIL_DOMAIN:-}" ]; then
+        from_line="from               webtrees@${MAIL_DOMAIN}"
+    fi
+
+    # MAIL_HOST controls the HELO/EHLO identity sent to the relay. Many
+    # relays reject EHLO from `localhost.localdomain` (msmtp's fallback
+    # when MAIL_HOST is unset); operators with strict relays must set
+    # MAIL_HOST to a forward-resolvable name.
+    local domain_line=""
+    if [ -n "${MAIL_HOST:-}" ]; then
+        domain_line="domain             ${MAIL_HOST}"
+    fi
+
+    # Rewrite the file unconditionally — atomic via mv so a partial
+    # write doesn't leave PHP's mail() trying to send through a half-
+    # rendered config. `tls off` is the conservative default; operators
+    # whose relay requires TLS bind-mount /etc/msmtprc with their own
+    # STARTTLS / cert config.
+    #
+    # logfile /dev/stderr is critical for operability: Alpine doesn't
+    # run a syslog daemon, so msmtp's default LOG_MAIL syslog target is
+    # a black hole. Routing to /dev/stderr surfaces submission failures
+    # in `docker logs` where the operator actually looks.
+    if ! cat > "${config}.tmp" <<EOF
+# Auto-rendered by docker-entrypoint.sh setup_mail() from MAIL_* env
+# vars (#67). Do not bind-mount — overwritten on every container start.
+# For STARTTLS / certificate-pinned relays, mount your own /etc/msmtprc.
+defaults
+auth               off
+tls                off
+logfile            /dev/stderr
+
+account            default
+host               ${host}
+port               ${port}
+${from_line}
+${domain_line}
+EOF
+    then
+        rm -f "${config}.tmp"
+        log_error "Failed to render ${config}"
+        return 1
+    fi
+
+    # chmod / chown BEFORE the swap so the file is never visible at the
+    # wrong perms even briefly. www-data needs read access — PHP-FPM
+    # workers run as www-data and exec msmtp as part of mail(); a
+    # root-owned 0600 file would block them. Group-readable by www-data
+    # only (mode 0640) protects against future password-in-config leaks
+    # without breaking the current functional path.
+    if ! chown root:www-data "${config}.tmp"; then
+        rm -f "${config}.tmp"
+        log_error "Failed to chown ${config}.tmp to root:www-data"
+        return 1
+    fi
+    if ! chmod 0640 "${config}.tmp"; then
+        rm -f "${config}.tmp"
+        log_error "Failed to chmod 0640 ${config}.tmp"
+        return 1
+    fi
+
+    if ! mv "${config}.tmp" "${config}"; then
+        rm -f "${config}.tmp"
+        log_error "Failed to swap ${config} into place"
+        return 1
+    fi
 
     return 0
 }
@@ -635,9 +753,17 @@ main() {
     # Configure PHP settings
     setup_php || log_error "PHP configuration failed"
 
-# TODO
-#    # Configure mail settings
-#    setup_mail || log_error "Mail configuration failed"
+    # Configure outbound mail. No-op when MAIL_SMTP is unset; otherwise
+    # renders /etc/msmtprc so webtrees' transactional mail
+    # (password-reset / contact-form / approval-pending notices) can
+    # reach the operator-supplied relay via PHP's mail() (#67). Fail
+    # fast on malformed MAIL_* input — a silent boot with a half-rendered
+    # mail config produces opaque "password reset never arrived" reports
+    # at 3am; a refused boot surfaces the misconfiguration immediately.
+    if ! setup_mail; then
+        log_error "Mail configuration failed — refusing to start"
+        exit 1
+    fi
 
     # Execute the main command
     exec "$@"
