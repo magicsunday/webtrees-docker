@@ -19,6 +19,7 @@ from typing import IO
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._io import atomic_write
 from webtrees_installer.prereq import check_prerequisites, confirm_overwrite
 from webtrees_installer.prompts import PromptError, ask_text, ask_yesno
@@ -464,33 +465,6 @@ def _detect_host_info() -> HostInfo:
     except OSError:
         pass
     return HostInfo(uid=uid, username=username, primary_ip=primary_ip, work_dir=work_dir)
-
-
-def resolve_enforce_https(
-    cli_value: bool | None,
-    env_value: str | None,
-    *,
-    default: bool = True,
-) -> bool:
-    """Resolve the ENFORCE_HTTPS tristate to a concrete bool.
-
-    Precedence (highest wins):
-      1. ``cli_value`` — an explicit operator choice via the CLI flag
-         (e.g. ``--no-https`` → False). Anything other than ``None``
-         wins outright.
-      2. ``env_value`` — the value carried by an existing ``.env`` on
-         a re-render. Parsed case-insensitively against ``"TRUE"``.
-      3. ``default`` — the wizard's fallback for a fresh install.
-
-    Shared between the standalone and dev flows so the precedence cannot
-    drift between the two; without this, three call sites would
-    open-code the same `.strip().upper() == "TRUE"` parse.
-    """
-    if cli_value is not None:
-        return cli_value
-    if env_value is not None:
-        return env_value.strip().upper() == "TRUE"
-    return default
 
 
 def _parse_env(path: Path) -> dict[str, str]:

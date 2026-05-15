@@ -14,7 +14,7 @@ from typing import IO
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._docker import run_docker
 from webtrees_installer.demo import generate_tree
-from webtrees_installer.dev_flow import resolve_enforce_https
+from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer.gedcom import serialize
 from webtrees_installer.ports import PortStatus, probe_port
 from webtrees_installer.prereq import (
