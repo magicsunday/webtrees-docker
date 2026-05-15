@@ -70,7 +70,14 @@ services:
             interval: 5s
             timeout: 3s
             retries: 3
-            start_period: 5s
+            # 45s rather than 5s: the entrypoint runs the seed step, the
+            # config-ini write, the schema migration, and (when enabled)
+            # the admin-bootstrap chain BEFORE php-fpm itself is exec'd.
+            # On a CI runner with a cold image cache that sequence can
+            # eat 20-30s; 5s left no headroom and compose-up `Waiting`
+            # tripped to `unhealthy` while php-fpm was still finishing
+            # the bootstrap. 45s + (3 × 5s) = 60s total grace.
+            start_period: 45s
         volumes:
             - secrets:/secrets:ro
             - app:/var/www/html
