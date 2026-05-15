@@ -15,6 +15,7 @@ from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._docker import run_docker
 from webtrees_installer.demo import generate_tree
 from webtrees_installer._cli_resolve import resolve_enforce_https
+from webtrees_installer._term import Term
 from webtrees_installer.gedcom import serialize
 from webtrees_installer.ports import PortStatus, probe_port
 from webtrees_installer.prereq import (
@@ -115,7 +116,10 @@ def run_standalone(
         stdout=stdout,
     ):
         if stdout:
-            print("Aborted (existing files preserved).", file=stdout)
+            print(
+                Term.for_stream(stdout).warning("Aborted (existing files preserved)."),
+                file=stdout,
+            )
         return 1
 
     _handle_surviving_volumes(
@@ -247,7 +251,8 @@ def run_standalone(
     if args.demo:
         demo_gedcom = _write_demo_gedcom(work_dir=work_dir, seed=args.demo_seed)
         if stdout:
-            print(f"Demo GEDCOM written to {demo_gedcom}", file=stdout)
+            term = Term.for_stream(stdout)
+            print(f"{term.success('✓')} Demo GEDCOM written to {demo_gedcom}", file=stdout)
 
     if not args.no_up:
         # bring_up may raise StackError; let it bubble. The CLI layer
@@ -257,7 +262,11 @@ def run_standalone(
         if demo_gedcom is not None:
             _import_demo_tree(work_dir=work_dir, gedcom_path=demo_gedcom)
             if stdout:
-                print("Demo tree imported into the `demo` tree.", file=stdout)
+                term = Term.for_stream(stdout)
+                print(
+                    f"{term.success('✓')} Demo tree imported into the `demo` tree.",
+                    file=stdout,
+                )
 
     return 0
 
@@ -286,8 +295,9 @@ def _resolve_port(
         return port
     if status is PortStatus.CHECK_FAILED:
         if stdout:
+            term = Term.for_stream(stdout)
             print(
-                f"Warning: could not probe port {port}; proceeding regardless.",
+                f"{term.warning('Warning:')} could not probe port {port}; proceeding regardless.",
                 file=stdout,
             )
         return port
@@ -298,8 +308,9 @@ def _resolve_port(
         )
 
     if stdout:
+        term = Term.for_stream(stdout)
         print(
-            f"Port {port} is in use; trying {_FALLBACK_PORT} instead.",
+            f"{term.info('•')} Port {port} is in use; trying {_FALLBACK_PORT} instead.",
             file=stdout,
         )
     fallback_status = probe_port(_FALLBACK_PORT)
@@ -521,6 +532,9 @@ def _handle_surviving_volumes(
         f"    docker compose -p {project} down",
         f"    docker volume rm {volume_args}",
     )
+    # Bind once per render path so isatty / NO_COLOR get probed exactly
+    # once — see _term.Term docstring.
+    term = Term.for_stream(stdout)
 
     if interactive:
         wipe = ask_yesno(
@@ -535,11 +549,14 @@ def _handle_surviving_volumes(
         if wipe:
             _wipe_volumes(surviving)
             if stdout:
-                print(f"Wiped {len(surviving)} stale volume(s).", file=stdout)
+                print(
+                    f"{term.success('✓')} Wiped {len(surviving)} stale volume(s).",
+                    file=stdout,
+                )
         else:
             if stdout:
                 print(
-                    "Keeping existing volumes — admin password from the "
+                    f"{term.warning('⚠')} Keeping existing volumes — admin password from the "
                     "banner below may not match the running stack. To start "
                     "clean later, run (irreversible):",
                     file=stdout,
@@ -554,7 +571,7 @@ def _handle_surviving_volumes(
     if stdout:
         print(file=stdout)
         print(
-            f"WARNING: existing docker volumes from a previous install at "
+            f"{term.warning('WARNING:')} existing docker volumes from a previous install at "
             f"this project name were detected: {volume_list}. They will be "
             "re-mounted on the next `compose up`, so the install banner's "
             "admin password may not match the running stack.",
@@ -630,23 +647,24 @@ def _print_banner(
     if stdout is None:
         return
 
+    term = Term.for_stream(stdout)
     bar = "-" * 60
-    print(bar, file=stdout)
-    print("Webtrees install ready.", file=stdout)
-    print(bar, file=stdout)
-    print(f"Wrote: {work_dir / 'compose.yaml'}", file=stdout)
-    print(f"Wrote: {work_dir / '.env'}", file=stdout)
+    print(term.bold(bar), file=stdout)
+    print(term.bold("Webtrees install ready."), file=stdout)
+    print(term.bold(bar), file=stdout)
+    print(f"{term.success('✓')} Wrote: {work_dir / 'compose.yaml'}", file=stdout)
+    print(f"{term.success('✓')} Wrote: {work_dir / '.env'}", file=stdout)
 
     if proxy_mode == "standalone":
         scheme = "https" if enforce_https else "http"
-        print(f"Webtrees URL: {scheme}://localhost:{app_port}/", file=stdout)
+        print(f"{term.info('•')} Webtrees URL: {scheme}://localhost:{app_port}/", file=stdout)
     else:
-        print(f"Webtrees URL: https://{domain}/", file=stdout)
+        print(f"{term.info('•')} Webtrees URL: https://{domain}/", file=stdout)
 
     if enforce_https and proxy_mode == "standalone":
         print(file=stdout)
         print(
-            "NOTE: ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
+            f"{term.info('NOTE:')} ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
             "HTTPS — point a TLS-terminating reverse proxy (Caddy, "
             "nginx-on-host, Cloudflare tunnel, …) at the published port, "
             "or re-run with --no-https for a plaintext local install.",
@@ -662,7 +680,10 @@ def _print_banner(
             print(f"::add-mask::{admin_password}", file=stdout)
 
         print(file=stdout)
-        print("WARNING: the box below contains a cleartext password — redact before sharing.", file=stdout)
+        print(
+            f"{term.warning('WARNING:')} the box below contains a cleartext password — redact before sharing.",
+            file=stdout,
+        )
         print("╔══════════════════════════════════════════════════════════════╗", file=stdout)
         print("║                 webtrees admin credentials                   ║", file=stdout)
         print("╠══════════════════════════════════════════════════════════════╣", file=stdout)
@@ -677,10 +698,10 @@ def _print_banner(
 
     print(file=stdout)
     if no_up:
-        print("Next: docker compose up -d", file=stdout)
+        print(f"{term.info('•')} Next: docker compose up -d", file=stdout)
     else:
-        print("Starting the stack now (docker compose up -d).", file=stdout)
-    print(bar, file=stdout)
+        print(f"{term.info('•')} Starting the stack now (docker compose up -d).", file=stdout)
+    print(term.bold(bar), file=stdout)
 
 
 def _write_demo_gedcom(*, work_dir: Path, seed: int) -> Path:

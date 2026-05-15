@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from webtrees_installer import __version__
+from webtrees_installer._term import Term
 from webtrees_installer.flow import StandaloneArgs, run_standalone
 from webtrees_installer.prereq import PrereqError
 from webtrees_installer.prompts import TRAEFIK_TLS_INCOMPAT_REASON, PromptError
@@ -347,11 +348,12 @@ def _run_with_exit_codes(run_fn: Callable[[], int]) -> int:
       anything else — flows return verbatim (0 success, 1 user-cancel, 4
         pull/install failure, ...)
     """
+    err_term = Term.for_stream(sys.stderr)
     try:
         return run_fn()
     except StackError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"{err_term.error('error:')} {exc}", file=sys.stderr)
         return 3
     except (PrereqError, PromptError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"{err_term.error('error:')} {exc}", file=sys.stderr)
         return 2

@@ -21,6 +21,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._io import atomic_write
+from webtrees_installer._term import Term
 from webtrees_installer.prereq import check_prerequisites, confirm_overwrite
 from webtrees_installer.prompts import PromptError, ask_text, ask_yesno
 from webtrees_installer.versions import Catalog, load_catalog
@@ -374,7 +375,10 @@ def run_dev(
         stdin=stdin, stdout=stdout,
     ):
         if stdout:
-            print("Aborted (existing files preserved).", file=stdout)
+            print(
+                Term.for_stream(stdout).warning("Aborted (existing files preserved)."),
+                file=stdout,
+            )
         return 1
 
     # Parse the existing .env once and reuse it for both the tristate
@@ -415,17 +419,24 @@ def run_dev(
     # the .env contract without paying for a 5-10 min bring-up.
     if args.no_up:
         if stdout:
-            print(".env written; --no-up requested, skipping compose pull + install.",
-                  file=stdout)
+            term = Term.for_stream(stdout)
+            print(
+                f"{term.info('•')} .env written; --no-up requested, skipping compose pull + install.",
+                file=stdout,
+            )
         return 0
 
+    err_term = Term.for_stream(sys.stderr)
     pull = _compose(["compose", "pull"], cwd=work_dir)
     if pull.returncode != 0:
         # Errors route to sys.stderr so a `docker run ... | grep error`
         # in CI picks them up, matching how PrereqError / PromptError /
         # StackError get surfaced by the CLI's outer handler.
-        print(f"error: docker compose pull failed: {pull.stderr.strip() or pull.stdout.strip()}",
-              file=sys.stderr)
+        print(
+            f"{err_term.error('error:')} docker compose pull failed: "
+            f"{pull.stderr.strip() or pull.stdout.strip()}",
+            file=sys.stderr,
+        )
         return 4
 
     install = _compose(
@@ -434,8 +445,11 @@ def run_dev(
         cwd=work_dir,
     )
     if install.returncode != 0:
-        print(f"error: composer install failed: {install.stderr.strip() or install.stdout.strip()}",
-              file=sys.stderr)
+        print(
+            f"{err_term.error('error:')} composer install failed: "
+            f"{install.stderr.strip() or install.stdout.strip()}",
+            file=sys.stderr,
+        )
         return 4
 
     if stdout:
@@ -488,27 +502,30 @@ from webtrees_installer._docker import run_docker as _compose  # noqa: E402
 
 def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
     """Print the post-install summary block with URLs and next steps."""
+    term = Term.for_stream(stdout)
     bar = "-" * 60
-    print(bar, file=stdout)
-    print("Webtrees dev environment ready.", file=stdout)
-    print(bar, file=stdout)
+    print(term.bold(bar), file=stdout)
+    print(term.bold("Webtrees dev environment ready."), file=stdout)
+    print(term.bold(bar), file=stdout)
     if args.proxy_mode == "standalone":
         scheme = "https" if args.enforce_https else "http"
-        print(f"Webtrees URL: {scheme}://{args.dev_domain}/", file=stdout)
-        print(f"phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
-              file=stdout)
+        print(f"{term.info('•')} Webtrees URL: {scheme}://{args.dev_domain}/", file=stdout)
+        print(
+            f"{term.info('•')} phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
+            file=stdout,
+        )
     else:
-        print(f"Webtrees URL: https://{args.dev_domain}/", file=stdout)
+        print(f"{term.info('•')} Webtrees URL: https://{args.dev_domain}/", file=stdout)
 
     if args.enforce_https and args.proxy_mode == "standalone":
         print(file=stdout)
         print(
-            "NOTE: ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
+            f"{term.info('NOTE:')} ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
             "HTTPS — point a TLS-terminating reverse proxy at the published "
             "port, or re-run with --no-https for a plaintext local install.",
             file=stdout,
         )
 
     print(file=stdout)
-    print("Next: make up", file=stdout)
-    print(bar, file=stdout)
+    print(f"{term.info('•')} Next: make up", file=stdout)
+    print(term.bold(bar), file=stdout)
