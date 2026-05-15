@@ -284,17 +284,37 @@ setup_webtrees_bootstrap() {
     esac
 
     log_success "Writing config.ini.php via webtrees config-ini"
-    if ! su www-data -s /bin/sh -c "
-        php '${launcher}' config-ini \
+    # Values pass to the inner shell as positional args ($1..$8) rather
+    # than being string-substituted into the -c body. A literal `'` or
+    # any shell metacharacter in MARIADB_PASSWORD, table prefix, etc.
+    # is therefore safe — the inner shell receives the value as a
+    # discrete argv entry, not as part of the command source. The
+    # outer `-c` body is single-quoted so $vars stay symbolic until
+    # the inner shell expands them from its own argv. $8 is
+    # intentionally unquoted on the rewrite-urls slot so an empty
+    # value drops the flag entirely; the source is a literal
+    # `--rewrite-urls` / `--no-rewrite-urls` / `""` set by the case
+    # above (no whitespace, no metacharacters).
+    # shellcheck disable=SC2016  # inner shell expands $1..$8 from positional args
+    if ! su www-data -s /bin/sh -c '
+        php "$1" config-ini \
             --dbtype=mysql \
-            --dbhost='${MARIADB_HOST:-db}' \
-            --dbport='${MARIADB_PORT:-3306}' \
-            --dbname='${MARIADB_DATABASE:-webtrees}' \
-            --dbuser='${MARIADB_USER:-webtrees}' \
-            --dbpass='${MARIADB_PASSWORD}' \
-            --tblpfx='${WEBTREES_TABLE_PREFIX:-wt_}' \
-            ${rewrite_urls_flag}
-    "; then
+            --dbhost="$2" \
+            --dbport="$3" \
+            --dbname="$4" \
+            --dbuser="$5" \
+            --dbpass="$6" \
+            --tblpfx="$7" \
+            $8
+    ' webtrees-cli \
+        "${launcher}" \
+        "${MARIADB_HOST:-db}" \
+        "${MARIADB_PORT:-3306}" \
+        "${MARIADB_DATABASE:-webtrees}" \
+        "${MARIADB_USER:-webtrees}" \
+        "${MARIADB_PASSWORD}" \
+        "${WEBTREES_TABLE_PREFIX:-wt_}" \
+        "${rewrite_urls_flag}"; then
         log_error "webtrees config-ini failed — marker not set, will retry on next start"
         return 1
     fi
@@ -344,27 +364,45 @@ setup_webtrees_bootstrap() {
     esac
 
     # Idempotency: skip user-create if the user already exists.
-    if su www-data -s /bin/sh -c "
-        php '${launcher}' user-list 2>/dev/null | awk 'NR>3 { print \$1 }' | grep -qx '${WT_ADMIN_USER}'
-    "; then
+    # Same positional-args pattern as config-ini above — values reach
+    # the inner shell as $1 / $2 / $3, never substituted into the
+    # command source, so a literal `'` or any metacharacter in
+    # WT_ADMIN_USER / WT_ADMIN_REAL_NAME / WT_ADMIN_EMAIL /
+    # WT_ADMIN_PASSWORD cannot escape the user-supplied-string context.
+    # awk's `$1` field reference uses single quotes inside the body,
+    # which is fine because the outer body is single-quoted at the
+    # -c level (the inner shell strips its own quoting).
+    # shellcheck disable=SC2016  # inner shell expands $1/$2 from positional args
+    if su www-data -s /bin/sh -c '
+        php "$1" user-list 2>/dev/null \
+            | awk "NR>3 { print \$1 }" \
+            | grep -qx "$2"
+    ' webtrees-cli "${launcher}" "${WT_ADMIN_USER}"; then
         log_warn "User '${WT_ADMIN_USER}' already exists — skipping user-create"
     else
         log_success "Creating admin user: ${WT_ADMIN_USER}"
-        if ! su www-data -s /bin/sh -c "
-            php '${launcher}' user --create '${WT_ADMIN_USER}' \
-                --real-name='${WT_ADMIN_REAL_NAME:-${WT_ADMIN_USER}}' \
-                --email='${WT_ADMIN_EMAIL:-admin@example.org}' \
-                --password='${WT_ADMIN_PASSWORD}'
-        "; then
+        # shellcheck disable=SC2016  # inner shell expands $1..$5 from positional args
+        if ! su www-data -s /bin/sh -c '
+            php "$1" user --create "$2" \
+                --real-name="$3" \
+                --email="$4" \
+                --password="$5"
+        ' webtrees-cli \
+            "${launcher}" \
+            "${WT_ADMIN_USER}" \
+            "${WT_ADMIN_REAL_NAME:-${WT_ADMIN_USER}}" \
+            "${WT_ADMIN_EMAIL:-admin@example.org}" \
+            "${WT_ADMIN_PASSWORD}"; then
             log_error "user --create failed"
             return 1
         fi
     fi
 
     log_success "Granting admin role to: ${WT_ADMIN_USER}"
-    if ! su www-data -s /bin/sh -c "
-        php '${launcher}' user-setting '${WT_ADMIN_USER}' canadmin 1
-    "; then
+    # shellcheck disable=SC2016  # inner shell expands $1/$2 from positional args
+    if ! su www-data -s /bin/sh -c '
+        php "$1" user-setting "$2" canadmin 1
+    ' webtrees-cli "${launcher}" "${WT_ADMIN_USER}"; then
         log_error "user-setting canadmin failed"
         return 1
     fi

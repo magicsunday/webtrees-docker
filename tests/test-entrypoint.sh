@@ -18,6 +18,13 @@ set -o errexit -o nounset -o pipefail
 
 IMAGE="${TEST_IMAGE:-ghcr.io/magicsunday/webtrees/php:8.5}"
 
+# Source-tree entrypoint, bind-mounted only by tests that exercise
+# behaviour not yet baked into the published image. Once the change
+# under test ships in a tagged image, the matching test can drop the
+# overlay and join the rest of the suite running against the published
+# entrypoint as-is.
+ENTRYPOINT_SRC="$(cd "$(dirname "$0")/.." && pwd)/rootfs/docker-entrypoint.sh"
+
 # Env vars setup_php needs to find — keeps the test focused on the seed
 # state machine rather than tripping over unrelated configuration paths.
 PHP_ENV=(
@@ -594,6 +601,64 @@ test_bootstrap_sets_marker_on_success() {
     vol_rm "$vol"
 }
 
+test_bootstrap_single_quote_in_password_is_safe() {
+    local name="bootstrap: literal apostrophe in password reaches php verbatim"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    # Password with a literal `'` that would have terminated the
+    # previous single-quote-substituted command body, causing either
+    # bootstrap-exit-1 (benign) or shell injection (worse). The
+    # positional-args refactor passes the value as a discrete argv
+    # entry, so the apostrophe stays inside the string.
+    local pw="ab'cd1234"
+    # ENTRYPOINT_SRC overlay: the positional-args refactor lives in
+    # the source tree but is not yet baked into the published image;
+    # without the bind-mount the test would exercise the old
+    # single-quote-substituted body and fail. Drop the overlay once
+    # the fix ships in a tagged image.
+    docker run --rm \
+        -v "$vol:/var/www/html" \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD="$pw" \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD="$pw" \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    # The stub php logs argv to .bootstrap-stub.log; the literal
+    # `--password=ab'cd1234` (or `--dbpass=...`) proves the value
+    # reached the child process intact. Use grep -F to defeat any
+    # accidental regex interpretation of the apostrophe.
+    local got
+    got=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c "cat /v/.bootstrap-stub.log 2>/dev/null || true")
+
+    if printf '%s\n' "$got" | grep -qF -- "--password=$pw" \
+        && printf '%s\n' "$got" | grep -qF -- "--dbpass=$pw"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — apostrophe-bearing password not seen verbatim in php argv")
+        results+=("      log tail:")
+        printf '%s\n' "$got" | tail -10 | sed 's/^/        /' \
+            | while IFS= read -r line; do results+=("$line"); done
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
 test_bootstrap_respects_marker_on_second_run() {
     local name="bootstrap: skips when marker already exists"
     local vol stub
@@ -864,6 +929,7 @@ main() {
     test_bootstrap_noop_without_admin_user
     test_bootstrap_fails_without_password
     test_bootstrap_sets_marker_on_success
+    test_bootstrap_single_quote_in_password_is_safe
     test_bootstrap_respects_marker_on_second_run
     test_bootstrap_pretty_urls_flag_propagates
     test_bootstrap_pretty_urls_off_passes_no_rewrite_urls
