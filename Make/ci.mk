@@ -17,13 +17,13 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests ci-entrypoint ## Runs every local CI check (pytest + lint + lockstep + entrypoint tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-lockstep-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -125,6 +125,19 @@ ci-entrypoint: .logo ## Runs the docker-entrypoint.sh state-machine tests.
 			exit 1; \
 		}; \
 		TEST_IMAGE="$$IMAGE" ./tests/test-entrypoint.sh
+
+ci-nginx-config: .logo ## Runs the nginx config syntax + trust-gate regression tests.
+	echo -e "${FBLUE}▶ nginx config tests${FRESET}"
+	# Asserts rootfs/etc/nginx/ parses cleanly under the project's own
+	# nginx image, plus regression guards on the X-Forwarded-Proto trust
+	# gate (default.conf reads $$xfp_https, trust-proxy-map.conf carries
+	# the expected CIDR set with LAN ranges out of default trust).
+	NGINX_IMAGE="ghcr.io/magicsunday/webtrees/nginx:1.28-r1"; \
+		docker pull "$$NGINX_IMAGE" >/dev/null || { \
+			echo "::error::docker pull failed for $$NGINX_IMAGE" >&2; \
+			exit 1; \
+		}; \
+		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-nginx-config.sh
 
 ci-yamllint: .logo ## Lints workflow + compose YAML files.
 	echo -e "${FBLUE}▶ yamllint${FRESET}"

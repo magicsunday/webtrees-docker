@@ -169,11 +169,92 @@ rather than written by the wizard. Add them by hand when you need them:
 
 | Variable | Purpose |
 |---|---|
-| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` (standalone proxy mode only) to roll an install with `FALSE`. The wizard rejects `--no-https --proxy traefik` because the rendered Traefik router still terminates TLS at the edge (`websecure` entrypoint + `tls=true`), which would otherwise produce an internally inconsistent stack. The runtime fallback when the key is unset entirely is `FALSE`. Cert provisioning itself (Let's Encrypt, bring-your-own) is a separate concern — see issue #44 for that workflow. |
+| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` (standalone proxy mode only) for `FALSE`. The wizard rejects `--no-https --proxy traefik` because the rendered Traefik router still terminates TLS at the edge. Runtime fallback when the key is unset is `FALSE`. See the **HTTPS trust gate** section below for which proxies are allowed to flip the redirect off via `X-Forwarded-Proto`. Cert provisioning itself is a separate concern — see issue #44. |
 | `WEBTREES_VERSION` | Pins the webtrees image tag. The wizard writes this; bump it manually for an out-of-cycle upgrade. |
 | `APP_PORT` | Host port published by the standalone overlay (default `28080` — the 28k range stays out of the 80/8080 drive-by-scan band; override with `--port`). |
 | `WEBTREES_REWRITE_URLS` | `1` enables webtrees pretty URLs (`/tree/.../individual/...` instead of `?route=...`); `0` keeps query-string routing. The wizard wires this from `--pretty-urls`. The entrypoint applies it on first boot only (gated on the `.webtrees-bootstrapped` marker inside the app volume); webtrees has no admin-UI toggle for `rewrite_urls`. To flip the value post-install, run `docker compose exec phpfpm php /var/www/html/public/index.php config-ini --rewrite-urls` (or `--no-rewrite-urls`) — the same CLI the entrypoint invokes. |
 | `MARIADB_HOST` / `MARIADB_PORT` | Override when you point at an external database (see above). |
+
+### HTTPS trust gate
+
+With `ENFORCE_HTTPS=TRUE`, nginx normally issues a 301 redirect from
+HTTP to HTTPS. A reverse proxy (Traefik, Caddy, nginx-on-host,
+Cloudflare tunnel, …) that has already terminated TLS can short-circuit
+the redirect by forwarding `X-Forwarded-Proto: https`. To prevent any
+client on the LAN from spoofing that header against a directly-reachable
+nginx port, the gate trusts the header only from a fixed CIDR set:
+
+| Trusted by default | Why |
+|---|---|
+| `127.0.0.0/8`, `::1/128` | Local probes inside the container (healthcheck). |
+| `172.16.0.0/12` | Docker's default user-bridge range — compose projects, the bundled Traefik overlay. |
+| `fc00::/7` | IPv6 ULA, the range Docker uses for IPv6 networks. |
+
+`10.0.0.0/8` and `192.168.0.0/16` are intentionally **not** in default
+trust: these are common home/office LAN ranges, so trusting them would
+re-open the spoof path whenever nginx is published onto a LAN-reachable
+port.
+
+If your reverse proxy lives on a custom Docker network outside
+`172.16.0.0/12` (e.g. `--subnet=10.42.0.0/16`), the redirect will fire
+for every request and the browser will loop. Two workarounds:
+
+1. **Bind-mount a replacement include** in your `compose.override.yaml`.
+   The mount **replaces** the baked-in file rather than extending it, so
+   the override must restate every CIDR the gate needs — including
+   loopback, or the healthcheck breaks (it probes from `127.0.0.1`).
+   To stay in sync with the image's current shape, extract the baseline
+   from the container and add your CIDR rather than hand-rolling the
+   block:
+
+   ```bash
+   docker run --rm ghcr.io/magicsunday/webtrees/nginx:<tag> \
+       cat /etc/nginx/includes/trust-proxy-map.conf > trust-proxy-map.conf
+   # then add `<your-cidr> 1;` inside the geo block — keep the existing
+   # 127.0.0.0/8, ::1, 172.16.0.0/12, and fc00::/7 entries intact.
+   ```
+
+   ```yaml
+   services:
+     nginx:
+       volumes:
+         - ./trust-proxy-map.conf:/etc/nginx/includes/trust-proxy-map.conf:ro
+   ```
+
+   This approach picks up future hardening tweaks to the gate
+   automatically — the next image bump refreshes the baseline; the
+   operator only re-adds their custom CIDR.
+
+2. **Move the reverse proxy onto a network in `172.16.0.0/12`** —
+   `docker network create traefik` without an explicit `--subnet` uses
+   the default pool.
+
+A future `NGINX_TRUSTED_PROXIES` env var (issue #89) will fold this into
+the wizard so the bind-mount workaround is no longer needed.
+
+**Sibling-container caveat:** the trust set covers `172.16.0.0/12`, which
+is the entire Docker user-bridge range. Every container in the same
+compose project (or any other container the operator runs in the same
+docker network) shares that range and is therefore trusted by the gate.
+A backup sidecar, an exporter, a third-party plugin image, or anything
+pulled by an auto-updater can issue `curl -H 'X-Forwarded-Proto: https'
+http://nginx/` and reach PHP-FPM with `HTTPS=on` even when no real TLS
+termination happened. This is an inherent docker-network trust boundary,
+not something the gate can close — treat every sibling container as
+having the same secrets nginx serves. The bundled Traefik overlay is the
+intended trusted peer; audit anything else you add to the stack.
+
+**Userland-proxy caveat:** when Docker runs in legacy `userland-proxy`
+mode (the default on Docker Desktop and some non-iptables Linux setups),
+inbound traffic to a published port is SNAT-rewritten to the docker
+bridge gateway (e.g. `172.17.0.1`). nginx then sees a trusted source IP
+for every external request, and the trust gate cannot distinguish a
+legitimate Traefik forward from a LAN attacker's spoofed header. The
+mitigation is to switch Docker to `userland-proxy=false` so iptables DNAT
+preserves the real client IP — standard on Linux Docker Engine; needs an
+explicit `daemon.json` setting on Docker Desktop.
+
+### Wizard state
 
 The wizard's `.env` carries a comment block noting that subsequent runs
 ignore the file — edits stick.
