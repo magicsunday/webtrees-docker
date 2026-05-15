@@ -183,8 +183,8 @@ ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the centr
 			echo "::error::ALPINE_BASE_IMAGE='$$pinned' violates the minor-only pin policy (expected 'alpine:X.Y')" >&2; \
 			exit 1; \
 		}; \
-		drifted=$$(find installer/webtrees_installer Make docs Dockerfile installer/Dockerfile -type f \
-				\( -name '*.py' -o -name '*.j2' -o -name '*.md' -o -name '*.mk' -o -name '*.sh' -o -name 'Dockerfile*' \) \
+		drifted=$$(find installer/webtrees_installer Make docs Dockerfile installer/Dockerfile templates -type f \
+				\( -name '*.py' -o -name '*.j2' -o -name '*.md' -o -name '*.mk' -o -name '*.sh' -o -name 'Dockerfile*' -o -name 'compose.yaml' \) \
 				-not -path 'docs/superpowers/*' \
 				-print0 2>/dev/null \
 			| xargs -0 grep -hEo 'alpine:[0-9]+\.[0-9]+(\.[0-9]+)?' 2>/dev/null \
@@ -271,7 +271,7 @@ ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirror
 		default_port=$${pair%:*}; \
 		fallback_port=$${pair#*:}; \
 		echo "  canonical default: $$default_port, fallback: $$fallback_port"; \
-		default_sites="compose.publish.yaml install upgrade switch README.md docs/customizing.md docs/developing.md docs/env-vars.md"; \
+		default_sites="compose.publish.yaml install upgrade switch README.md docs/customizing.md docs/developing.md docs/env-vars.md templates/portainer/compose.yaml"; \
 		fallback_sites="README.md"; \
 		missing=""; \
 		for f in $$default_sites; do \
@@ -313,6 +313,9 @@ ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period
 	root_value=$$(docker run --rm -v "$(PWD):/work" -w /work \
 			mikefarah/yq:latest \
 			'.services.nginx.healthcheck.start_period' compose.yaml); \
+		portainer_value=$$(docker run --rm -v "$(PWD):/work" -w /work \
+			mikefarah/yq:latest \
+			'.services.nginx.healthcheck.start_period' templates/portainer/compose.yaml); \
 		standalone_value=$$(sed -n '/^    nginx:/,$$p' \
 			installer/webtrees_installer/templates/compose.standalone.j2 \
 			| grep -E '^[[:space:]]+start_period:' \
@@ -322,12 +325,13 @@ ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period
 			| grep -E '^[[:space:]]+start_period:' \
 			| head -1 | awk '{print $$2}'); \
 		if [ -z "$$root_value" ] || [ "$$root_value" = "null" ] \
+			|| [ -z "$$portainer_value" ] || [ "$$portainer_value" = "null" ] \
 			|| [ -z "$$standalone_value" ] || [ -z "$$traefik_value" ]; then \
-			echo "::error::healthcheck start_period not found (root='$$root_value', standalone='$$standalone_value', traefik='$$traefik_value')" >&2; \
+			echo "::error::healthcheck start_period not found (root='$$root_value', portainer='$$portainer_value', standalone='$$standalone_value', traefik='$$traefik_value')" >&2; \
 			exit 1; \
 		fi; \
-		if [ "$$root_value" != "$$standalone_value" ] || [ "$$root_value" != "$$traefik_value" ]; then \
-			echo "::error::nginx healthcheck start_period drift — compose.yaml='$$root_value' vs standalone='$$standalone_value' vs traefik='$$traefik_value'" >&2; \
+		if [ "$$root_value" != "$$standalone_value" ] || [ "$$root_value" != "$$traefik_value" ] || [ "$$root_value" != "$$portainer_value" ]; then \
+			echo "::error::nginx healthcheck start_period drift — compose.yaml='$$root_value' vs portainer='$$portainer_value' vs standalone='$$standalone_value' vs traefik='$$traefik_value'" >&2; \
 			exit 1; \
 		fi; \
 		echo "  canonical start_period: $$root_value"

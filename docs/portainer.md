@@ -55,8 +55,8 @@ TLS proxy lives on such a network, nginx ignores its
 every request, and the browser loops on `ERR_TOO_MANY_REDIRECTS`.
 
 Add the proxy's CIDR to `NGINX_TRUSTED_PROXIES` in the env-var pane
-(see [`customizing.md` → HTTPS trust gate](customizing.md) for the
-hard rules and refusal classes):
+(see [`customizing.md` → HTTPS trust gate](customizing.md#https-trust-gate)
+for the hard rules and refusal classes):
 
 ```dotenv
 NGINX_TRUSTED_PROXIES=10.42.0.0/16
