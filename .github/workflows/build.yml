@@ -384,7 +384,16 @@ jobs:
                   # router serves 404. Probe the login page directly — its
                   # presence proves config.ini.php was written, the schema is
                   # in place, the admin user was created, and routes resolve.
-                  body=$(curl -fsSL "http://localhost:${SMOKE_PORT}/index.php?route=/login")
+                  #
+                  # X-Forwarded-Proto: https tells nginx the upstream already
+                  # terminated TLS, bypassing the enforce-https 301 redirect
+                  # that ENFORCE_HTTPS=TRUE (the post-#35 default) emits on
+                  # plain HTTP. Without the header, curl -L would follow the
+                  # 301 to https://localhost:443 and fail with "Failed to
+                  # connect to localhost port 443". Matches the runtime
+                  # healthcheck pattern in compose.*.j2 / compose.yaml.
+                  body=$(curl -fsSL -H 'X-Forwarded-Proto: https' \
+                      "http://localhost:${SMOKE_PORT}/index.php?route=/login")
                   # head -50 closes the pipe after the 50th line; without the
                   # `|| true` the resulting SIGPIPE on `printf` would trip
                   # `set -o pipefail` and fail the step before grep even runs.
