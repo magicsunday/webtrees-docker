@@ -19,6 +19,36 @@ CI-only provenance build args (`BUILD_DATE`, `VCS_REF` — injected by
 workflow into the Dockerfile's OCI labels) are also out of scope for
 the same reason.
 
+## First-boot-only semantics
+
+A subset of the runtime variables is consumed only on the first
+container start, when `setup_webtrees_bootstrap` (in
+`rootfs/docker-entrypoint.sh`) writes `config.ini.php` and creates the
+admin user. Once written, the entrypoint drops a marker file
+(`/var/www/html/.webtrees-bootstrapped`) and short-circuits the
+bootstrap on every subsequent start — editing the matching `.env`
+value and restarting the container has **no effect** on the running
+stack. Rows tagged `(first-boot only)` below carry this semantic.
+
+To re-apply a first-boot-only variable, the operator must wipe the
+marker so the bootstrap re-runs:
+
+```bash
+docker compose exec phpfpm rm /var/www/html/.webtrees-bootstrapped
+docker compose restart phpfpm
+```
+
+The marker wipe is destructive in one specific way: the headless
+admin bootstrap will refuse to overwrite the existing admin user via
+the upstream `php index.php user --create` CLI, so the *credentials*
+stay stable; the *DB / table-prefix / rewrite-urls* settings re-render
+in `config.ini.php` from the current `.env`.
+
+`ENFORCE_HTTPS` is the only env var in this table that re-applies on
+every container start (the entrypoint truncates / restores
+`/etc/nginx/includes/enforce-https.conf` based on the value each
+boot), so it does not carry the first-boot tag.
+
 ## Runtime variables (compose-substituted or entrypoint-consumed)
 
 | Variable | Default / fallback | Consumer | Purpose |
@@ -31,12 +61,12 @@ the same reason.
 | `ENFORCE_HTTPS` | entrypoint defaults to disabled if unset | `compose.yaml`, `rootfs/docker-entrypoint.sh`, `rootfs/etc/nginx/...` | Case-insensitive `TRUE` enables the nginx HTTP→HTTPS redirect. See `docs/customizing.md` → *HTTPS trust gate* for which proxies are allowed to flip the redirect off via `X-Forwarded-Proto`. |
 | `APP_PORT` | compose default `28080` (in `compose.publish.yaml`); installer wizard default lives in `installer/webtrees_installer/flow.py` | `compose.publish.yaml` | Host port nginx binds when the publish overlay is active. The 28k range stays out of the 80/8080 drive-by-scan band. |
 | `PMA_PORT` | compose default `50011` (in `compose.development.yaml`) | `compose.development.yaml` | Host port the phpMyAdmin overlay binds (dev-mode only). `compose.pma.yaml` only sets an in-container `PMA_PORT` for phpMyAdmin to use as the DB port; that's a different knob. |
-| `MARIADB_HOST` | compose substitution defaults to `db` (the bundled service) | `compose.yaml`, `compose.external.yaml`, `compose.pma.yaml`, `rootfs/docker-entrypoint.sh` | DB hostname; also overloaded as the external Docker network name when `compose.external.yaml` is in the chain. |
-| `MARIADB_PORT` | compose default `3306` | `compose.yaml`, `compose.pma.yaml`, `rootfs/docker-entrypoint.sh` | DB port. |
-| `MARIADB_DATABASE` | `webtrees` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | DB name. |
-| `MARIADB_USER` | `webtrees` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | App DB user. |
-| `MARIADB_PASSWORD` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` | App DB password. Plaintext source; combine with `MARIADB_PASSWORD_FILE` for file-backed secrets. |
-| `MARIADB_PASSWORD_FILE` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` (`*_FILE` expansion) | Docker-secrets-style path to a file whose content becomes `MARIADB_PASSWORD`. |
+| `MARIADB_HOST` | compose substitution defaults to `db` (the bundled service) | `compose.yaml`, `compose.external.yaml`, `compose.pma.yaml`, `rootfs/docker-entrypoint.sh` | DB hostname (first-boot only); also overloaded as the external Docker network name when `compose.external.yaml` is in the chain. |
+| `MARIADB_PORT` | compose default `3306` | `compose.yaml`, `compose.pma.yaml`, `rootfs/docker-entrypoint.sh` | DB port (first-boot only). |
+| `MARIADB_DATABASE` | `webtrees` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | DB name (first-boot only). |
+| `MARIADB_USER` | `webtrees` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | App DB user (first-boot only). |
+| `MARIADB_PASSWORD` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` | App DB password (first-boot only). Plaintext source; combine with `MARIADB_PASSWORD_FILE` for file-backed secrets. |
+| `MARIADB_PASSWORD_FILE` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` (`*_FILE` expansion) | Docker-secrets-style path to a file whose content becomes `MARIADB_PASSWORD` (first-boot only). |
 | `MARIADB_ROOT_PASSWORD` | none | `compose.yaml` | Root password for the bundled MariaDB container; required for the `db` service to start. |
 | `MAIL_SMTP` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` | SMTP server (`host:port`). Currently no-op — `setup_mail` is disabled, tracked in #67. |
 | `MAIL_DOMAIN` | `.env.dist` ships `example.org` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | "From" domain for outbound mail. No-op today: the entrypoint's `setup_mail` step is disabled, tracked in #67. When re-enabled, an unset value causes ssmtp to omit the `rewriteDomain` line entirely. |
@@ -47,14 +77,14 @@ the same reason.
 | `PHP_UPLOAD_MAX_FILESIZE` | bundled php.ini value | `compose.yaml`, `rootfs/docker-entrypoint.sh` | PHP ini setting. The wizard ships `128M`. |
 | `PHP_POST_MAX_SIZE` | bundled php.ini value | `compose.yaml`, `rootfs/docker-entrypoint.sh` | PHP ini setting. The wizard ships `128M`. |
 | `UPLOAD_LIMIT` | `.env.dist` ships `32M`; phpMyAdmin's own default applies when unset | `compose.pma.yaml` | phpMyAdmin's max SQL-file upload size. |
-| `WEBTREES_TABLE_PREFIX` | entrypoint default `wt_` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | DB table prefix. Translates to webtrees' `tblpfx` config-ini key (different spelling, identical meaning). |
-| `WEBTREES_REWRITE_URLS` | `.env.dist` ships `0`; the production installer renders `1`/`0` from `--pretty-urls` | `scripts/configuration` (dev install path), `rootfs/docker-entrypoint.sh` (production headless bootstrap, forwards `--rewrite-urls` / `--no-rewrite-urls` to webtrees' `config-ini` CLI) | URL-rewrite toggle. Both paths write the value into `config.ini.php`'s `rewrite_urls=` so tree pages serve as `/tree/.../individual/...` rather than `?route=...`. |
+| `WEBTREES_TABLE_PREFIX` | entrypoint default `wt_` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | DB table prefix (first-boot only). Translates to webtrees' `tblpfx` config-ini key (different spelling, identical meaning). |
+| `WEBTREES_REWRITE_URLS` | `.env.dist` ships `0`; the production installer renders `1`/`0` from `--pretty-urls` | `scripts/configuration` (dev install path), `rootfs/docker-entrypoint.sh` (production headless bootstrap, forwards `--rewrite-urls` / `--no-rewrite-urls` to webtrees' `config-ini` CLI) | URL-rewrite toggle (first-boot only). Both paths write the value into `config.ini.php`'s `rewrite_urls=` so tree pages serve as `/tree/.../individual/...` rather than `?route=...`. |
 | `WEBTREES_AUTO_SEED` | `compose.yaml` sets `true`; `compose.development.yaml` overrides to `false` | `rootfs/docker-entrypoint.sh` | Triggers the first-run seed of `/var/www/html` from the bundled webtrees-dist. The wizard pins the value via the chosen compose chain. |
-| `WT_ADMIN_USER` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: username. Consumed only by this stack's `setup_webtrees_bootstrap` entrypoint step, which feeds the value to webtrees' upstream `php index.php user --create` CLI. |
-| `WT_ADMIN_PASSWORD` | none — prefer `WT_ADMIN_PASSWORD_FILE` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: password (same lineage as `WT_ADMIN_USER`). |
-| `WT_ADMIN_PASSWORD_FILE` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` (`*_FILE` expansion) | Docker-secrets-style path to a file whose content becomes `WT_ADMIN_PASSWORD`. |
-| `WT_ADMIN_EMAIL` | `admin@example.org` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: email. |
-| `WT_ADMIN_REAL_NAME` | derived from `WT_ADMIN_USER` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: display name. |
+| `WT_ADMIN_USER` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: username (first-boot only). Consumed only by this stack's `setup_webtrees_bootstrap` entrypoint step, which feeds the value to webtrees' upstream `php index.php user --create` CLI. |
+| `WT_ADMIN_PASSWORD` | none — prefer `WT_ADMIN_PASSWORD_FILE` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: password (first-boot only, same lineage as `WT_ADMIN_USER`). |
+| `WT_ADMIN_PASSWORD_FILE` | none | `compose.yaml`, `rootfs/docker-entrypoint.sh` (`*_FILE` expansion) | Docker-secrets-style path to a file whose content becomes `WT_ADMIN_PASSWORD` (first-boot only). |
+| `WT_ADMIN_EMAIL` | `admin@example.org` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: email (first-boot only). |
+| `WT_ADMIN_REAL_NAME` | derived from `WT_ADMIN_USER` | `compose.yaml`, `rootfs/docker-entrypoint.sh` | Headless admin bootstrap: display name (first-boot only). |
 | `COMPOSE_FILE` | none | Docker Compose itself (chain selection) | The dev-mode wizard writes the desired overlay chain. The production wizard renders a single self-contained `compose.yaml` and leaves this empty. Same semantic as Compose's own variable. |
 | `COMPOSE_PROJECT_NAME` | `webtrees` | Docker Compose itself; interpolated into `compose.traefik.yaml`, `Make/application.mk`, `Make/docker.mk`, plus the `install` / `upgrade` / `switch` launchers | Project name for container/volume naming. Same semantic as Compose's own variable. |
 
