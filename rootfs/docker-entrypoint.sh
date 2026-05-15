@@ -524,193 +524,204 @@ setup_environment() {
     return 0
 }
 
-# Render /etc/msmtprc from MAIL_* env vars (#67). The msmtp binary is
-# wired as PHP's sendmail_path via /usr/local/etc/php/conf.d/webtrees-mail.ini
-# so PHP's mail() / PHPMailer's sendmail transport reaches the operator's
-# SMTP relay. Writing the file from scratch each boot keeps it idempotent
-# — a restart with MAIL_SMTP changed produces the new value, not a stack
-# of conflicting directives.
+
+# Render webtrees' built-in SMTP transport settings into the
+# site_setting database table via webtrees' own `site-setting` CLI
+# command (#43). webtrees' EmailService loads these settings on every
+# transactional mail send and reaches the operator-supplied relay via
+# Symfony Mailer (TLS / STARTTLS / auth all supported). This covers
+# every Core mail surface: registration verification, password reset,
+# contact form, watch-list notifications, manager-approval notices.
 #
-# When MAIL_SMTP transitions from set → unset between boots, the function
-# REMOVES /etc/msmtprc so a stale config from the previous boot cannot
-# silently keep routing mail through the old relay.
+# Trigger: WT_SMTP_HOST set. When unset, the function leaves the existing
+# site_setting rows alone — operators who configured SMTP via the UI on
+# a previous boot don't have their config silently wiped.
 #
-# webtrees' built-in SMTP transport (Control panel → Site settings →
-# Email) bypasses msmtp entirely and remains the recommended path for
-# auth'd / TLS relays.
+# Env → site_setting mapping:
+#   WT_SMTP_HOST            → SMTP_HOST    (relay hostname)
+#   WT_SMTP_PORT            → SMTP_PORT    (numeric; default 25)
+#   WT_SMTP_HELO            → SMTP_HELO    (HELO identity; empty → container hostname)
+#   WT_SMTP_FROM_NAME       → SMTP_FROM_NAME (visible-name in From: header)
+#   WT_SMTP_AUTH_USER       → SMTP_AUTH_USER + SMTP_AUTH=1 when set
+#   WT_SMTP_AUTH_PASSWORD   → SMTP_AUTH_PASS (prefer *_FILE; expand_file_secrets resolves it)
+#   WT_SMTP_SSL             → SMTP_SSL     (none|tls|ssl; webtrees treats anything ≠ "ssl" as STARTTLS)
+#   Activation: SMTP_ACTIVE=external is set unconditionally when WT_SMTP_HOST is non-empty.
 #
 # Input validation:
-#   * MAIL_SMTP, MAIL_DOMAIN, MAIL_HOST values are written verbatim into
-#     the rendered file. A newline / CR inside any of them would let an
-#     operator-controlled value inject an extra msmtp directive (e.g. an
-#     additional `host` line redirecting outbound mail). Reject any
-#     value containing \n, \r, or other characters outside a safe set.
-#   * MAIL_SMTP must split as host:port with a numeric port, or host
-#     only (port defaults to 25). IPv6 literals are not supported via
-#     this env-var path — operators with v6-only relays bind-mount
-#     /etc/msmtprc directly.
-setup_mail() {
-    local config="/etc/msmtprc"
-
-    if [ -z "${MAIL_SMTP:-}" ]; then
-        # set → unset transition: drop the stale file. The `-f` ensures
-        # we don't fail on a fresh container where the file never
-        # existed.
-        if [ -e "$config" ]; then
-            rm -f "$config" || log_warn "Failed to remove stale ${config}"
+#   * Numeric port; refuse out-of-range / non-numeric values.
+#   * WT_SMTP_SSL must be one of: none, tls, ssl. Anything else refuses.
+#   * Reject control chars in any value before passing to webtrees CLI.
+setup_smtp_prefs() {
+    if [ -z "${WT_SMTP_HOST:-}" ]; then
+        # set→unset transition cleanup: if a prior boot wrote SMTP_ACTIVE
+        # = external, flip it back to internal so clearing the env var
+        # actually disables outbound SMTP rather than leaving the old
+        # relay live. Best-effort: requires the launcher + DB to be up.
+        # When they're not (fresh container, browser-setup install),
+        # there's nothing to clean up anyway, so silently skip.
+        local launcher="/var/www/html/public/index.php"
+        local config_ini="/var/www/html/data/config.ini.php"
+        if [ -f "$launcher" ] && [ -f "$config_ini" ]; then
+            # shellcheck disable=SC2016  # inner shell expands $1 from positional args
+            su www-data -s /bin/sh -c '
+                php "$1" site-setting SMTP_ACTIVE internal >/dev/null 2>&1 || true
+            ' webtrees-cli "${launcher}"
         fi
         return 0
     fi
 
-    # Reject newlines / CRs / tabs in any operator-supplied value before
-    # they reach the heredoc. The literal-newline NL / CR vars dodge the
-    # `$(printf '\n')` command-substitution trailing-newline-strip trap
-    # (same pattern as the trust-proxy-extra script).
-    local _NL
+    # Validate every operator-supplied value FIRST — before any
+    # downstream check (launcher presence, CLI exec) so the failure
+    # mode is "your env vars are malformed" instead of the more
+    # confusing "webtrees not seeded yet". The validators reject loud
+    # at boot rather than letting a bad value reach the database.
+
+    # Reject control chars in every operator-supplied value. NL/CR/TAB
+    # literal-var pattern dodges the $(printf '\n') command-substitution
+    # trim trap; injection here would land in the database via
+    # `webtrees site-setting`, not in a config file, but the validation
+    # discipline is the same shape as the trust-proxy-extra gate in
+    # docker-entrypoint.d/35-trust-proxy-extra.sh.
+    local _NL _CR _TAB
     _NL='
 '
-    local _CR _TAB
     _CR=$(printf '\r')
     _TAB=$(printf '\t')
-    _setup_mail_reject_control() {
+    _setup_smtp_reject_control() {
         case "$1" in
             *"$_NL"*|*"$_CR"*|*"$_TAB"*)
-                log_error "MAIL_$2 contains control characters; refusing to render ${config}"
+                log_error "WT_SMTP_$2 contains control characters; refusing to write site_setting"
                 return 1 ;;
         esac
         return 0
     }
-    _setup_mail_reject_control "${MAIL_SMTP:-}"   "SMTP"   || return 1
-    _setup_mail_reject_control "${MAIL_DOMAIN:-}" "DOMAIN" || return 1
-    _setup_mail_reject_control "${MAIL_HOST:-}"   "HOST"   || return 1
+    _setup_smtp_reject_control "${WT_SMTP_HOST:-}"          "HOST"          || return 1
+    _setup_smtp_reject_control "${WT_SMTP_PORT:-}"          "PORT"          || return 1
+    _setup_smtp_reject_control "${WT_SMTP_HELO:-}"          "HELO"          || return 1
+    _setup_smtp_reject_control "${WT_SMTP_FROM_NAME:-}"     "FROM_NAME"     || return 1
+    _setup_smtp_reject_control "${WT_SMTP_AUTH_USER:-}"     "AUTH_USER"     || return 1
+    _setup_smtp_reject_control "${WT_SMTP_AUTH_PASSWORD:-}" "AUTH_PASSWORD" || return 1
 
-    log_success "Setting up Mail configuration"
-
-    # Pre-clear any stale .tmp from a crash mid-render on a prior boot,
-    # then arm traps so every exit path performs the same cleanup —
-    # saves ~9 lines of duplicated `rm -f ${config}.tmp` and makes it
-    # impossible for a future refactor to leak the tmp. EXIT / INT /
-    # TERM / HUP catch signal-induced termination mid-render (e.g.
-    # `docker stop` during the heredoc write); RETURN catches the
-    # normal `return` paths. Without the signal traps, a SIGTERM
-    # between cat and mv would orphan a root-owned regular file at
-    # /etc/msmtprc.tmp that the next boot's symlink-race window could
-    # exploit before the line below clears it.
-    rm -f "${config}.tmp"
-    # shellcheck disable=SC2064  # intentional early-bind: $config is loop-invariant
-    trap "rm -f '${config}.tmp'" EXIT INT TERM HUP RETURN
-
-    # MAIL_SMTP is host[:port]. Split on the FIRST colon (not last —
-    # bash %% would do greedy which mangles a port that contains digits
-    # but is a no-op since ports are numeric anyway). A bare hostname
-    # falls back to port 25.
-    local host port
-    host="${MAIL_SMTP%%:*}"
-    if [ "${MAIL_SMTP}" = "${host}" ]; then
-        port=25
-    else
-        port="${MAIL_SMTP#*:}"
-    fi
-
-    if [ -z "$host" ]; then
-        log_error "MAIL_SMTP host part is empty; refusing to render ${config}"
-        return 1
-    fi
-    case "$port" in
-        ''|*[!0-9]*)
-            log_error "MAIL_SMTP port '${port}' is not numeric; refusing to render ${config}"
+    # Reject whitespace-only / non-graphical WT_SMTP_HOST values
+    # AFTER the control-char gate (otherwise a multi-line injection
+    # value gets flagged here with a misleading "whitespace-only"
+    # message instead of the real "control characters" one).
+    case "${WT_SMTP_HOST}" in
+        *[![:graph:]]*|'')
+            log_error "WT_SMTP_HOST '${WT_SMTP_HOST}' is empty or whitespace-only; refusing to write site_setting"
             return 1 ;;
     esac
 
-    # The `from` directive controls the envelope sender msmtp uses when
-    # PHP didn't set one; MAIL_DOMAIN provides the right-hand side.
-    # webtrees usually sets a real From: header in the message body so
-    # this is a fallback for poorly-formed transactional mail.
-    local from_line=""
-    if [ -n "${MAIL_DOMAIN:-}" ]; then
-        from_line="from               webtrees@${MAIL_DOMAIN}"
-    fi
+    # Numeric port; webtrees' EmailService casts to (int) but we
+    # refuse loud at boot rather than letting an "abc" value silently
+    # become 0 in the DB.
+    local port="${WT_SMTP_PORT:-25}"
+    case "$port" in
+        ''|*[!0-9]*)
+            log_error "WT_SMTP_PORT '${port}' is not numeric; refusing to write site_setting"
+            return 1 ;;
+    esac
 
-    # MAIL_HOST controls the HELO/EHLO identity sent to the relay. Many
-    # relays reject EHLO from `localhost.localdomain` (msmtp's fallback
-    # when MAIL_HOST is unset); operators with strict relays must set
-    # MAIL_HOST to a forward-resolvable name.
-    local domain_line=""
-    if [ -n "${MAIL_HOST:-}" ]; then
-        domain_line="domain             ${MAIL_HOST}"
-    fi
+    # SSL mode validation. Webtrees stores "ssl" (full TLS), "tls"
+    # (STARTTLS), or "none" (cleartext). EmailService compares strictly
+    # to "ssl"; anything else falls through to STARTTLS-if-available.
+    local ssl="${WT_SMTP_SSL:-none}"
+    case "$ssl" in
+        none|tls|ssl) ;;
+        *)
+            log_error "WT_SMTP_SSL '${ssl}' must be one of: none, tls, ssl"
+            return 1 ;;
+    esac
 
-    # Rewrite the file unconditionally — atomic via mv so a partial
-    # write doesn't leave PHP's mail() trying to send through a half-
-    # rendered config. `tls off` is the conservative default; operators
-    # whose relay requires TLS bind-mount /etc/msmtprc with their own
-    # STARTTLS / cert config.
+    # Launcher + config.ini.php checks come AFTER validation so a
+    # malformed env var fails with its specific error rather than a
+    # generic "not seeded yet" / "DB not initialised" that obscures
+    # the real problem.
     #
-    # logfile /dev/stderr is critical for operability: Alpine doesn't
-    # run a syslog daemon, so msmtp's default LOG_MAIL syslog target is
-    # a black hole. Routing to /dev/stderr surfaces submission failures
-    # in `docker logs` where the operator actually looks.
-    #
-    # Symlink-redirect hardening: `set -C` (noclobber) immediately
-    # before the heredoc refuses any pre-existing file at the target,
-    # including a symlink planted by an attacker with /etc write access.
-    # Anchored here (not earlier) so the early `return 1` validation
-    # branches above don't leak noclobber into the rest of the
-    # entrypoint shell. Lifted on every exit path below.
-    set -C
-    if ! cat > "${config}.tmp" <<EOF
-# Auto-rendered by docker-entrypoint.sh setup_mail() from MAIL_* env
-# vars (#67). Do not bind-mount — overwritten on every container start.
-# For STARTTLS / certificate-pinned relays, mount your own /etc/msmtprc.
-defaults
-auth               off
-tls                off
-logfile            /dev/stderr
-
-account            default
-host               ${host}
-port               ${port}
-${from_line}
-${domain_line}
-EOF
-    then
-        # noclobber refusal on a planted symlink lands here too — the
-        # log message names both failure modes so the operator can spot
-        # the symlink-redirect attempt.
-        set +C
-        log_error "Failed to render ${config} (disk full, /etc read-only, or planted symlink at ${config}.tmp)"
+    # config.ini.php is the DB-connection-config file webtrees writes
+    # during its setup flow. Without it the `site-setting` CLI fatals
+    # because there's no DB to write to. This happens on browser-setup
+    # installs (operator sets WT_SMTP_HOST in compose but plans to
+    # finish via the webtrees first-run wizard). Skip with a warning
+    # rather than crash the boot — the operator can re-trigger setup
+    # by restarting the container after the wizard completes.
+    local launcher="/var/www/html/public/index.php"
+    if [ ! -f "$launcher" ]; then
+        log_error "WT_SMTP_HOST set but launcher missing at ${launcher} — webtrees not seeded yet"
         return 1
     fi
-
-    # Lift noclobber so a future `>` in this function (none today, but
-    # belt-and-suspenders for refactors) doesn't trip on existing files.
-    set +C
-
-    # chmod / chown BEFORE the swap so the file is never visible at the
-    # wrong perms even briefly. www-data needs read access — PHP-FPM
-    # workers run as www-data and exec msmtp as part of mail(); a
-    # root-owned 0600 file would block them. Group-readable by www-data
-    # only (mode 0640) protects against future password-in-config leaks
-    # without breaking the current functional path.
-    #
-    # The `--no-dereference` flags on chown make it refuse to follow a
-    # symlink (defense-in-depth on top of noclobber): if .tmp were
-    # somehow a symlink, chown -h would alter the symlink metadata
-    # rather than the target. busybox chmod doesn't have an equivalent
-    # flag, but at this point .tmp is guaranteed to be a regular file
-    # because noclobber would have refused a symlink earlier.
-    if ! chown -h root:www-data "${config}.tmp"; then
-        log_error "Failed to chown ${config}.tmp to root:www-data"
-        return 1
-    fi
-    if ! chmod 0640 "${config}.tmp"; then
-        log_error "Failed to chmod 0640 ${config}.tmp"
-        return 1
+    local config_ini="/var/www/html/data/config.ini.php"
+    if [ ! -f "$config_ini" ]; then
+        log_warn "WT_SMTP_HOST set but ${config_ini} is missing — webtrees DB not initialised yet. SMTP will be applied on the next restart after first-run setup completes."
+        return 0
     fi
 
-    if ! mv "${config}.tmp" "${config}"; then
-        log_error "Failed to swap ${config} into place"
-        return 1
+    log_success "Configuring webtrees SMTP transport via site_setting"
+
+    # Helper that runs `webtrees site-setting NAME VALUE` as www-data.
+    # The values reach the inner shell as positional args ($2..) — same
+    # safety pattern as setup_webtrees_bootstrap — so apostrophes and
+    # shell metacharacters in passwords are passed verbatim.
+    _wt_site_setting() {
+        local name="$1" value="$2"
+        local cli_stderr
+        cli_stderr=$(mktemp)
+        # Capture stderr so the operator sees the actual failure cause
+        # (DB connection drop, schema not migrated, CLI signature drift)
+        # instead of a bare "Failed to write site_setting ${name}".
+        # stdout stays redirected to /dev/null — the CLI's success
+        # message echoes the value, which is the wrong thing to keep
+        # for SMTP_AUTH_PASS.
+        # shellcheck disable=SC2016  # inner shell expands $1..$3 from positional args
+        if ! su www-data -s /bin/sh -c '
+            php "$1" site-setting "$2" "$3" >/dev/null
+        ' webtrees-cli "${launcher}" "${name}" "${value}" 2>"$cli_stderr"; then
+            local detail
+            detail=$(head -5 "$cli_stderr" 2>/dev/null | tr '\n' ' ' || true)
+            rm -f "$cli_stderr"
+            log_error "Failed to write site_setting ${name}: ${detail:-(no stderr captured)}"
+            return 1
+        fi
+        rm -f "$cli_stderr"
+    }
+
+    _wt_site_setting "SMTP_ACTIVE"    "external"             || return 1
+    _wt_site_setting "SMTP_HOST"      "${WT_SMTP_HOST}"      || return 1
+    _wt_site_setting "SMTP_PORT"      "${port}"              || return 1
+    _wt_site_setting "SMTP_SSL"       "${ssl}"               || return 1
+
+    # HELO + FROM_NAME: always write — empty value clears the row.
+    # Without the cleanup write a stale HELO from a prior boot survives
+    # against a new relay whose strict-HELO policy then rejects every
+    # message; FROM_NAME has the same shape but the failure mode is
+    # cosmetic.
+    _wt_site_setting "SMTP_HELO"      "${WT_SMTP_HELO:-}"      || return 1
+    _wt_site_setting "SMTP_FROM_NAME" "${WT_SMTP_FROM_NAME:-}" || return 1
+
+    # Auth: when WT_SMTP_AUTH_USER is set, also flip SMTP_AUTH=1 and
+    # store the password. expand_file_secrets has already resolved
+    # WT_SMTP_AUTH_PASSWORD_FILE → WT_SMTP_AUTH_PASSWORD upstream.
+    if [ -n "${WT_SMTP_AUTH_USER:-}" ]; then
+        # Auth user without password is a config error — webtrees would
+        # silently attempt auth with the previous boot's password
+        # against the new user, fail opaquely at first send, and force
+        # the operator into a "why isn't my registration mail
+        # arriving" rabbit hole. Refuse loud.
+        if [ -z "${WT_SMTP_AUTH_PASSWORD:-}" ]; then
+            log_error "WT_SMTP_AUTH_USER set but WT_SMTP_AUTH_PASSWORD is empty; refusing to write a half-configured SMTP auth"
+            return 1
+        fi
+        _wt_site_setting "SMTP_AUTH"      "1"                          || return 1
+        _wt_site_setting "SMTP_AUTH_USER" "${WT_SMTP_AUTH_USER}"       || return 1
+        _wt_site_setting "SMTP_AUTH_PASS" "${WT_SMTP_AUTH_PASSWORD}"   || return 1
+    else
+        # Operator cleared (or never set) the auth user. Flip the
+        # three auth-related rows to safe defaults so stale credentials
+        # from a prior boot can't be reactivated by toggling
+        # SMTP_AUTH from the admin UI.
+        _wt_site_setting "SMTP_AUTH"      "0" || return 1
+        _wt_site_setting "SMTP_AUTH_USER" ""  || return 1
+        _wt_site_setting "SMTP_AUTH_PASS" ""  || return 1
     fi
 
     return 0
@@ -783,15 +794,15 @@ main() {
     # Configure PHP settings
     setup_php || log_error "PHP configuration failed"
 
-    # Configure outbound mail. No-op when MAIL_SMTP is unset; otherwise
-    # renders /etc/msmtprc so webtrees' transactional mail
-    # (password-reset / contact-form / approval-pending notices) can
-    # reach the operator-supplied relay via PHP's mail() (#67). Fail
-    # fast on malformed MAIL_* input — a silent boot with a half-rendered
-    # mail config produces opaque "password reset never arrived" reports
-    # at 3am; a refused boot surfaces the misconfiguration immediately.
-    if ! setup_mail; then
-        log_error "Mail configuration failed — refusing to start"
+    # Configure webtrees' built-in SMTP transport via the site_setting
+    # table (#43). No-op when WT_SMTP_HOST is unset (operators who
+    # configured SMTP via the Control panel UI on a previous boot keep
+    # their settings untouched). Fail fast on malformed WT_SMTP_* input
+    # — a silent boot with a broken SMTP config produces opaque
+    # "password reset never arrived" reports at 3am; a refused boot
+    # surfaces the misconfiguration immediately.
+    if ! setup_smtp_prefs; then
+        log_error "SMTP configuration failed — refusing to start"
         exit 1
     fi
 

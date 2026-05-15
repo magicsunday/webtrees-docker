@@ -89,10 +89,20 @@ services:
             - PHP_MEMORY_LIMIT
             - PHP_POST_MAX_SIZE
             - PHP_UPLOAD_MAX_FILESIZE
-            # Mail server configuration
-            - MAIL_SMTP
-            - MAIL_DOMAIN
-            - MAIL_HOST
+            # SMTP configuration. WT_SMTP_* drives webtrees' built-in
+            # SMTP transport via the site_setting table (Symfony Mailer:
+            # auth + STARTTLS + connection pooling). Used for every
+            # Core mail surface — registration verification, password
+            # reset, contact form, watch-list, approval notices.
+            # See docs/env-vars.md for the full env-var inventory.
+            - WT_SMTP_HOST
+            - WT_SMTP_PORT
+            - WT_SMTP_HELO
+            - WT_SMTP_FROM_NAME
+            - WT_SMTP_AUTH_USER
+            - WT_SMTP_AUTH_PASSWORD
+            - WT_SMTP_AUTH_PASSWORD_FILE
+            - WT_SMTP_SSL
         healthcheck:
             test: ["CMD-SHELL", "pgrep php-fpm > /dev/null || exit 1"]
             interval: 5s

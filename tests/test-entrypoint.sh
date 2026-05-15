@@ -902,54 +902,19 @@ test_bootstrap_pretty_urls_unset_omits_flag() {
     vol_rm "$vol"
 }
 
-# Mail tests bind-mount the source-tree entrypoint over the published
-# image's baked copy so they exercise the local setup_mail logic before
-# the next release tag ships it. Same pattern as the single-quote-
-# safety test above.
-#
-# REMOVAL TRIGGER: this scaffolding can be deleted once a tagged image
-# (post-#67 release) appears in dev/versions.json. Concretely, when the
-# next bump rolls dev/versions.json's row 0 to a tag whose php-base
-# layer contains `msmtp` in apk, drop:
-#   1. The `mail_tests_supported` guard + `_MAIL_TESTS_SUPPORTED` cache.
-#   2. All 9 `if ! mail_tests_supported; then ... return; fi` blocks.
-#   3. The `-v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro"` overlay in
-#      each mail test (so they exercise the baked entrypoint, not the
-#      bind-mounted source).
-# Verify with `docker run --rm <tagged-image> command -v msmtp`.
-#
-# Skip the whole mail block when msmtp isn't installed in the image
-# (i.e. when an older test image without the apk pin is selected). The
-# skip surfaces as PASS so CI green-or-red attribution stays clean —
-# the alternative is a hard fail that masks legitimate regressions in
-# the other 26 tests.
-#
-# Memoise the probe once via _MAIL_TESTS_SUPPORTED so the docker-run
-# overhead is paid only once per suite, not per test.
-_MAIL_TESTS_SUPPORTED=""
-mail_tests_supported() {
-    if [ -z "$_MAIL_TESTS_SUPPORTED" ]; then
-        if docker run --rm --entrypoint=/bin/sh "$IMAGE" -c 'command -v msmtp >/dev/null 2>&1'; then
-            _MAIL_TESTS_SUPPORTED=1
-        else
-            _MAIL_TESTS_SUPPORTED=0
-        fi
-    fi
-    [ "$_MAIL_TESTS_SUPPORTED" = 1 ]
-}
+# SMTP tests (#43). The happy-path that writes into site_setting needs
+# a running database + a seeded /var/www/html — those land in the smoke
+# matrix (build.yml), not in this fast suite. Here we cover the cheap
+# no-DB-required paths: no-op-when-unset and pre-DB-call input
+# validation.
 
-test_mail_unset_skips_render() {
-    local name="mail: MAIL_SMTP unset leaves msmtprc empty / absent"
-
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
+test_smtp_prefs_noop_when_unset() {
+    local name="smtp: WT_SMTP_HOST unset → setup_smtp_prefs is a no-op"
+    # Bind-mount the source entrypoint so we exercise setup_smtp_prefs
+    # (not the previously-baked setup_mail/msmtp path). Once the next
+    # tagged image carries setup_smtp_prefs the overlay can drop.
+    local out
+    out=$(docker run --rm \
         --tmpfs /var/www:exec,uid=82,gid=82 \
         -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
@@ -957,406 +922,209 @@ test_mail_unset_skips_render() {
         "${PHP_ENV[@]}" \
         --entrypoint=/bin/sh \
         "$IMAGE" \
-        -c 'unset MAIL_SMTP MAIL_DOMAIN MAIL_HOST
-            /docker-entrypoint.sh true >/dev/null 2>&1
-            cat /etc/msmtprc 2>/dev/null || echo MISSING' \
-        > "$out_file" 2>&1
+        -c '/docker-entrypoint.sh true 2>&1 | grep -i "Configuring webtrees SMTP" || true' 2>&1)
 
-    if grep -q '^MISSING$' "$out_file" || ! grep -q 'host ' "$out_file"; then
+    if [[ -z "$out" ]]; then
         results+=("PASS  $name")
         pass=$((pass + 1))
     else
-        results+=("FAIL  $name — /etc/msmtprc unexpectedly carries operator config")
-        results+=("      content: $(head -5 "$out_file")")
+        results+=("FAIL  $name — entrypoint logged SMTP activity despite WT_SMTP_HOST unset")
+        results+=("      output: $(head -3 <<<"$out")")
         fail=$((fail + 1))
     fi
-
-    rm -f "$out_file"
 }
 
-test_mail_smtp_set_renders_account() {
-    local name="mail: MAIL_SMTP=relay.example.org:587 renders host + port"
+test_smtp_prefs_rejects_newline_injection() {
+    local name="smtp: newline in WT_SMTP_HOST refuses to write site_setting"
 
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
-        --tmpfs /var/www:exec,uid=82,gid=82 \
-        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
-        -e WEBTREES_AUTO_SEED=false \
-        -e ENVIRONMENT=production \
-        -e MAIL_SMTP=relay.example.org:587 \
-        -e MAIL_DOMAIN=example.org \
-        -e MAIL_HOST=mailer.example.org \
-        "${PHP_ENV[@]}" \
-        --entrypoint=/bin/sh \
-        "$IMAGE" \
-        -c '/docker-entrypoint.sh true >/dev/null 2>&1
-            cat /etc/msmtprc' \
-        > "$out_file" 2>&1
-
-    local ok=1
-    grep -qE '^host[[:space:]]+relay\.example\.org$' "$out_file" || ok=0
-    grep -qE '^port[[:space:]]+587$' "$out_file" || ok=0
-    grep -qE '^from[[:space:]]+webtrees@example\.org$' "$out_file" || ok=0
-    grep -qE '^domain[[:space:]]+mailer\.example\.org$' "$out_file" || ok=0
-
-    if [[ "$ok" == 1 ]]; then
-        results+=("PASS  $name")
-        pass=$((pass + 1))
-    else
-        results+=("FAIL  $name — msmtprc missing expected directives")
-        results+=("      content: $(head -10 "$out_file")")
-        fail=$((fail + 1))
-    fi
-
-    rm -f "$out_file"
-}
-
-test_mail_smtp_default_port() {
-    local name="mail: MAIL_SMTP without port falls back to port 25"
-
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
-        --tmpfs /var/www:exec,uid=82,gid=82 \
-        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
-        -e WEBTREES_AUTO_SEED=false \
-        -e ENVIRONMENT=production \
-        -e MAIL_SMTP=relay.example.org \
-        "${PHP_ENV[@]}" \
-        --entrypoint=/bin/sh \
-        "$IMAGE" \
-        -c '/docker-entrypoint.sh true >/dev/null 2>&1
-            cat /etc/msmtprc' \
-        > "$out_file" 2>&1
-
-    if grep -qE '^port[[:space:]]+25$' "$out_file"; then
-        results+=("PASS  $name")
-        pass=$((pass + 1))
-    else
-        results+=("FAIL  $name — expected port 25 for missing-port input")
-        results+=("      content: $(head -10 "$out_file")")
-        fail=$((fail + 1))
-    fi
-
-    rm -f "$out_file"
-}
-
-test_mail_smtp_rewrite_on_restart() {
-    local name="mail: restart with different MAIL_SMTP rewrites file, not appends"
-
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
-        --tmpfs /var/www:exec,uid=82,gid=82 \
-        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
-        -e WEBTREES_AUTO_SEED=false \
-        -e ENVIRONMENT=production \
-        "${PHP_ENV[@]}" \
-        --entrypoint=/bin/sh \
-        "$IMAGE" \
-        -c '
-            MAIL_SMTP=first.example.org /docker-entrypoint.sh true >/dev/null 2>&1
-            MAIL_SMTP=second.example.org /docker-entrypoint.sh true >/dev/null 2>&1
-            grep -c "^host " /etc/msmtprc || true
-            grep "^host " /etc/msmtprc || true
-        ' \
-        > "$out_file" 2>&1
-
-    local host_count
-    host_count=$(head -1 "$out_file")
-    local host_value
-    host_value=$(sed -n '2p' "$out_file")
-
-    if [[ "$host_count" == "1" ]] && [[ "$host_value" == *second.example.org* ]]; then
-        results+=("PASS  $name")
-        pass=$((pass + 1))
-    else
-        results+=("FAIL  $name — expected single host directive with second value")
-        results+=("      count=$host_count value=$host_value")
-        fail=$((fail + 1))
-    fi
-
-    rm -f "$out_file"
-}
-
-test_mail_smtp_unset_removes_stale_msmtprc() {
-    local name="mail: set→unset transition removes /etc/msmtprc"
-
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
-        --tmpfs /var/www:exec,uid=82,gid=82 \
-        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
-        -e WEBTREES_AUTO_SEED=false \
-        -e ENVIRONMENT=production \
-        "${PHP_ENV[@]}" \
-        --entrypoint=/bin/sh \
-        "$IMAGE" \
-        -c '
-            MAIL_SMTP=first.example.org /docker-entrypoint.sh true >/dev/null 2>&1
-            test -f /etc/msmtprc || { echo "MISSING after first set" ; exit 1; }
-            unset MAIL_SMTP
-            /docker-entrypoint.sh true >/dev/null 2>&1
-            test ! -e /etc/msmtprc && echo CLEARED || echo STALE
-        ' \
-        > "$out_file" 2>&1
-
-    if grep -q '^CLEARED$' "$out_file"; then
-        results+=("PASS  $name")
-        pass=$((pass + 1))
-    else
-        results+=("FAIL  $name — stale msmtprc survived MAIL_SMTP unset")
-        results+=("      output: $(head -3 "$out_file")")
-        fail=$((fail + 1))
-    fi
-
-    rm -f "$out_file"
-}
-
-test_mail_smtp_rejects_newline_injection() {
-    local name="mail: newline in MAIL_DOMAIN refuses to render (injection guard)"
-
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
     set +e
-    docker run --rm \
+    local out
+    out=$(docker run --rm \
         --tmpfs /var/www:exec,uid=82,gid=82 \
         -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
-        -e MAIL_SMTP=relay.example.org:25 \
-        -e MAIL_DOMAIN=$'evil.tld\nhost attacker.example.org' \
+        -e WT_SMTP_HOST=$'evil.tld\nSMTP_HOST attacker.example.org' \
         "${PHP_ENV[@]}" \
         --entrypoint=/bin/sh \
         "$IMAGE" \
-        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"; cat /etc/msmtprc 2>/dev/null || echo MISSING' \
-        > "$out_file" 2>&1
+        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' 2>&1)
     set -e
 
-    # Container must exit non-zero AND the rendered file (if any) must
-    # NOT carry the injected `host attacker.example.org` directive.
-    if grep -q '^exit=1$' "$out_file" && ! grep -q 'attacker.example.org' "$out_file"; then
+    # Container must exit non-zero AND log the control-char refusal.
+    if grep -q '^exit=1$' <<<"$out" && grep -q 'control characters' <<<"$out"; then
         results+=("PASS  $name")
         pass=$((pass + 1))
     else
-        results+=("FAIL  $name — injection guard did not refuse the value")
-        results+=("      output: $(head -10 "$out_file")")
+        results+=("FAIL  $name — control-char gate did not refuse the value")
+        results+=("      output: $(head -10 <<<"$out")")
         fail=$((fail + 1))
     fi
-
-    rm -f "$out_file"
 }
 
-test_mail_smtp_rejects_malformed_port() {
-    local name="mail: non-numeric port in MAIL_SMTP refuses to render"
+test_smtp_prefs_rejects_malformed_port() {
+    local name="smtp: non-numeric WT_SMTP_PORT refuses to write site_setting"
 
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
     set +e
-    docker run --rm \
+    local out
+    out=$(docker run --rm \
         --tmpfs /var/www:exec,uid=82,gid=82 \
         -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
-        -e MAIL_SMTP=relay.example.org:smtp \
+        -e WT_SMTP_HOST=relay.example.org \
+        -e WT_SMTP_PORT=smtp \
         "${PHP_ENV[@]}" \
         --entrypoint=/bin/sh \
         "$IMAGE" \
-        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' \
-        > "$out_file" 2>&1
+        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' 2>&1)
     set -e
 
-    if grep -q '^exit=1$' "$out_file" && grep -q "not numeric" "$out_file"; then
+    if grep -q '^exit=1$' <<<"$out" && grep -q "not numeric" <<<"$out"; then
         results+=("PASS  $name")
         pass=$((pass + 1))
     else
-        results+=("FAIL  $name — malformed port should refuse to render")
-        results+=("      output: $(head -10 "$out_file")")
+        results+=("FAIL  $name — port validator did not refuse")
+        results+=("      output: $(head -10 <<<"$out")")
         fail=$((fail + 1))
     fi
-
-    rm -f "$out_file"
 }
 
-test_mail_msmtprc_perms_after_render() {
-    local name="mail: rendered /etc/msmtprc is mode 0640, www-data readable"
+test_smtp_prefs_rejects_whitespace_only_host() {
+    local name="smtp: whitespace-only WT_SMTP_HOST refuses to write site_setting"
 
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
+    set +e
+    local out
+    out=$(docker run --rm \
         --tmpfs /var/www:exec,uid=82,gid=82 \
         -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
-        -e MAIL_SMTP=relay.example.org:25 \
+        -e WT_SMTP_HOST=$'\t  ' \
         "${PHP_ENV[@]}" \
         --entrypoint=/bin/sh \
         "$IMAGE" \
-        -c '
-            /docker-entrypoint.sh true >/dev/null 2>&1
-            stat -c "%a %U %G" /etc/msmtprc
-            su www-data -s /bin/sh -c "test -r /etc/msmtprc && echo READABLE || echo BLOCKED"
-        ' \
-        > "$out_file" 2>&1
+        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' 2>&1)
+    set -e
 
-    # Mode 0640, owner root, group www-data, and www-data must be able
-    # to read (msmtp runs as www-data via php-fpm).
-    if grep -qE '^640 root www-data$' "$out_file" && grep -q '^READABLE$' "$out_file"; then
+    if grep -q '^exit=1$' <<<"$out" && grep -q 'whitespace-only\|control characters' <<<"$out"; then
         results+=("PASS  $name")
         pass=$((pass + 1))
     else
-        results+=("FAIL  $name — expected '640 root www-data' + 'READABLE'")
-        results+=("      content: $(head -5 "$out_file")")
+        results+=("FAIL  $name — whitespace-only host should refuse")
+        results+=("      output: $(head -10 <<<"$out")")
+        fail=$((fail + 1))
+    fi
+}
+
+test_smtp_prefs_rejects_auth_user_without_password() {
+    local name="smtp: WT_SMTP_AUTH_USER set + AUTH_PASSWORD empty refuses (half-configured auth)"
+
+    # Plant a fake launcher + config.ini.php in a volume so the
+    # auth-user-without-password check (which runs after the launcher
+    # + config.ini.php presence checks) actually gets reached.
+    local vol
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'mkdir -p /v/public /v/data && touch /v/public/index.php /v/data/config.ini.php' >/dev/null
+
+    set +e
+    local out
+    out=$(docker run --rm \
+        -v "$vol:/var/www/html" \
+        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_SMTP_HOST=relay.example.org \
+        -e WT_SMTP_AUTH_USER=alice \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/bin/sh \
+        "$IMAGE" \
+        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' 2>&1)
+    set -e
+
+    if grep -q '^exit=1$' <<<"$out" && grep -q 'half-configured SMTP auth' <<<"$out"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — AUTH_USER+no-password should refuse loud")
+        results+=("      output: $(head -10 <<<"$out")")
         fail=$((fail + 1))
     fi
 
-    rm -f "$out_file"
+    vol_rm "$vol"
 }
 
-test_mail_smtp_refuses_planted_tmp_symlink() {
-    local name="mail: pre-planted /etc/msmtprc.tmp symlink does not redirect render (noclobber)"
+test_smtp_prefs_skips_when_db_not_initialised() {
+    local name="smtp: WT_SMTP_HOST set + config.ini.php absent → warn + skip (browser-setup install)"
 
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
+    # The validation block all passes; launcher exists (we tmpfs /var/www
+    # and the launcher won't exist there either, so we have to fake it).
+    # Mount a fake /var/www with the launcher present but config.ini.php
+    # absent — this is the browser-setup case the new presence check
+    # protects against.
+    local vol
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'mkdir -p /v/public && touch /v/public/index.php' >/dev/null
+
+    set +e
+    local out
+    out=$(docker run --rm \
+        -v "$vol:/var/www/html" \
+        -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_SMTP_HOST=relay.example.org \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/bin/sh \
+        "$IMAGE" \
+        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' 2>&1)
+    set -e
+
+    # Expect exit 0 + the "DB not initialised yet" warning so the
+    # container still boots and the operator can finish setup via the
+    # browser wizard.
+    if grep -q '^exit=0$' <<<"$out" && grep -q 'DB not initialised yet' <<<"$out"; then
+        results+=("PASS  $name")
         pass=$((pass + 1))
-        return
+    else
+        results+=("FAIL  $name — should warn + skip rather than crash boot")
+        results+=("      output: $(head -10 <<<"$out")")
+        fail=$((fail + 1))
     fi
 
-    # Pre-plant /etc/msmtprc.tmp as a symlink pointing at a sentinel
-    # target we control. Without noclobber the entrypoint's `cat >` would
-    # follow the symlink and truncate the target with msmtprc content
-    # (an arbitrary-file-corruption primitive). The set -C gate in
-    # setup_mail must refuse the redirect and leave the sentinel intact.
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm \
+    vol_rm "$vol"
+}
+
+test_smtp_prefs_rejects_invalid_ssl_mode() {
+    local name="smtp: WT_SMTP_SSL invalid value refuses to write site_setting"
+
+    set +e
+    local out
+    out=$(docker run --rm \
         --tmpfs /var/www:exec,uid=82,gid=82 \
         -v "${ENTRYPOINT_SRC}:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
-        -e MAIL_SMTP=relay.example.org:25 \
+        -e WT_SMTP_HOST=relay.example.org \
+        -e WT_SMTP_SSL=garbage \
         "${PHP_ENV[@]}" \
         --entrypoint=/bin/sh \
         "$IMAGE" \
-        -c '
-            # Pre-plant the symlink + sentinel target before invoking the
-            # entrypoint that would otherwise rewrite /etc/msmtprc.
-            printf "SENTINEL\n" > /tmp/redirect-target
-            ln -sf /tmp/redirect-target /etc/msmtprc.tmp
+        -c '/docker-entrypoint.sh true 2>&1; echo "exit=$?"' 2>&1)
+    set -e
 
-            /docker-entrypoint.sh true 2>&1
-            rc=$?
-
-            # The render must have failed loud OR produced the correct
-            # /etc/msmtprc without touching the sentinel target.
-            echo "rc=$rc"
-            echo "sentinel-content=$(cat /tmp/redirect-target)"
-            test -f /etc/msmtprc && grep -q "^host[[:space:]]\+relay.example.org" /etc/msmtprc && echo "msmtprc-ok" || echo "msmtprc-bad"
-            # The .tmp file should be gone (trap cleanup) or, if the
-            # render succeeded, replaced via mv. Either way it must NOT
-            # be a symlink pointing at the sentinel.
-            if [ -L /etc/msmtprc.tmp ]; then
-                echo "symlink-survives"
-            else
-                echo "symlink-cleared"
-            fi
-        ' \
-        > "$out_file" 2>&1
-
-    # Three independent assertions:
-    # 1. Sentinel content MUST NOT have been overwritten (the symlink
-    #    redirect would have corrupted it).
-    # 2. The real /etc/msmtprc MUST carry the operator's host directive
-    #    (the entrypoint must keep writing the right file, just refusing
-    #    the redirect).
-    # 3. The .tmp symlink MUST be gone (cleanup either via the explicit
-    #    rm -f before noclobber or via the RETURN/EXIT trap).
-    local ok=1
-    grep -q '^sentinel-content=SENTINEL$' "$out_file" || ok=0
-    grep -q '^msmtprc-ok$'                "$out_file" || ok=0
-    grep -q '^symlink-cleared$'           "$out_file" || ok=0
-
-    if [[ "$ok" == 1 ]]; then
+    if grep -q '^exit=1$' <<<"$out" && grep -q "WT_SMTP_SSL" <<<"$out"; then
         results+=("PASS  $name")
         pass=$((pass + 1))
     else
-        results+=("FAIL  $name — symlink redirect or post-render cleanup contract broken")
-        results+=("      output: $(head -10 "$out_file")")
+        results+=("FAIL  $name — SSL-mode validator did not refuse 'garbage'")
+        results+=("      output: $(head -10 <<<"$out")")
         fail=$((fail + 1))
     fi
-
-    rm -f "$out_file"
 }
 
-test_mail_php_sendmail_path_wired() {
-    local name="mail: php-ini sendmail_path resolves to msmtp"
-
-    if ! mail_tests_supported; then
-        results+=("PASS  $name — skipped: image predates msmtp install")
-        pass=$((pass + 1))
-        return
-    fi
-
-    local out_file
-    out_file=$(mktemp)
-    docker run --rm "$IMAGE" \
-        php -r 'echo ini_get("sendmail_path");' \
-        > "$out_file" 2>&1
-
-    if grep -q '/usr/bin/msmtp' "$out_file"; then
-        results+=("PASS  $name")
-        pass=$((pass + 1))
-    else
-        results+=("FAIL  $name — sendmail_path does not point at msmtp")
-        results+=("      content: $(head -3 "$out_file")")
-        fail=$((fail + 1))
-    fi
-
-    rm -f "$out_file"
-}
 
 main() {
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -1392,16 +1160,13 @@ main() {
     test_bootstrap_pretty_urls_unset_omits_flag
     test_bootstrap_pretty_urls_accepts_lowercase_true_alias
     test_bootstrap_pretty_urls_unknown_value_falls_through
-    test_mail_unset_skips_render
-    test_mail_smtp_set_renders_account
-    test_mail_smtp_default_port
-    test_mail_smtp_rewrite_on_restart
-    test_mail_smtp_unset_removes_stale_msmtprc
-    test_mail_smtp_rejects_newline_injection
-    test_mail_smtp_rejects_malformed_port
-    test_mail_msmtprc_perms_after_render
-    test_mail_smtp_refuses_planted_tmp_symlink
-    test_mail_php_sendmail_path_wired
+    test_smtp_prefs_noop_when_unset
+    test_smtp_prefs_rejects_newline_injection
+    test_smtp_prefs_rejects_malformed_port
+    test_smtp_prefs_rejects_whitespace_only_host
+    test_smtp_prefs_rejects_auth_user_without_password
+    test_smtp_prefs_skips_when_db_not_initialised
+    test_smtp_prefs_rejects_invalid_ssl_mode
 
     for line in "${results[@]}"; do
         printf "%s\n" "$line"
