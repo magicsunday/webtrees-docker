@@ -85,6 +85,7 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
 
     compose_text = env_jinja.get_template(compose_template).render(**context)
     env_text = env_jinja.get_template("env.j2").render(**context)
+    makefile_text = env_jinja.get_template("Makefile.j2").render(**context)
 
     if target_dir.exists() and not target_dir.is_dir():
         raise NotADirectoryError(
@@ -93,6 +94,7 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
     atomic_write(target_dir / "compose.yaml", compose_text)
     atomic_write(target_dir / ".env", env_text)
+    atomic_write(target_dir / "Makefile", makefile_text)
 
 
 def _validate(input_model: RenderInput) -> None:
