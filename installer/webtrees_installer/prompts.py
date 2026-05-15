@@ -25,6 +25,19 @@ class PromptError(ValueError):
     """
 
 
+TRAEFIK_TLS_INCOMPAT_REASON = (
+    "the rendered Traefik router still terminates TLS at the edge "
+    "(websecure entrypoint + tls=true), so suppressing HTTPS "
+    "enforcement at the app layer would drop HSTS/CSP while the "
+    "browser stays on HTTPS"
+)
+"""Shared 'why' clause for the two guard sites (cli.py + flow.py) that
+reject --no-https paired with Traefik proxy mode. Wording must stay in
+lockstep with the compose.traefik.j2 template; if the template ever
+moves off websecure/tls=true, update this string and re-run the audit
+loop on both guard call-sites."""
+
+
 @dataclass(frozen=True)
 class Choice:
     """One option in a multiple-choice prompt."""

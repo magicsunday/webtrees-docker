@@ -23,7 +23,9 @@ from webtrees_installer.prereq import (
     confirm_overwrite,
 )
 from webtrees_installer.prompts import (
+    TRAEFIK_TLS_INCOMPAT_REASON,
     Choice,
+    PromptError,
     ask_choice,
     ask_text,
     ask_yesno,
@@ -145,6 +147,20 @@ def run_standalone(
         stdin=stdin,
         stdout=stdout,
     )
+
+    # Second-layer guard for the --no-https + traefik combo: cli.py's
+    # _validate_mode_compatibility only fires when the operator passes
+    # both flags non-interactively. If proxy_mode comes from this prompt
+    # (operator passed only --no-https), the CLI check sees
+    # args.proxy_mode is None and skips the rejection — and we would
+    # otherwise render the inconsistent stack (websecure router + TLS
+    # labels but ENFORCE_HTTPS=FALSE at the app layer).
+    if proxy_mode == "traefik" and args.enforce_https is False:
+        raise PromptError(
+            "--no-https is incompatible with proxy mode 'traefik': "
+            f"{TRAEFIK_TLS_INCOMPAT_REASON}. "
+            "Drop --no-https for Traefik, or pick standalone at the proxy prompt."
+        )
 
     app_port: int | None = None
     domain: str | None = None

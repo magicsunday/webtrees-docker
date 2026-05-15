@@ -169,6 +169,43 @@ def test_main_silently_accepts_dev_only_flag_in_standalone_mode():
     assert run_mock.called
 
 
+def test_main_returns_2_when_no_https_combined_with_proxy_traefik(capsys):
+    """`--no-https --proxy traefik` is internally inconsistent (the rendered
+    router still terminates TLS via websecure/tls=true labels). Rejected with
+    exit 2 + clear message pointing at standalone as the alternative."""
+    exit_code = main([
+        "--non-interactive", "--force", "--no-up", "--no-admin",
+        "--edition", "core",
+        "--proxy", "traefik", "--domain", "webtrees.example.com",
+        "--no-https",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "--no-https is incompatible with --proxy traefik" in captured.err
+    assert "--proxy standalone" in captured.err
+    # Pin the shared "why" clause from prompts.TRAEFIK_TLS_INCOMPAT_REASON
+    # so a silent rename or drift between the two guard call-sites fails loud.
+    assert "websecure entrypoint + tls=true" in captured.err
+
+
+def test_main_accepts_no_https_with_proxy_standalone():
+    """The validator targets only the traefik combination; --no-https on
+    standalone (the documented local-no-TLS use case) must keep working."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core",
+            "--proxy", "standalone", "--port", "28080",
+            "--no-https",
+        ])
+
+    assert exit_code == 0
+    assert run_mock.called
+    flow_args = run_mock.call_args.args[0]
+    assert flow_args.enforce_https is False
+
+
 def test_parser_pretty_urls_flag_defaults_off_and_flips_to_true():
     """`--pretty-urls` is opt-in: absent → False, present → True."""
     parser = build_parser()

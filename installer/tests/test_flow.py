@@ -13,6 +13,7 @@ import yaml
 
 from webtrees_installer.cli import build_parser
 from webtrees_installer.flow import StandaloneArgs, run_standalone
+from webtrees_installer.prompts import PromptError
 from webtrees_installer.ports import PortStatus
 from webtrees_installer.prereq import PrereqError
 from webtrees_installer.versions import Catalog, PhpEntry
@@ -307,6 +308,84 @@ def test_run_standalone_no_volume_prompt_when_none_survive(tmp_path: Path) -> No
 
     assert "existing docker volumes" not in out.getvalue().lower()
     wipe.assert_not_called()
+
+
+def test_run_standalone_rejects_no_https_when_traefik_chosen_at_prompt(
+    tmp_path: Path,
+) -> None:
+    """Interactive bypass guard: cli.py validates --no-https + --proxy traefik
+    only when both flags are passed. If the operator passes only --no-https
+    and selects 'traefik' at the proxy prompt, the CLI check sees
+    args.proxy_mode is None and skips — flow.py must catch the inconsistent
+    combo after the prompt resolves."""
+    args = _args(
+        work_dir=tmp_path,
+        interactive=True,
+        proxy_mode=None,
+        enforce_https=False,
+        domain="webtrees.example.com",
+    )
+    out = StringIO()
+    with patch(
+        "webtrees_installer.flow.ask_choice",
+        side_effect=["full", "traefik"],
+    ), pytest.raises(PromptError) as exc_info:
+        run_standalone(args, stdin=StringIO(), stdout=out)
+
+    msg = str(exc_info.value)
+    assert "--no-https" in msg
+    assert "traefik" in msg
+    assert "standalone" in msg
+    # Pin the shared "why" clause from prompts.TRAEFIK_TLS_INCOMPAT_REASON
+    # so a silent drift between the two guard call-sites fails loud.
+    assert "websecure entrypoint + tls=true" in msg
+
+
+def test_run_standalone_allows_no_https_when_standalone_chosen_at_prompt(
+    tmp_path: Path,
+) -> None:
+    """Mirror coverage: the same interactive path with proxy='standalone' is
+    a documented use case (local-only install, plain HTTP). Must not raise."""
+    args = _args(
+        work_dir=tmp_path,
+        interactive=True,
+        proxy_mode=None,
+        enforce_https=False,
+    )
+    with patch(
+        "webtrees_installer.flow.ask_choice",
+        side_effect=["full", "standalone"],
+    ), patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE):
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "FALSE"
+
+
+def test_run_standalone_allows_default_enforce_https_when_traefik_chosen_at_prompt(
+    tmp_path: Path,
+) -> None:
+    """Wizard-default path: operator picks traefik at the prompt without
+    passing --no-https (args.enforce_https is None). The new flow.py guard
+    uses `is False`, so None must fall through and the stack must render
+    with ENFORCE_HTTPS=TRUE (the wizard default)."""
+    args = _args(
+        work_dir=tmp_path,
+        interactive=True,
+        proxy_mode=None,
+        enforce_https=None,
+        domain="webtrees.example.com",
+    )
+    with patch(
+        "webtrees_installer.flow.ask_choice",
+        side_effect=["full", "traefik"],
+    ):
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "TRUE"
 
 
 def test_run_standalone_writes_admin_password_to_secrets_init(tmp_path: Path) -> None:

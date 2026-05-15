@@ -291,6 +291,232 @@ def test_render_traefik_with_custom_network(tmp_path: Path, catalog: Catalog) ->
     )
 
 
+_PROXY_VARIANTS = (
+    pytest.param("standalone", 8080, None, id="standalone"),
+    pytest.param("traefik", None, "webtrees.example.com", id="traefik"),
+)
+
+
+@pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
+def test_render_writes_enforce_https_true_by_default(
+    tmp_path: Path, catalog: Catalog,
+    proxy_mode: str, app_port: int | None, domain: str | None,
+) -> None:
+    """Default render (enforce_https=True) sets ENFORCE_HTTPS=TRUE on phpfpm + nginx in both proxy modes."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "TRUE"
+    assert compose["services"]["nginx"]["environment"]["ENFORCE_HTTPS"] == "TRUE"
+
+
+@pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
+def test_render_writes_enforce_https_false_when_opted_out(
+    tmp_path: Path, catalog: Catalog,
+    proxy_mode: str, app_port: int | None, domain: str | None,
+) -> None:
+    """enforce_https=False flips ENFORCE_HTTPS=FALSE on both phpfpm and nginx in both proxy modes."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        enforce_https=False,
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert compose["services"]["phpfpm"]["environment"]["ENFORCE_HTTPS"] == "FALSE"
+    assert compose["services"]["nginx"]["environment"]["ENFORCE_HTTPS"] == "FALSE"
+
+
+@pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
+@pytest.mark.parametrize("enforce_https", [True, False])
+def test_render_nginx_healthcheck_carries_x_forwarded_proto(
+    tmp_path: Path, catalog: Catalog,
+    proxy_mode: str, app_port: int | None, domain: str | None,
+    enforce_https: bool,
+) -> None:
+    """The probe sends X-Forwarded-Proto: https unconditionally so the
+    enforce-https 301 never turns a curl exit code into a false-positive
+    healthy state. The header must survive on both proxy modes AND
+    regardless of the enforce_https value (decoupling claim documented
+    in the template comment)."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        enforce_https=enforce_https,
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    healthcheck = compose["services"]["nginx"]["healthcheck"]["test"]
+    # Anchor on the -H flag form so a future edit that drops the curl flag
+    # while leaving the header text in a comment cannot mask a regression.
+    assert any(
+        "-H 'X-Forwarded-Proto: https'" in part for part in healthcheck
+    )
+
+
+def test_render_template_parity_enforce_https_and_healthcheck(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """Mirrored fields between the two proxy templates must stay in
+    lockstep: the ENFORCE_HTTPS env on phpfpm + nginx, and the nginx
+    healthcheck `test` array (the curl command line). Per
+    feedback_lockstep_check_pattern, this guard fails loud if a future
+    edit fixes one template and forgets the other.
+
+    Intentionally narrow: timing knobs on the healthcheck stanza
+    (`interval`, `timeout`, `retries`, `start_period`) can legitimately
+    diverge per topology in the future (e.g. Traefik edge giving the
+    backend a longer warm-up budget), so they are not pinned here.
+    """
+    standalone_dir = tmp_path / "standalone"
+    traefik_dir = tmp_path / "traefik"
+    standalone_dir.mkdir()
+    traefik_dir.mkdir()
+
+    base_kwargs = {
+        "edition": "core",
+        "admin_bootstrap": False,
+        "admin_user": None,
+        "admin_email": None,
+        "catalog": catalog,
+        "generated_at": datetime(2026, 5, 12, 12, 0, 0),
+    }
+    render_files(
+        input_model=RenderInput(
+            proxy_mode="standalone", app_port=8080, domain=None, **base_kwargs,
+        ),
+        target_dir=standalone_dir,
+    )
+    render_files(
+        input_model=RenderInput(
+            proxy_mode="traefik", app_port=None,
+            domain="webtrees.example.com", **base_kwargs,
+        ),
+        target_dir=traefik_dir,
+    )
+
+    standalone = yaml.safe_load((standalone_dir / "compose.yaml").read_text())
+    traefik = yaml.safe_load((traefik_dir / "compose.yaml").read_text())
+
+    for svc in ("phpfpm", "nginx"):
+        assert (
+            standalone["services"][svc]["environment"]["ENFORCE_HTTPS"]
+            == traefik["services"][svc]["environment"]["ENFORCE_HTTPS"]
+        ), f"ENFORCE_HTTPS mismatch on service {svc}"
+
+    assert (
+        standalone["services"]["nginx"]["healthcheck"]["test"]
+        == traefik["services"]["nginx"]["healthcheck"]["test"]
+    ), "nginx healthcheck curl command diverged between standalone and traefik templates"
+
+    # Symmetry guard: legitimate per-topology divergence is fine for the
+    # timing fields (kept open by the narrow `test` comparison above),
+    # but a future single-side edit that adds an unknown key (e.g.
+    # `disable: true`, `start_interval: 1s`) to one template only would
+    # slip past the curl-line check. Pin the field set to flag asymmetry.
+    assert (
+        set(standalone["services"]["nginx"]["healthcheck"].keys())
+        == set(traefik["services"]["nginx"]["healthcheck"].keys())
+    ), "nginx healthcheck stanza key sets diverged between standalone and traefik templates"
+
+    # Positive guard: a synchronized edit that adds `disable: true` to
+    # BOTH templates or replaces the curl with a no-op would slip past
+    # the symmetry checks (they assert sameness, not enabledness). Pin
+    # the probe as enabled and shell-driven.
+    for mode, compose_doc in (("standalone", standalone), ("traefik", traefik)):
+        healthcheck = compose_doc["services"]["nginx"]["healthcheck"]
+        assert "disable" not in healthcheck, (
+            f"{mode}: nginx healthcheck must not be disabled"
+        )
+        assert healthcheck["test"][0] == "CMD-SHELL", (
+            f"{mode}: nginx healthcheck must run a CMD-SHELL probe"
+        )
+
+
+@pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
+def test_render_nginx_healthcheck_start_period_pinned(
+    tmp_path: Path, catalog: Catalog,
+    proxy_mode: str, app_port: int | None, domain: str | None,
+) -> None:
+    """start_period: 60s covers cold first-boot on slow disks (NAS spinning
+    rust, AUTO_SEED running schema migrations). A revert to a smaller value
+    would silently re-introduce the false-`unhealthy` window the R2 audit
+    closed; pin the number so an accidental tightening fails loud."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert compose["services"]["nginx"]["healthcheck"]["start_period"] == "60s"
+
+
+def test_render_traefik_carries_websecure_tls_labels(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """The TRAEFIK_TLS_INCOMPAT_REASON guard text in prompts.py promises
+    operators that the Traefik router still terminates TLS at the edge
+    (`websecure` entrypoint + `tls=true`). Pin those labels here so the
+    guard rationale cannot silently rot when the template is edited."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="traefik",
+        app_port=None,
+        domain="webtrees.example.com",
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    labels = compose["services"]["nginx"]["labels"]
+    assert labels["traefik.http.routers.webtrees.entrypoints"] == "websecure"
+    # yaml.safe_load coerces unquoted `true` / `yes` / `on` to Python bool;
+    # the current template quotes it ("true") so safe_load yields a string,
+    # but a legitimate future de-quoting would still keep the router on TLS.
+    # Compare loosely so the test pins operational semantics, not YAML form.
+    tls_label = labels["traefik.http.routers.webtrees.tls"]
+    assert str(tls_label).lower() in {"true", "yes", "on"}
+
+
 def test_render_rejects_invalid_proxy_mode(tmp_path: Path, catalog: Catalog) -> None:
     inp = RenderInput(
         edition="core",

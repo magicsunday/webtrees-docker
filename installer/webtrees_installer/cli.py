@@ -10,7 +10,7 @@ from pathlib import Path
 from webtrees_installer import __version__
 from webtrees_installer.flow import StandaloneArgs, run_standalone
 from webtrees_installer.prereq import PrereqError
-from webtrees_installer.prompts import PromptError
+from webtrees_installer.prompts import TRAEFIK_TLS_INCOMPAT_REASON, PromptError
 from webtrees_installer.stack import StackError
 
 
@@ -161,10 +161,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-https",
         action="store_true",
-        help="Opt out of HTTPS enforcement (ENFORCE_HTTPS=FALSE). The default "
-             "is ENFORCE_HTTPS=TRUE; use this flag for local-only installs "
-             "without TLS termination, or for setups where an upstream proxy "
-             "handles redirects.",
+        help="Standalone proxy mode only. Opt out of HTTPS enforcement "
+             "(ENFORCE_HTTPS=FALSE). The default is ENFORCE_HTTPS=TRUE; "
+             "use this flag for local-only installs without TLS termination, "
+             "or for setups where a separate upstream proxy (not the bundled "
+             "Traefik template) handles HTTP-only forwarding. Rejected with "
+             "--proxy traefik because the rendered Traefik router still "
+             "terminates TLS at the edge — see docs/customizing.md.",
     )
     parser.add_argument(
         "--pretty-urls",
@@ -299,14 +302,24 @@ def _validate_mode_compatibility(args: argparse.Namespace) -> None:
     layer surfaces the mismatch and points at the .env knob the dev flow
     actually reads.
     """
-    # TODO: lift into a flag→message registry once a second explicit
-    # exception lands; revisit argparse subparsers if dev/standalone flag
+    # TODO: lift into a flag→message registry when this if-chain grows
+    # another branch; revisit argparse subparsers if dev/standalone flag
     # sets diverge enough that the flat parser stops carrying its weight.
     if args.mode == "dev" and args.pretty_urls:
         raise PromptError(
             "--pretty-urls is standalone-only. In dev mode set "
             "WEBTREES_REWRITE_URLS=1 in .env (scripts/configuration "
             "writes it into config.ini.php on install)."
+        )
+    if (
+        args.mode == "standalone"
+        and args.proxy_mode == "traefik"
+        and args.no_https
+    ):
+        raise PromptError(
+            "--no-https is incompatible with --proxy traefik: "
+            f"{TRAEFIK_TLS_INCOMPAT_REASON}. "
+            "Drop --no-https for Traefik, or switch to --proxy standalone."
         )
 
 
