@@ -277,10 +277,10 @@ setup_webtrees_bootstrap() {
     # value (or 0 on a fresh write). We only pass an explicit flag when
     # the operator has set WEBTREES_REWRITE_URLS — leaving the env var
     # unset keeps the core default behaviour.
-    local rewrite_urls_flag=""
+    local rewrite_urls_mode=""
     case "${WEBTREES_REWRITE_URLS:-}" in
-        1|true|TRUE) rewrite_urls_flag="--rewrite-urls" ;;
-        0|false|FALSE) rewrite_urls_flag="--no-rewrite-urls" ;;
+        1|true|TRUE) rewrite_urls_mode="rewrite" ;;
+        0|false|FALSE) rewrite_urls_mode="no-rewrite" ;;
     esac
 
     log_success "Writing config.ini.php via webtrees config-ini"
@@ -290,13 +290,17 @@ setup_webtrees_bootstrap() {
     # is therefore safe — the inner shell receives the value as a
     # discrete argv entry, not as part of the command source. The
     # outer `-c` body is single-quoted so $vars stay symbolic until
-    # the inner shell expands them from its own argv. $8 is
-    # intentionally unquoted on the rewrite-urls slot so an empty
-    # value drops the flag entirely; the source is a literal
-    # `--rewrite-urls` / `--no-rewrite-urls` / `""` set by the case
-    # above (no whitespace, no metacharacters).
+    # the inner shell expands them from its own argv. $8 carries a
+    # neutral token ("rewrite" / "no-rewrite" / "") that the inner
+    # shell maps to the actual `--rewrite-urls` CLI flag, avoiding a
+    # raw leading `--` token in su's argv parsing path.
     # shellcheck disable=SC2016  # inner shell expands $1..$8 from positional args
     if ! su www-data -s /bin/sh -c '
+        rewrite_urls_flag=""
+        case "$8" in
+            rewrite) rewrite_urls_flag="--rewrite-urls" ;;
+            no-rewrite) rewrite_urls_flag="--no-rewrite-urls" ;;
+        esac
         php "$1" config-ini \
             --dbtype=mysql \
             --dbhost="$2" \
@@ -305,7 +309,7 @@ setup_webtrees_bootstrap() {
             --dbuser="$5" \
             --dbpass="$6" \
             --tblpfx="$7" \
-            $8
+            ${rewrite_urls_flag:+$rewrite_urls_flag}
     ' webtrees-cli \
         "${launcher}" \
         "${MARIADB_HOST:-db}" \
@@ -314,7 +318,7 @@ setup_webtrees_bootstrap() {
         "${MARIADB_USER:-webtrees}" \
         "${MARIADB_PASSWORD}" \
         "${WEBTREES_TABLE_PREFIX:-wt_}" \
-        "${rewrite_urls_flag}"; then
+        "${rewrite_urls_mode}"; then
         log_error "webtrees config-ini failed — marker not set, will retry on next start"
         return 1
     fi

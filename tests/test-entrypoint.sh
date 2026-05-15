@@ -708,6 +708,7 @@ test_bootstrap_pretty_urls_flag_propagates() {
     # WEBTREES_REWRITE_URLS=1 → entrypoint should call config-ini with --rewrite-urls.
     docker run --rm \
         -v "$vol:/var/www/html" \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         -e WT_ADMIN_USER=admin \
@@ -749,6 +750,7 @@ test_bootstrap_pretty_urls_off_passes_no_rewrite_urls() {
 
     docker run --rm \
         -v "$vol:/var/www/html" \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         -e WT_ADMIN_USER=admin \
@@ -790,6 +792,7 @@ test_bootstrap_pretty_urls_accepts_lowercase_true_alias() {
 
     docker run --rm \
         -v "$vol:/var/www/html" \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
         -e WEBTREES_AUTO_SEED=false \
         -e ENVIRONMENT=production \
         -e WT_ADMIN_USER=admin \
