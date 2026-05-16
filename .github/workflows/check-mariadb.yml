@@ -50,6 +50,15 @@ jobs:
                   # `if [ -z "$pinned_minor" ]` guard can produce its
                   # actionable error message instead of leaking a raw
                   # shell exit.
+                  # The regex anchors `[0-9]+\.[0-9]+` against either
+                  # whitespace OR end-of-line so we accept the canonical
+                  # X.Y rolling-minor pin (with or without trailing
+                  # comment) and reject X.Y.Z patch-pinned variants —
+                  # the latter would let MariaDB silently freeze on a
+                  # specific patch while the workflow keeps tracking
+                  # the rolling minor as if everything were fine.
+                  # Symmetric with `_PIN_RE` in
+                  # installer/tests/test_mariadb_pin_lockstep.py.
                   pinned_minor=$( { grep -hE '^\s*image:\s*mariadb:[0-9]+\.[0-9]+([[:space:]]|$)' \
                       installer/webtrees_installer/templates/compose.standalone.j2 \
                       || true; } \

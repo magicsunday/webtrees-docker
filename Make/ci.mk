@@ -231,20 +231,18 @@ ci-shellcheck: .logo ## Lints every tracked shell script.
 			koalaman/shellcheck:stable \
 			-x
 
-ci-readme-badge-lockstep: .logo ## Asserts the README webtrees badge tracks dev/versions.json row 0.
+ci-readme-badge-lockstep: .logo ## Asserts README webtrees/PHP badge values cover every unique entry in dev/versions.json.
 	echo -e "${FBLUE}▶ README badge lockstep${FRESET}"
-	# The README's webtrees badge uses shields.io's `dynamic/json` endpoint
-	# with JSONPath `$$[0].webtrees`. Shields.io's JSONPath subset rejects
-	# predicate filters, so we cannot scope the badge to the row tagged
-	# `latest`. Instead we enforce the invariant here: row 0 must be the
-	# row that carries the `latest` tag, so the badge always reads the
-	# canonical version. The check-versions.yml auto-bump renderer is in
-	# lockstep with this: it partitions latest-tagged rows to the front
-	# of the array before writing.
+	# The README badges are static `img.shields.io/badge/<label>-<msg>-<color>`
+	# URLs spelling out every unique version `|`-separated (e.g.
+	# `2.1.27%7C2.2.6` for webtrees, `8.3%7C8.4%7C8.5` for PHP). Static
+	# rather than shields.io `dynamic/json` because that endpoint cannot
+	# dedupe + sort an array of values — we'd otherwise render duplicates.
 	#
-	# Two-stage check so parse errors don't masquerade as drift:
-	#   1. `jq empty` validates the file is parseable JSON.
-	#   2. `jq -e <predicate>` flips exit status on the actual invariant.
+	# Invariant: every unique `.webtrees` / `.php` value in versions.json
+	# must appear in the matching badge URL. Bumping versions.json without
+	# touching the README fails this check, mirroring the alpine lockstep
+	# discipline.
 	docker run --rm \
 		-v "$(PWD)/dev:/d:ro" \
 		-w /d \
@@ -253,22 +251,54 @@ ci-readme-badge-lockstep: .logo ## Asserts the README webtrees badge tracks dev/
 			echo "::error::dev/versions.json is not parseable JSON" >&2; \
 			exit 1; \
 		}
-	docker run --rm \
-		-v "$(PWD)/dev:/d:ro" \
-		-w /d \
-		ghcr.io/jqlang/jq:latest \
-		-e '.[0].tags | index("latest") != null' versions.json >/dev/null || { \
-			echo "::error::dev/versions.json row 0 must carry the \"latest\" tag — the README shields.io badge reads \$$[0].webtrees verbatim." >&2; \
+	# `sort_by(split(".") | map(tonumber? // 0))` produces NATURAL
+	# numeric ordering so a future `8.10` lands AFTER `8.5` (lexical
+	# sort would place `8.10` before `8.3`). The `tonumber? // 0`
+	# fallback keeps pre-release tags (`2.3.0-beta.1` etc.) sortable
+	# without crashing jq — they bucket at "0" for the non-numeric
+	# segment. Caveat: a release `2.3.0` and its pre-release
+	# `2.3.0-beta.1` bucket to the same key; jq's sort is stable,
+	# so their badge-URL order matches their order in versions.json.
+	# The README author must encode the pair in the same order the
+	# renderer writes; the grep is a fixed-string check, not a
+	# set-equality check. Avoid coexisting release+pre-release in
+	# versions.json if possible.
+	# `|| exit 1` on each docker substitution: an empty result would
+	# silently produce `webtrees--blue` and grep would fail with a
+	# misleading "does not encode ''" — fail loud on the actual cause.
+	# `select(type == "string" and (. | test("\\S")))` drops every
+	# schema-bad shape BEFORE `split(.)` runs: nulls, empty strings,
+	# whitespace-only, AND non-string types (integer, array, object).
+	# Without this, a malformed versions.json would crash jq with
+	# `split input must be a string` and the operator would see the
+	# generic `docker run failed` instead of an actionable `empty
+	# pin extraction` error.
+	expected_wt=$$(docker run --rm -v "$(PWD)/dev:/d:ro" -w /d ghcr.io/jqlang/jq:latest \
+			-r '[.[].webtrees | select(type == "string" and (. | test("\\S")))] | unique | sort_by(split(".") | map(tonumber? // 0)) | join("|")' versions.json) || { \
+			echo "::error::docker run for webtrees pin extraction failed" >&2; \
+			exit 1; \
+		}; \
+		expected_php=$$(docker run --rm -v "$(PWD)/dev:/d:ro" -w /d ghcr.io/jqlang/jq:latest \
+			-r '[.[].php | select(type == "string" and (. | test("\\S")))] | unique | sort_by(split(".") | map(tonumber? // 0)) | join("|")' versions.json) || { \
+			echo "::error::docker run for php pin extraction failed" >&2; \
+			exit 1; \
+		}; \
+		[ -n "$$expected_wt" ] && [ -n "$$expected_php" ] || { \
+			echo "::error::empty pin extraction (webtrees=$$expected_wt php=$$expected_php) — check dev/versions.json" >&2; \
+			exit 1; \
+		}; \
+		echo "  expected webtrees: $$expected_wt"; \
+		echo "  expected PHP:      $$expected_php"; \
+		wt_encoded=$$(printf '%s' "$$expected_wt" | sed 's#|#%7C#g'); \
+		php_encoded=$$(printf '%s' "$$expected_php" | sed 's#|#%7C#g'); \
+		grep -qF "img.shields.io/badge/webtrees-$$wt_encoded-blue" README.md || { \
+			echo "::error::README webtrees badge does not encode '$$expected_wt' — bump the static badge URL alongside dev/versions.json." >&2; \
+			exit 1; \
+		}; \
+		grep -qF "img.shields.io/badge/PHP-$$php_encoded-787CB5" README.md || { \
+			echo "::error::README PHP badge does not encode '$$expected_php' — bump the static badge URL alongside dev/versions.json." >&2; \
 			exit 1; \
 		}
-	# Pin the README side of the invariant too: if someone edits the
-	# badge URL to a different JSONPath (e.g. `$$[*].webtrees`), the
-	# json-side check still passes but the badge silently regresses.
-	# `query=%24%5B0%5D.webtrees` is the URL-encoded form of `$$[0].webtrees`.
-	grep -q 'query=%24%5B0%5D.webtrees' README.md || { \
-		echo "::error::README.md webtrees badge no longer queries \$$[0].webtrees — update either the badge or ci-readme-badge-lockstep so both ends stay in sync." >&2; \
-		exit 1; \
-	}
 
 ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirrors agree across every documented site.
 	echo -e "${FBLUE}▶ port-default lockstep${FRESET}"

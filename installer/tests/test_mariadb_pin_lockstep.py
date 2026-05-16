@@ -1,6 +1,6 @@
 """Lockstep guard for the MariaDB image pin.
 
-The MariaDB tag `mariadb:X.Y` is hardcoded in three sibling files:
+The MariaDB tag `mariadb:X.Y` is hardcoded in four sibling files:
 
   * `installer/webtrees_installer/templates/compose.standalone.j2`
   * `installer/webtrees_installer/templates/compose.traefik.j2`
@@ -65,6 +65,10 @@ _PIN_SITES = (
 
 
 def _looks_like_repo_root(root: Path) -> bool:
+    """Anchor-file check: a candidate path is a real repo root iff both
+    `dev/versions.json` and `installer/pyproject.toml` exist underneath
+    it. The pair is unique to this repo, so accidental matches against
+    e.g. a partial wheel checkout are excluded."""
     return (root / "dev" / "versions.json").is_file() and (
         root / "installer" / "pyproject.toml"
     ).is_file()
@@ -98,7 +102,7 @@ def test_mariadb_pin_consistent_across_all_sites() -> None:
         path = root / relative
         if not path.is_file():
             pytest.fail(f"expected pin site missing: {relative}")
-        match = _PIN_RE.search(path.read_text())
+        match = _PIN_RE.search(path.read_text(encoding="utf-8"))
         if not match:
             pytest.fail(
                 f"no `image: mariadb:X.Y` directive in {relative}; "
@@ -129,7 +133,30 @@ def test_pin_regex_accepts_trailing_comment() -> None:
 
 def test_pin_regex_rejects_comment_only_line() -> None:
     """A bare comment mentioning `mariadb:X.Y` (such as the BYOD
-    section's prose explainer) MUST NOT match — that ambiguity was
-    exactly the Round-1 finding."""
+    section's prose explainer) MUST NOT match — `_PIN_RE` anchors on
+    `image:` to keep prose mentions out of the lockstep scan."""
     sample = "        # a host path. mariadb:11.8 expects the directory empty"
     assert _PIN_RE.search(sample) is None
+
+
+def test_pin_regex_accepts_bare_eol_image_line() -> None:
+    """The canonical shape every shipped compose site uses today is
+    `image: mariadb:11.8` with bare EOL (no trailing whitespace or
+    comment). Pin it explicitly so a future refactor cannot silently
+    lose coverage of the most common form."""
+    sample = "        image: mariadb:11.8"
+    match = _PIN_RE.search(sample)
+    assert match is not None
+    assert match.group(1) == "11.8"
+
+
+def test_pin_regex_rejects_patch_pinned_x_y_z() -> None:
+    """Pin policy: X.Y rolling-minor only. A `mariadb:11.9.3` literal
+    would freeze on a specific patch while the workflow continues to
+    treat the pin as `11.9` (after the workflow's sed strip). Both
+    the workflow grep and this regex must REJECT the X.Y.Z shape so
+    a contributor switching to a patch-pin gets a loud lockstep
+    failure pointing at the policy violation."""
+    sample = "        image: mariadb:11.9.3"
+    assert _PIN_RE.search(sample) is None
+

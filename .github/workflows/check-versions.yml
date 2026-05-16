@@ -109,10 +109,12 @@ jobs:
                       # carries the rolling bundle.
                       #
                       # The final array is partitioned so every row carrying
-                      # a `latest`-style tag comes first — `ci-readme-badge-lockstep`
-                      # asserts that the README's shields.io badge target
-                      # (`dev/versions.json[0]`) always points at the canonical
-                      # release row.
+                      # a `latest`-style tag comes first — a cosmetic-stable
+                      # ordering for diff readability. Row order carries no
+                      # semantic meaning: `ci-readme-badge-lockstep` asserts
+                      # that every unique webtrees / php value across all
+                      # rows appears in the static README badge URLs,
+                      # independent of which row carries which value.
                       new_rows=$(jq -c --arg ver "$version" --arg php "$canonical_php" --argjson rolling "$rolling" '
                           (map(.tags -= $rolling)
                            + ([["8.3"], ["8.4"], ["8.5"]]
@@ -137,8 +139,47 @@ jobs:
                       } > dev/versions.json.new
                       mv dev/versions.json.new dev/versions.json
 
+                      # ci-readme-badge-lockstep asserts every unique
+                      # `.webtrees` / `.php` value in versions.json appears
+                      # in the static README badge URLs. The bump above
+                      # may have introduced a new unique value (e.g. a
+                      # new webtrees X.Y.Z patch); rewrite both badges
+                      # from the just-updated versions.json so the lockstep
+                      # check (and therefore auto-merge) stays green.
+                      # Each docker run is wrapped with an explicit
+                      # `::error::` annotation so a registry hiccup
+                      # (slow ghcr.io pull, daemon flake) surfaces with
+                      # an actionable pointer rather than a cryptic
+                      # `set -e` step abort. Mirrors Make/ci.mk's
+                      # docker-jq guard.
+                      wt_values=$(docker run --rm -v "$(pwd)/dev:/d:ro" -w /d ghcr.io/jqlang/jq:latest \
+                          -r '[.[].webtrees | select(type == "string" and (. | test("\\S")))] | unique | sort_by(split(".") | map(tonumber? // 0)) | join("|")' versions.json) \
+                          || { echo "::error::docker run for webtrees pin extraction failed; check ghcr.io reachability and dev/versions.json syntax"; exit 1; }
+                      php_values=$(docker run --rm -v "$(pwd)/dev:/d:ro" -w /d ghcr.io/jqlang/jq:latest \
+                          -r '[.[].php | select(type == "string" and (. | test("\\S")))] | unique | sort_by(split(".") | map(tonumber? // 0)) | join("|")' versions.json) \
+                          || { echo "::error::docker run for php pin extraction failed; check ghcr.io reachability and dev/versions.json syntax"; exit 1; }
+                      # Mirror Make/ci.mk's empty-result guard so an
+                      # all-non-string versions.json fails the workflow
+                      # loud instead of writing `webtrees--blue` into
+                      # the README.
+                      if [ -z "$wt_values" ] || [ -z "$php_values" ]; then
+                          echo "::error::empty pin extraction (webtrees=$wt_values php=$php_values); refusing to rewrite README badges"
+                          exit 1
+                      fi
+                      wt_encoded=$(printf '%s' "$wt_values" | sed 's#|#%7C#g')
+                      php_encoded=$(printf '%s' "$php_values" | sed 's#|#%7C#g')
+                      # Rewrite via a separate Python script (not an
+                      # inline heredoc) so YAML indentation cannot leak
+                      # into Python statements. A `sed s/[^-]+/.../`
+                      # would silently no-op once a hyphen lands in the
+                      # message field (pre-release tags like
+                      # `2.3.0-beta.1`) — see the lockstep test
+                      # "renderer added webtrees row without README
+                      # sync fails" for the cascade.
+                      python3 scripts/rewrite-readme-badges.py "$wt_encoded" "$php_encoded"
+
                       git checkout -b "$branch"
-                      git add dev/versions.json
+                      git add dev/versions.json README.md
                       git commit -m "$title"
                       git push origin "$branch"
 
@@ -165,6 +206,18 @@ jobs:
                       # to main), and exit non-zero only after the loop
                       # so notify-on-failure picks it up while later
                       # versions still get their branches + PRs.
+                      #
+                      # Scope: collect-then-fail discipline applies to
+                      # `gh workflow run` dispatches only. Registry-fetch,
+                      # pin-extraction, and python-rewriter steps remain
+                      # fail-fast — they signal either a versions.json
+                      # schema break (persistent; every iteration would
+                      # corrupt identically) or a registry hiccup (usually
+                      # short but accepted as a one-cron-cycle delay,
+                      # because the next milliseconds-later docker pull
+                      # in the same iteration is overwhelmingly likely to
+                      # fail too). Self-healing kicks in on the next 24h
+                      # cron once the upstream condition clears.
                       if ! gh workflow run build.yml --ref "$branch" -f webtrees_version="$version"; then
                           dispatch_failures="${dispatch_failures}${version} "
                           echo "::warning::build.yml dispatch for $version failed; loop continues, exit non-zero at end"

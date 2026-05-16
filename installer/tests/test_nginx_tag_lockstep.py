@@ -1,18 +1,20 @@
 """Lockstep guard for the nginx image tag.
 
-The canonical nginx tag lives in `dev/nginx-version.json` (`.tag`,
-currently `1.30-r1`). Three test-side sites repeat the tag literally:
+The canonical nginx tag lives in `dev/nginx-version.json` (`.tag`).
+Five sites repeat the tag literally — three test-side defaults plus
+two operator-facing artefacts:
 
   * `Make/ci.mk` (the `ci-nginx-config` target's NGINX_IMAGE)
   * `tests/test-nginx-config.sh` (default for `TEST_NGINX_IMAGE`)
   * `tests/test-trust-proxy-extra.sh` (same default)
+  * `templates/portainer/compose.yaml` (shipped Portainer stack)
+  * `README.md` (operator pull instruction in prose)
 
-History: commit 64eadb9 reactively bumped these three after a stale
-`1.28-r1` literal survived the 1.28→1.30 bump, slipped past CI under
-the dual-publish window (#58), and tripped only after the legacy
-alias retired (#97) — `manifest unknown` against
-`webtrees-nginx:1.28-r1`. This test enforces that the three literals
-agree with the canonical pin so the next bump can't repeat the gap.
+Drift between any site and the canonical JSON pin is silently
+survivable while a transitional multi-arch alias still resolves
+the old tag, but fails loud with `manifest unknown` the moment
+that alias is retired. This test fails any pre-merge bump that
+leaves stragglers, so the gap cannot reappear.
 """
 
 from __future__ import annotations
@@ -45,6 +47,9 @@ def _resolve_repo_root() -> Path | None:
 
 
 def _looks_like_repo_root(root: Path) -> bool:
+    """Anchor-file check: a candidate path is a real repo root iff both
+    `dev/versions.json` and `installer/pyproject.toml` exist underneath
+    it. Symmetric with test_mariadb_pin_lockstep's guard."""
     return (root / "dev" / "versions.json").is_file() and (
         root / "installer" / "pyproject.toml"
     ).is_file()
@@ -54,6 +59,8 @@ _TAG_SITES = (
     "Make/ci.mk",
     "tests/test-nginx-config.sh",
     "tests/test-trust-proxy-extra.sh",
+    "templates/portainer/compose.yaml",
+    "README.md",
 )
 
 
@@ -75,7 +82,7 @@ def test_nginx_tag_matches_canonical_across_all_sites() -> None:
         )
 
     canonical = json.loads(
-        (root / "dev" / "nginx-version.json").read_text()
+        (root / "dev" / "nginx-version.json").read_text(encoding="utf-8")
     )["tag"]
 
     drifted: dict[str, list[str]] = {}
@@ -83,7 +90,7 @@ def test_nginx_tag_matches_canonical_across_all_sites() -> None:
         path = root / relative
         if not path.is_file():
             pytest.fail(f"expected nginx-tag site missing: {relative}")
-        found = sorted(set(_TAG_RE.findall(path.read_text())))
+        found = sorted(set(_TAG_RE.findall(path.read_text(encoding="utf-8"))))
         if not found:
             pytest.fail(
                 f"no `webtrees-nginx:X.Y-rN` literal in {relative}; "

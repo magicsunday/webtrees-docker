@@ -91,6 +91,33 @@ assert_lockstep_fails() {
     results+=("PASS  $name")
 }
 
+# Positive-control: the recipe must exit 0 after the worktree mutation.
+# Used when the test asserts that a defensive code path (e.g. type
+# guard, natural sort) keeps a malformed-but-recoverable input
+# acceptable.
+assert_lockstep_passes() {
+    local name=$1 target=$2
+    local stderr_out exit_code
+
+    set +e
+    stderr_out=$(cd "$worktree" && make "$target" 2>&1 >/dev/null)
+    exit_code=$?
+    set -e
+
+    if [ "$exit_code" -ne 0 ]; then
+        echo "FAIL  $name: expected exit 0, got $exit_code"
+        echo "      actual stderr (last 5 lines):"
+        printf '%s\n' "$stderr_out" | tail -5 | sed 's/^/        /'
+        fail=$((fail + 1))
+        results+=("FAIL  $name")
+        return
+    fi
+
+    echo "PASS  $name"
+    pass=$((pass + 1))
+    results+=("PASS  $name")
+}
+
 restore_worktree() {
     # Revert tracked-file mutations only, then re-apply the pending-edit
     # overlay so tests 2..N exercise the same in-progress code as test 1.
@@ -196,19 +223,103 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# ci-readme-badge-lockstep — row 0 missing the `latest` tag
+# ci-readme-badge-lockstep — new unique webtrees value not encoded in badge
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: dev/versions.json row 0 stripped of its tags"
-# Drop the tags array on row 0 — simpler than a row swap, decoupled from
-# whatever the rest of the array contains, and uses the same containerised
-# jq the production lockstep recipe uses so the test stays host-tool-clean.
+echo "Setting up: dev/versions.json grows a new unique webtrees value"
+# Append a row carrying a webtrees value the README badge does not encode.
+# Uses the same containerised jq the production lockstep recipe uses so
+# the test stays host-tool-clean.
 docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
-    -c '.[0].tags = [] | .' versions.json > "$worktree/dev/versions.json.new"
+    -c '. + [{"webtrees":"9.9.9","php":"8.5","tags":[]}]' versions.json > "$worktree/dev/versions.json.new"
 mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
 assert_lockstep_fails \
-    "ci-readme-badge-lockstep: row 0 without 'latest' tag fails the invariant" \
+    "ci-readme-badge-lockstep: new unique webtrees value missing from badge fails" \
     ci-readme-badge-lockstep \
-    'row 0 must carry the "latest" tag'
+    'webtrees badge does not encode'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — natural-sort ordering against 2-digit minor
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: dev/versions.json grows PHP 8.10; README must encode 8.3|8.4|8.5|8.10"
+# Adds a row with PHP 8.10 (and an existing webtrees value so the
+# webtrees badge stays satisfied). The recipe's natural-sort
+# `tonumber? // 0` clause must place 8.10 AFTER 8.5; a regression to
+# plain lexical `sort` would emit `8.10|8.3|8.4|8.5` and the README
+# would have to be rewritten in the wrong order — this test pins the
+# natural-sort contract by overwriting the README badge to the
+# natural-order spelling and asserting the recipe accepts it.
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '. + [{"webtrees":"2.2.6","php":"8.10","tags":[]}]' versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+sed -i 's|PHP-8.3%7C8.4%7C8.5-787CB5|PHP-8.3%7C8.4%7C8.5%7C8.10-787CB5|' "$worktree/README.md"
+assert_lockstep_passes \
+    "ci-readme-badge-lockstep: PHP 8.10 lands AFTER 8.5 (natural sort)" \
+    ci-readme-badge-lockstep
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — schema-bad row (non-string php value)
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: dev/versions.json row carries a non-string php value"
+# Integer in .php would crash `split(.)` without the `type == \"string\"`
+# guard. The defensive filter must drop the row so the badge check
+# either passes (clean current state) or fails with the actionable
+# `empty pin extraction` message — never with a generic docker error.
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '. + [{"webtrees":"2.2.6","php":83,"tags":[]}]' versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_passes \
+    "ci-readme-badge-lockstep: non-string php row dropped by type guard" \
+    ci-readme-badge-lockstep
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — hyphen-bearing badge message blocks naive sed
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: README badge message already contains a hyphen (pre-release-style)"
+# Hyphen-tolerance trap: if a previous bump left a pre-release
+# value (`2.3.0-beta.1`) in the badge message, a naive
+# `sed s|webtrees-[^-]+-blue|...|` cannot match (the `[^-]+` cannot
+# cross the embedded `-`). The recipe must still catch this state
+# loud — the python-based rewriter in check-versions.yml accepts
+# hyphens, but if a future maintainer "simplifies" the renderer to
+# use the naive sed, the lockstep recipe should still flag the drift
+# at the consumer side.
+sed -i 's|webtrees-2.1.27%7C2.2.6-blue|webtrees-2.1.27%7C2.2.6%7C2.3.0-beta.1-blue|' "$worktree/README.md"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: hyphen-bearing badge value not in versions.json fails" \
+    ci-readme-badge-lockstep \
+    'webtrees badge does not encode'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — check-versions.yml renderer dropped README sync
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: simulate check-versions.yml renderer adding a webtrees row but skipping README"
+# The cron-driven auto-bump appends new versions.json rows + opens a PR
+# with auto-merge enabled. If a future renderer regression skipped the
+# README badge rewrite step in check-versions.yml, the PR would silently
+# block on lockstep failure. This test pins that the recipe DOES catch
+# the cascade — the auto-bump must keep README in sync with versions.json.
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '. + [{"webtrees":"2.2.7","php":"8.5","tags":["latest"]}]' versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: renderer added webtrees row without README sync fails" \
+    ci-readme-badge-lockstep \
+    'webtrees badge does not encode'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — empty versions.json
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: dev/versions.json = [] (empty)"
+echo '[]' > "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: empty versions.json fails with actionable message" \
+    ci-readme-badge-lockstep \
+    'empty pin extraction'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
@@ -357,14 +468,17 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# ci-readme-badge-lockstep — README badge URL drifted away from `$[0].webtrees`
+# ci-readme-badge-lockstep — PHP badge missing one of the unique values
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: README webtrees badge query changed to \$[*].webtrees"
-sed -i 's|query=%24%5B0%5D.webtrees|query=%24%5B%2A%5D.webtrees|' "$worktree/README.md"
+echo "Setting up: README PHP badge drops one of the unique values (8.3)"
+# Strip `8.3%7C` from the PHP badge URL — the unique values from
+# versions.json no longer all appear in the static badge, so the lockstep
+# must fail loud naming the missing value.
+sed -i 's|PHP-8.3%7C8.4%7C8.5-787CB5|PHP-8.4%7C8.5-787CB5|' "$worktree/README.md"
 assert_lockstep_fails \
-    "ci-readme-badge-lockstep: badge URL no longer queries \$[0].webtrees" \
+    "ci-readme-badge-lockstep: PHP badge missing a unique value fails" \
     ci-readme-badge-lockstep \
-    "no longer queries"
+    'PHP badge does not encode'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
