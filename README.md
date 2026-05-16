@@ -154,6 +154,26 @@ Full guide: [`docs/customizing.md`](docs/customizing.md) — covers
 `compose.override.yaml` patterns (PHP limits, custom nginx snippets,
 external database, third-party modules) plus Backup / Restore.
 
+## Choosing a webtrees line
+
+Two parallel image tracks are published:
+
+| Tag | Webtrees line | PHP versions built | When to pick |
+|---|---|---|---|
+| `latest`, `2`, `2.2` | 2.2.x (current) | 8.3 / 8.4 / 8.5 | New installs, active feature work. |
+| `2.1` | 2.1.x (LTS-style) | 8.3 / 8.4 / 8.5 | Stay on the older line until you are ready for the 2.1 → 2.2 upgrade. |
+
+Pin a specific PHP minor with a fully-qualified tag — e.g.
+`ghcr.io/magicsunday/webtrees/php:2.1.27-php8.4` or
+`ghcr.io/magicsunday/webtrees/php:2.2.6-php8.5`. The line aliases
+(`latest`, `2`, `2.1`, `2.2`) follow the rolling top-of-line PHP entry
+(currently php8.5); pin a numeric tag if you need build determinism.
+
+The 2.1 → 2.2 upgrade is a standard webtrees major bump: stop the
+stack, swap the `WEBTREES_VERSION` value in `.env`, bring the stack
+back up. Webtrees runs its own schema migrations on first start;
+back up `<project>_database` first if the data matters to you.
+
 ## Updating to a new webtrees release
 
 ```bash
