@@ -52,11 +52,11 @@ ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 	# rendered Makefile instead of skipping. ~5MB extra image bytes,
 	# transparent under the pip-cache volume reuse.
 	#
-	# The repo root is mounted read-only at /repo so the legacy-image-
-	# ref guard (test_no_legacy_nested_image_refs_outside_allowlist)
-	# can walk the whole tree; the test reads WT_REPO_ROOT to find it
-	# without depending on relative pathlib resolution from the
-	# installer/ working dir.
+	# The repo root is bind-mounted read-only at /repo so the
+	# mariadb-pin lockstep test (test_mariadb_pin_lockstep) can
+	# verify the four shipped compose sites agree on `mariadb:X.Y`;
+	# WT_REPO_ROOT carries the path so the test resolves it without
+	# depending on relative pathlib walks from the installer/ cwd.
 	docker run --rm \
 		-v "$(PWD):/repo:ro" \
 		-v "$(PWD)/installer:/app" \

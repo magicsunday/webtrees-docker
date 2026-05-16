@@ -39,13 +39,22 @@ jobs:
                   set -euo pipefail
                   # The pin is hardcoded in installer compose templates +
                   # the dev compose.yaml. Read the standalone template's
-                  # `mariadb:X.Y` literal as the canonical source — a
-                  # lockstep check elsewhere keeps the three sites in
-                  # sync.
-                  pinned_minor=$(grep -hoE 'mariadb:[0-9]+\.[0-9]+' \
+                  # `image: mariadb:X.Y` directive as the canonical
+                  # source. Anchor the grep to the `image:` directive so
+                  # a comment line carrying `mariadb:X.Y` (currently the
+                  # bind-mount BYOD section explainer) cannot be picked
+                  # up by `head -1` instead of the real image line.
+                  #
+                  # `|| true` keeps the script alive under set -euo
+                  # pipefail when grep finds zero matches, so the
+                  # `if [ -z "$pinned_minor" ]` guard can produce its
+                  # actionable error message instead of leaking a raw
+                  # shell exit.
+                  pinned_minor=$( { grep -hoE '^\s*image:\s*mariadb:[0-9]+\.[0-9]+' \
                       installer/webtrees_installer/templates/compose.standalone.j2 \
+                      || true; } \
                       | head -1 \
-                      | sed 's|mariadb:||')
+                      | sed -E 's|.*mariadb:||')
                   if [ -z "$pinned_minor" ]; then
                       echo "::error::Could not parse the mariadb pin from compose.standalone.j2; expected an 'image: mariadb:X.Y' line"
                       exit 1
@@ -91,7 +100,7 @@ jobs:
                           if [ "$existing" = "0" ]; then
                               gh issue create \
                                   --title "$title" \
-                                  --body "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`). Review the MariaDB ${ver} release notes for schema-migration / config-format changes, then bump the pin in \`installer/webtrees_installer/templates/compose.standalone.j2\`, \`compose.traefik.j2\`, and the dev-mode \`compose.yaml\`. Re-run the smoke matrix afterwards."
+                                  --body "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`). Review the MariaDB ${ver} release notes for schema-migration / config-format changes, then bump the pin in every shipped artifact carrying a \`mariadb:X.Y\` literal: \`installer/webtrees_installer/templates/compose.standalone.j2\`, \`installer/webtrees_installer/templates/compose.traefik.j2\`, the dev-mode \`compose.yaml\`, and \`templates/portainer/compose.yaml\`. Re-run the smoke matrix afterwards."
                           fi
                       fi
                   done

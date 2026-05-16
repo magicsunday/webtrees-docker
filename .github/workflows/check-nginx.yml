@@ -1,6 +1,6 @@
 name: Check for nginx updates
 
-# Polls Docker Hub once a day at 12:30 UTC for new nginx minor releases
+# Polls Docker Hub once a day at 13:00 UTC for new nginx minor releases
 # beyond what `dev/nginx-version.json` currently pins. A new minor needs
 # a human review for breaking changes; the workflow only opens a
 # tracking issue rather than touching the version file.
@@ -13,7 +13,7 @@ name: Check for nginx updates
 
 on:
     schedule:
-        - cron: '30 12 * * *'
+        - cron: '0 13 * * *'
     workflow_dispatch:
 
 permissions:
