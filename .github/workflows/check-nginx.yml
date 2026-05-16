@@ -98,7 +98,7 @@ jobs:
                                   "**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:" \
                                   "" \
                                   "  1. Review release notes for nginx ${ver} (config-format / module-set changes)." \
-                                  "  2. Run \`make bump-nginx VERSION=${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test." \
+                                  "  2. Run \`./scripts/bump-nginx.sh ${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test. (\`make bump-nginx VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
                                   "  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally." \
                                   "  4. Open a PR; \`build.yml\` rebuilds the nginx image stage." \
                                   "  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`.")

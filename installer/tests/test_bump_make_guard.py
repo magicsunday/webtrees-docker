@@ -14,10 +14,12 @@ Out of scope — `$(shell …)` / `:=` / `::=` / `!=` / `CURDIR=` command-
 line overrides cannot be defeated from inside any Makefile under
 GNU Make 4.4+ because Make itself evaluates these constructs at
 command-line-assignment time, before any in-Makefile directive can
-run. Tracked as a follow-up issue for the operator-interface
-migration to direct-script invocation. The guard's value is closing
-the common-typo class of shell-metacharacter mistakes, not the
-deliberate-hostile-payload class.
+run. Operators receiving a `make bump-…` invocation from an untrusted
+source should use the equivalent `./scripts/bump-*.sh` form, which
+bypasses Make's parser entirely. The Make-side guard's value is
+closing the common-typo class of shell-metacharacter mistakes on
+the convenience-wrapper entry point, not the deliberate-hostile-
+payload class.
 """
 
 from __future__ import annotations
@@ -157,9 +159,8 @@ def test_make_guard_accepts_well_formed_version(repo_root: Path) -> None:
         f"Make rejected legitimate VERSION=1.31; "
         f"stdout={result.stdout!r}, stderr={result.stderr!r}"
     )
-    # The dry-run output should include the docker invocation line.
-    assert "docker run" in result.stdout
-    assert "bump-nginx.py" in result.stdout
+    # Make's bump-nginx target must delegate to the script form.
+    assert "./scripts/bump-nginx.sh" in result.stdout
 
 
 def test_make_guard_accepts_well_formed_config_revision(repo_root: Path) -> None:
@@ -184,3 +185,24 @@ def test_make_guard_accepts_well_formed_config_revision(repo_root: Path) -> None
     )
     assert result.returncode == 0
     assert "--config-revision 2" in result.stdout
+
+
+def test_make_guard_accepts_well_formed_mariadb_version(repo_root: Path) -> None:
+    """Sanity: a legitimate VERSION lets the bump-mariadb dry-run
+    succeed AND delegates to the script form. Symmetric with
+    `test_make_guard_accepts_well_formed_version` so a future
+    regression that re-introduces the inline docker invocation
+    for bump-mariadb only is caught."""
+    result = subprocess.run(
+        ["make", "-n", "-C", str(repo_root), "bump-mariadb", "VERSION=11.9"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert result.returncode == 0, (
+        f"Make rejected legitimate VERSION=11.9; "
+        f"stdout={result.stdout!r}, stderr={result.stderr!r}"
+    )
+    # Make's bump-mariadb target must delegate to the script form.
+    assert "./scripts/bump-mariadb.sh" in result.stdout

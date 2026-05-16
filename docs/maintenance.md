@@ -19,8 +19,9 @@ upstream publishes a tag newer than the current pin:
   * `check-nginx.yml` — Docker Hub library/nginx, daily 13:00 UTC.
 
 The workflows never mutate the repo. Each issue body links here, and
-each section below carries the corresponding `make bump-*` target plus
-the post-bump review and verification steps.
+each section below carries the corresponding `./scripts/bump-*.sh`
+invocation (and equivalent `make bump-*` form) plus the post-bump
+review and verification steps.
 
 A fifth workflow, `.github/workflows/check-versions.yml`, polls
 fisharebest/webtrees for new application releases. Unlike the four
@@ -29,34 +30,30 @@ directly (appending a row to `dev/versions.json` and regenerating the
 README badges) rather than a tracking issue — see the workflow file
 itself for the exact loop semantics.
 
-## Trust model for the `make bump-*` targets
+## Trust model and recommended invocation
 
-The `bump-nginx` / `bump-mariadb` recipes validate `VERSION` and
-`CONFIG_REVISION` for pure-shell metacharacters (backtick, semicolon,
-pipe, ampersand, redirect, quote, escape) at Make parse time. That
-guard closes the common-typo class — an operator misremembering the
-expected shape gets a loud `*** VERSION contains shell
-metacharacters` error before any docker command runs.
+Two entry points exist for every bump:
 
-The guard does NOT defend against `$(shell …)` / `:=` / `::=` / `!=`
-or `CURDIR=` command-line overrides. GNU Make 4.4+ evaluates these
-at command-line-assignment time, before any directive in any
-Makefile can run; the side effect lands before the validation can
-fire. This is a structural property of GNU Make and cannot be
-defeated from inside any Makefile.
+  * **`./scripts/bump-nginx.sh <new-minor>`** /
+    **`./scripts/bump-mariadb.sh <new-minor>`** — the recommended
+    form. Argv lands on the Python implementation directly, never
+    passing through Make's command-line parser. Robust against
+    `$(shell …)` / `:=` / `::=` / `!=` / `CURDIR=` injection.
+  * **`make bump-nginx VERSION=… [CONFIG_REVISION=…]`** /
+    **`make bump-mariadb VERSION=…`** — a convenience wrapper for
+    trusted-local invocations. Validates pure-shell metacharacters
+    (backtick, semicolon, pipe, ampersand, redirect, quote, escape)
+    at Make parse time and delegates to the script form. GNU Make
+    4.4+ evaluates command-line `$(shell …)` / `:=` / `::=` / `!=`
+    / `CURDIR=` assignments at parse time, before any directive in
+    any Makefile can run — that class of injection is structurally
+    impossible to block from inside any Makefile, so operators
+    pasting a `make bump-…` invocation from chat, README, gist, or
+    any untrusted source must use the script form instead.
 
-Operators should therefore never copy a `make bump-*` invocation
-from an untrusted source (chat, gist, untrusted README). For
-hostile-paste-resistant invocation, call the underlying scripts
-directly inside a python:3.13-slim container:
-
-```sh
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/app" -w /app \
-    python:3.13-slim python3 scripts/bump-nginx.py 1.32
-```
-
-The Python script's own argv handling does not interpret shell
-metacharacters and is unaffected by Make's command-line parser.
+The script form is also what `make bump-*` invokes internally, so
+behaviour is identical when the inputs are well-formed; the
+difference is solely in the threat surface of the entry point.
 
 ## Bumping the nginx pin
 
@@ -93,10 +90,14 @@ it could not survive the even-only filter.
 ### 2. Run the bumper
 
 ```bash
-make bump-nginx VERSION=<new-minor>
+./scripts/bump-nginx.sh <new-minor>
 ```
 
-The target invokes `scripts/bump-nginx.py`, which:
+(`make bump-nginx VERSION=<new-minor>` is equivalent but exposes the
+Make-injection surface described in the trust model above.)
+
+The script invokes `scripts/bump-nginx.py` inside a python:3.13-slim
+container, which:
 
   * Updates `dev/nginx-version.json` — `nginx_base`, `config_revision`
     (reset to `1` on a minor bump), `.tag` = `<base>-r<revision>`.
@@ -110,7 +111,7 @@ The target invokes `scripts/bump-nginx.py`, which:
 For a config-only revision (nginx.conf change without a minor bump):
 
 ```bash
-make bump-nginx VERSION=<current-minor> CONFIG_REVISION=2
+./scripts/bump-nginx.sh --config-revision 2 <current-minor>
 ```
 
 ### 3. Verify locally
@@ -144,10 +145,14 @@ Triggered by a `MariaDB X.Y available` issue from `check-mariadb.yml`.
 ### 2. Run the bumper
 
 ```bash
-make bump-mariadb VERSION=<new-minor>
+./scripts/bump-mariadb.sh <new-minor>
 ```
 
-The target invokes `scripts/bump-mariadb.py`, which sed-replaces every
+(`make bump-mariadb VERSION=<new-minor>` is equivalent but exposes
+the Make-injection surface described in the trust model above.)
+
+The script invokes `scripts/bump-mariadb.py` inside a python:3.13-slim
+container, which sed-replaces every
 `image: mariadb:X.Y` line in the four shipped compose sites enforced
 by `installer/tests/test_mariadb_pin_lockstep`: the standalone +
 traefik installer templates, the dev-mode `compose.yaml`, and the
