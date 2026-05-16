@@ -56,25 +56,13 @@ add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
 ### External database
 
-To run against an existing MariaDB / MySQL server, disable the bundled
-`db` service and point `phpfpm` at the external host. Pair this with
-`--use-external-db` (and `--mariadb-host …`) on the wizard command line
-when you are in `--mode dev` so the rendered `.env` already wires up
-the right `MARIADB_HOST`.
-
-```yaml
-services:
-    db:
-        deploy:
-            replicas: 0
-    phpfpm:
-        environment:
-            MARIADB_HOST: db.example.org
-            MARIADB_PORT: "3306"
-            MARIADB_DATABASE: webtrees
-            MARIADB_USER: webtrees
-            MARIADB_PASSWORD: ${MARIADB_PASSWORD}
-```
+To run against an existing MariaDB / MySQL server in either standalone
+or dev mode, pass the `--use-external-db` family on the install
+command line. The wizard drops the bundled `db` service entirely,
+bind-mounts your operator-supplied password file into phpfpm, and
+runs a TCP-reachability probe before render so an unreachable host
+fails fast. Full walk-through with `GRANT` snippet, all five flags
+and the failure-modes table: [`byod.md`](byod.md).
 
 ### Your own webtrees modules
 
@@ -171,6 +159,7 @@ rather than written by the wizard. Add them by hand when you need them:
 |---|---|
 | `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` (standalone proxy mode only) for `FALSE`. The wizard rejects `--no-https --proxy traefik` because the rendered Traefik router still terminates TLS at the edge. Runtime fallback when the key is unset is `FALSE`. See the **HTTPS trust gate** section below for which proxies are allowed to flip the redirect off via `X-Forwarded-Proto`. Cert provisioning itself is a separate concern — see [`https-certs.md`](https-certs.md). Flipping the value post-install: run `make switch-https` (or `make switch-http`) from the install directory — see below. |
 | `WEBTREES_VERSION` | Pins the webtrees image tag. The wizard writes this; bump it manually for an out-of-cycle upgrade. |
+| `EXTERNAL_DB_*` | Five-key set (`HOST`, `PORT`, `NAME`, `USER`, `PASSWORD_FILE`) populated when the install was run with `--use-external-db`. The bundled `db` service is dropped from `compose.yaml`; phpfpm reads these via `${EXTERNAL_DB_*}` substitution. See [`byod.md`](byod.md). |
 | `APP_PORT` | Host port published by the standalone overlay (default `28080` — the 28k range stays out of the 80/8080 drive-by-scan band; override with `--port`). |
 | `WEBTREES_REWRITE_URLS` | `1` enables webtrees pretty URLs (`/tree/.../individual/...` instead of `?route=...`); `0` keeps query-string routing. The wizard wires this from `--pretty-urls`. The entrypoint applies it on first boot only (gated on the `.webtrees-bootstrapped` marker inside the app volume); webtrees has no admin-UI toggle for `rewrite_urls`. To flip the value post-install, run `docker compose exec phpfpm php /var/www/html/public/index.php config-ini --rewrite-urls` (or `--no-rewrite-urls`) — the same CLI the entrypoint invokes. |
 | `MARIADB_HOST` / `MARIADB_PORT` | Override when you point at an external database (see above). |

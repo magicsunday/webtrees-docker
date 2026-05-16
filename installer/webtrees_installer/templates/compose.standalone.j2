@@ -1,7 +1,9 @@
 {# Standalone (no reverse proxy) compose layout. -#}
 volumes:
     secrets:
+{%- if not use_external_db %}
     database:
+{%- endif %}
     app:
     media:
 
@@ -16,12 +18,18 @@ services:
             - -ec
             - |
                 umask 077
-                for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
+                for name in {% if not use_external_db %}mariadb_root_password mariadb_password{% endif %}{% if admin_bootstrap %}{% if not use_external_db %} {% endif %}wt_admin_password{% endif %}; do
                   if [ ! -s "/secrets/$$name" ]; then
                     head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/secrets/$$name"
                   fi
                 done
-                chmod 444 /secrets/*
+                # `find` returns 0 on empty / missing inputs; the matching
+                # idiom for "chmod 444 every file we just may have written"
+                # without swallowing a real chmod failure on a populated
+                # /secrets directory (FS readonly, ownership conflict,
+                # SELinux denial).
+                find /secrets -mindepth 1 -type f -exec chmod 444 {} +
+{%- if not use_external_db %}
 
     db:
         image: mariadb:11.8
@@ -43,22 +51,36 @@ services:
             timeout: 5s
             retries: 5
             start_period: 10s
+{%- endif %}
 
     phpfpm:
         image: ghcr.io/magicsunday/webtrees/php{% if edition == "full" %}-full{% endif %}:{{ webtrees_version }}-php{{ php_version }}
         depends_on:
+{%- if use_external_db %}
+            init:
+                condition: service_completed_successfully
+{%- else %}
             db:
                 condition: service_healthy
+{%- endif %}
         restart: unless-stopped
         environment:
             ENVIRONMENT: production
             ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
             WEBTREES_VERSION: "{{ webtrees_version }}"
             WEBTREES_AUTO_SEED: "true"
+{%- if use_external_db %}
+            MARIADB_HOST: "${EXTERNAL_DB_HOST}"
+            MARIADB_PORT: "${EXTERNAL_DB_PORT:-3306}"
+            MARIADB_USER: "${EXTERNAL_DB_USER:-webtrees}"
+            MARIADB_PASSWORD_FILE: /secrets/external_db_password
+            MARIADB_DATABASE: "${EXTERNAL_DB_NAME:-webtrees}"
+{%- else %}
             MARIADB_HOST: db
             MARIADB_USER: webtrees
             MARIADB_PASSWORD_FILE: /secrets/mariadb_password
             MARIADB_DATABASE: webtrees
+{%- endif %}
             WEBTREES_REWRITE_URLS: "{% if pretty_urls %}1{% else %}0{% endif %}"
 {%- if admin_bootstrap %}
             WT_ADMIN_USER: "{{ admin_user }}"
@@ -82,6 +104,13 @@ services:
             - secrets:/secrets:ro
             - app:/var/www/html
             - media:/var/www/html/data/media
+{%- if use_external_db %}
+            # ${VAR:?msg} aborts `docker compose up` when EXTERNAL_DB_PASSWORD_FILE
+            # is unset or empty, instead of bind-mounting an anonymous volume
+            # at /secrets/external_db_password and falling through to a
+            # passwordless mariadb auth attempt 30 s later.
+            - "${EXTERNAL_DB_PASSWORD_FILE:?EXTERNAL_DB_PASSWORD_FILE must be set in .env}:/secrets/external_db_password:ro"
+{%- endif %}
 
     nginx:
         image: ghcr.io/magicsunday/webtrees/nginx:{{ nginx_tag }}

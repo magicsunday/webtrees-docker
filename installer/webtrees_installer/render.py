@@ -30,6 +30,20 @@ class RenderInput:
     enforce_https: bool = True
     pretty_urls: bool = False
 
+    # #41 BYOD external-db: when True the rendered compose drops the
+    # bundled `db:` service and points phpfpm at the operator-supplied
+    # host. The four `external_db_*` strings carry the connection details
+    # the wizard wrote to .env; `external_db_password_file` is the host
+    # path bind-mounted into phpfpm at /secrets/external_db_password.
+    # Defaults below keep render_files() backward-compatible for the
+    # local-db path (all five values unused when use_external_db=False).
+    use_external_db: bool = False
+    external_db_host: str = ""
+    external_db_port: int = 3306
+    external_db_name: str = "webtrees"
+    external_db_user: str = "webtrees"
+    external_db_password_file: str = ""
+
 
 _VALID_EDITIONS = {"core", "full"}
 _VALID_PROXY_MODES = {"standalone", "traefik"}
@@ -71,6 +85,12 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
         "traefik_network": input_model.traefik_network,
         "enforce_https": input_model.enforce_https,
         "pretty_urls": input_model.pretty_urls,
+        "use_external_db": input_model.use_external_db,
+        "external_db_host": input_model.external_db_host,
+        "external_db_port": input_model.external_db_port,
+        "external_db_name": input_model.external_db_name,
+        "external_db_user": input_model.external_db_user,
+        "external_db_password_file": input_model.external_db_password_file,
         # Pin lives in webtrees_installer._alpine and is consumed verbatim;
         # the templates carry no fallback, so a renaming bug here trips
         # Jinja's StrictUndefined immediately.
@@ -116,3 +136,21 @@ def _validate(input_model: RenderInput) -> None:
         raise ValueError("admin_bootstrap=True requires admin_user")
     if input_model.admin_bootstrap and not input_model.admin_email:
         raise ValueError("admin_bootstrap=True requires admin_email")
+    # External-db invariants: the flow layer's _validate_external_db_inputs
+    # rejects every realistic failure mode (missing host, missing /
+    # malformed password file, identifier shell-escape, port range) with
+    # operator-actionable PromptError messages. The two ValueError checks
+    # below are a thin safety net for callers that bypass the flow (direct
+    # render_files() invocations from tests / scripts) — they catch the
+    # two unrecoverable invariants that would otherwise emit a broken
+    # compose.yaml: empty host (no MARIADB_HOST resolution) and empty
+    # password-file path (the EXTERNAL_DB_PASSWORD_FILE:?... compose
+    # guard in compose.standalone.j2 catches it at up-time, but failing
+    # at render time is cheaper).
+    if input_model.use_external_db:
+        if not input_model.external_db_host:
+            raise ValueError("use_external_db=True requires external_db_host")
+        if not input_model.external_db_password_file:
+            raise ValueError(
+                "use_external_db=True requires external_db_password_file"
+            )

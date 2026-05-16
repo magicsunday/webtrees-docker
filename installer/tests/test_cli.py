@@ -252,3 +252,87 @@ def test_parser_pretty_urls_flag_defaults_off_and_flips_to_true():
         "--proxy", "standalone", "--port", "28080", "--pretty-urls",
     ])
     assert on_args.pretty_urls is True
+
+
+def test_parser_external_db_flags_carry_defaults_and_overrides():
+    """#41 BYOD: the five --external-db-* flags are first-class CLI
+    knobs in both standalone and dev mode. Defaults must be set so a
+    minimal --use-external-db --external-db-host --external-db-password-file
+    invocation works; explicit values must override the defaults."""
+    parser = build_parser()
+
+    default_args = parser.parse_args([
+        "--non-interactive", "--no-admin", "--edition", "core",
+        "--proxy", "standalone", "--port", "28080",
+        "--use-external-db",
+        "--external-db-host", "db.internal",
+        "--external-db-password-file", "/run/secrets/wt_db",
+    ])
+    assert default_args.use_external_db is True
+    assert default_args.external_db_host == "db.internal"
+    assert default_args.external_db_port == 3306
+    assert default_args.external_db_name == "webtrees"
+    assert default_args.external_db_user == "webtrees"
+    assert default_args.external_db_password_file == "/run/secrets/wt_db"
+
+    override_args = parser.parse_args([
+        "--non-interactive", "--no-admin", "--edition", "core",
+        "--proxy", "standalone", "--port", "28080",
+        "--use-external-db",
+        "--external-db-host", "db.internal",
+        "--external-db-port", "33060",
+        "--external-db-name", "genealogy",
+        "--external-db-user", "wt_user",
+        "--external-db-password-file", "/run/secrets/wt_db",
+    ])
+    assert override_args.external_db_port == 33060
+    assert override_args.external_db_name == "genealogy"
+    assert override_args.external_db_user == "wt_user"
+
+
+def test_main_external_db_flags_propagate_to_standalone_args():
+    """The five --external-db-* flags must reach StandaloneArgs unchanged
+    so the flow's pre-render probe + RenderInput wiring see the operator's
+    values, not the dataclass defaults."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core",
+            "--proxy", "standalone", "--port", "28080",
+            "--use-external-db",
+            "--external-db-host", "ext-db.lan",
+            "--external-db-port", "3307",
+            "--external-db-name", "genealogy",
+            "--external-db-user", "wt_user",
+            "--external-db-password-file", "/run/secrets/wt_db",
+        ])
+
+    assert exit_code == 0
+    flow_args = run_mock.call_args.args[0]
+    assert flow_args.use_external_db is True
+    assert flow_args.external_db_host == "ext-db.lan"
+    assert flow_args.external_db_port == 3307
+    assert flow_args.external_db_name == "genealogy"
+    assert flow_args.external_db_user == "wt_user"
+    assert flow_args.external_db_password_file == "/run/secrets/wt_db"
+
+
+def test_main_external_db_defaults_carry_through_without_overrides():
+    """A minimal --use-external-db invocation: host + password-file only.
+    Port / name / user should reach StandaloneArgs at their argparse
+    defaults so the flow doesn't have to re-default the same values."""
+    with patch("webtrees_installer.cli.run_standalone", return_value=0) as run_mock:
+        exit_code = main([
+            "--non-interactive", "--force", "--no-up", "--no-admin",
+            "--edition", "core",
+            "--proxy", "standalone", "--port", "28080",
+            "--use-external-db",
+            "--external-db-host", "ext-db.lan",
+            "--external-db-password-file", "/run/secrets/wt_db",
+        ])
+
+    assert exit_code == 0
+    flow_args = run_mock.call_args.args[0]
+    assert flow_args.external_db_port == 3306
+    assert flow_args.external_db_name == "webtrees"
+    assert flow_args.external_db_user == "webtrees"

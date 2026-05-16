@@ -6,17 +6,19 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
-from webtrees_installer._docker import run_docker
-from webtrees_installer.demo import generate_tree
 from webtrees_installer._cli_resolve import resolve_enforce_https
+from webtrees_installer._db_probe import probe_external_db
+from webtrees_installer._docker import run_docker
 from webtrees_installer._progress import ProgressReporter
 from webtrees_installer._term import Term
+from webtrees_installer.demo import generate_tree
 from webtrees_installer.gedcom import serialize
 from webtrees_installer.ports import PortStatus, probe_port
 from webtrees_installer.prereq import (
@@ -66,6 +68,19 @@ class StandaloneArgs:
 
     force: bool
     no_up: bool
+
+    # #41 BYOD external-db. When True the wizard skips the bundled `db:`
+    # service and wires phpfpm at the operator-supplied host:port. The
+    # password is bind-mounted in from external_db_password_file (host
+    # path). The wizard runs a TCP-reachability probe before render so
+    # an unreachable host fails fast with an actionable message instead
+    # of leaving the operator chasing a phpfpm crash loop.
+    use_external_db: bool = False
+    external_db_host: str | None = None
+    external_db_port: int = 3306
+    external_db_name: str = "webtrees"
+    external_db_user: str = "webtrees"
+    external_db_password_file: str | None = None
 
 
 # Default + fallback ports live in the 28k range (out of the
@@ -216,6 +231,23 @@ def run_standalone(
         env_value=None,
     )
 
+    # #41 BYOD external-db: verify reachability before render so an
+    # operator who fat-fingered the hostname / port sees an
+    # operator-actionable message in the same exit-code-2 channel as
+    # every other PromptError, instead of a phpfpm crash loop 60 s
+    # later. The probe is a TCP connect — credentials are validated
+    # later, by phpfpm at first DB use.
+    if args.use_external_db:
+        _validate_external_db_inputs(args)
+        # _validate_external_db_inputs has already rejected an empty
+        # host; narrow the Optional[str] without a defensive fallback so
+        # the contract between validator and probe is explicit.
+        assert args.external_db_host is not None
+        probe_external_db(
+            host=args.external_db_host,
+            port=args.external_db_port,
+        )
+
     catalog = load_catalog(_resolve_manifest_dir())
     render_input = RenderInput(
         edition=edition,
@@ -230,6 +262,15 @@ def run_standalone(
         generated_at=datetime.now(tz=timezone.utc),
         enforce_https=enforce_https,
         pretty_urls=args.pretty_urls,
+        use_external_db=args.use_external_db,
+        # Empty strings are valid RenderInput defaults for the
+        # use_external_db=False branch; the validator above guarantees
+        # non-empty values when use_external_db is True.
+        external_db_host=args.external_db_host or "",
+        external_db_port=args.external_db_port,
+        external_db_name=args.external_db_name,
+        external_db_user=args.external_db_user,
+        external_db_password_file=args.external_db_password_file or "",
     )
 
     progress = ProgressReporter(
@@ -289,6 +330,107 @@ def run_standalone(
                 )
 
     return 0
+
+
+# MariaDB unquoted-identifier charset for --external-db-user /
+# --external-db-name. Both end up in SQL identifier positions; the
+# regex rejects whitespace, quotes, $, =, #, and other characters that
+# corrupt the .env line or break the rendered compose YAML's
+# `${EXTERNAL_DB_*}` substitution.
+_EXTERNAL_DB_IDENTIFIER_RE = re.compile(r"\A[A-Za-z0-9_.\-]+\Z")
+
+# --external-db-host is broader than a SQL identifier — it must also
+# accept IPv6 literals (`fd00::1`, `[fd00::1]`, link-local with zone
+# suffix `fe80::1%eth0`). The pattern still rejects whitespace, quotes,
+# `$`, `=`, `;`, and other characters that would corrupt the .env line
+# or the compose YAML substitution.
+_EXTERNAL_DB_HOST_RE = re.compile(r"\A[A-Za-z0-9_.\-:\[\]%]+\Z")
+
+
+def _validate_external_db_inputs(args: StandaloneArgs) -> None:
+    """Refuse to render an external-db install with missing or hostile inputs.
+
+    Five distinct surfaces a fat-fingered CLI invocation can hit, each
+    with its own single-line fix so the operator does not have to bounce
+    between docs and shell history to figure out what is wrong.
+    """
+    if not args.external_db_host:
+        raise PromptError(
+            "--use-external-db requires --external-db-host <hostname-or-ip>"
+        )
+    if not args.external_db_password_file:
+        raise PromptError(
+            "--use-external-db requires --external-db-password-file <path>; "
+            "the file gets bind-mounted into phpfpm read-only"
+        )
+    if not _EXTERNAL_DB_HOST_RE.match(args.external_db_host):
+        raise PromptError(
+            f"--external-db-host contains characters that corrupt .env "
+            f"substitution: {args.external_db_host!r}. Allowed: A-Z a-z 0-9 "
+            f"_ . - : [ ] % (the colons / brackets / percent are for IPv6 "
+            f"literals)."
+        )
+    for label, value in (
+        ("--external-db-user", args.external_db_user),
+        ("--external-db-name", args.external_db_name),
+    ):
+        if not _EXTERNAL_DB_IDENTIFIER_RE.match(value):
+            raise PromptError(
+                f"{label} contains characters that corrupt .env "
+                f"substitution: {value!r}. Allowed: A-Z a-z 0-9 _ . -"
+            )
+    if not 1 <= args.external_db_port <= 65535:
+        raise PromptError(
+            f"--external-db-port out of range: {args.external_db_port}. "
+            f"Must be between 1 and 65535."
+        )
+    password_path = Path(args.external_db_password_file)
+    # Wrap the read+stat under a single try so a transient FS error (race
+    # with the operator moving the file, dangling symlink, EACCES) maps to
+    # the same exit-code-2 PromptError channel as every other validation
+    # failure here, instead of escaping as a raw Python traceback.
+    try:
+        if not password_path.is_file():
+            raise PromptError(
+                f"--external-db-password-file path does not exist or is not a "
+                f"regular file: {password_path}"
+            )
+        # Refuse a zero-byte file fast — mariadb client falls back to "no
+        # password" silently, which then surfaces as Access-Denied 30 s into
+        # the first request.
+        raw = password_path.read_bytes()
+        mode = password_path.stat().st_mode & 0o777
+    except OSError as exc:
+        raise PromptError(
+            f"--external-db-password-file unreadable: {password_path}: {exc}"
+        ) from exc
+    if not raw:
+        raise PromptError(
+            f"--external-db-password-file is empty: {password_path}. "
+            f"Write the operator's MariaDB password into it (no trailing newline)."
+        )
+    # A file containing only a trailing newline (size 1) passes the
+    # size>0 gate but produces a "newline" password that MariaDB rejects
+    # 30 s into the first phpfpm request. printf '%s' '<pw>' avoids
+    # this; `echo` / heredoc do not.
+    if raw != raw.strip():
+        raise PromptError(
+            f"--external-db-password-file contains leading/trailing whitespace: "
+            f"{password_path}. MariaDB sends the file bytes verbatim — strip "
+            f"with `printf '%s' '<password>' > {password_path}` and try again."
+        )
+    # World/group-readable secret file: warn (not fatal — operator's call,
+    # may intentionally be group-readable on a shared CI fixture). The
+    # warning routes to stderr so the install-banner stdout channel stays
+    # clean.
+    if mode & 0o077:
+        print(
+            Term.for_stream(sys.stderr).warning(
+                f"warning: --external-db-password-file is mode {mode:04o}; "
+                f"chmod 0400 {password_path} for tighter handling."
+            ),
+            file=sys.stderr,
+        )
 
 
 def _compute_stage_total(*, no_up: bool, demo: bool) -> int:

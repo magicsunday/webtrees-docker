@@ -808,3 +808,233 @@ def test_render_makefile_parses_under_make_n(
     assert result.returncode == 0, (
         f"`make -n help` failed: stderr={result.stderr!r}, stdout={result.stdout!r}"
     )
+
+
+@pytest.fixture
+def standalone_external_db(catalog: Catalog) -> RenderInput:
+    """Standalone variant with --use-external-db. Carries non-default values
+    for every external_db_* knob so any field that fails to thread through
+    the template surfaces as an obviously-wrong default."""
+    return RenderInput(
+        edition="core",
+        proxy_mode="standalone",
+        app_port=8080,
+        domain=None,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        use_external_db=True,
+        external_db_host="ext-mariadb.lan",
+        external_db_port=3307,
+        external_db_name="genealogy",
+        external_db_user="wt_user",
+        external_db_password_file="/run/secrets/wt_db_password",
+    )
+
+
+def test_render_external_db_drops_bundled_db_service(
+    tmp_path: Path, standalone_external_db: RenderInput,
+) -> None:
+    """The bundled `db:` service must be absent when --use-external-db,
+    otherwise compose would start an unused MariaDB and the operator
+    would see two databases in `docker compose ps`."""
+    render_files(input_model=standalone_external_db, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert "db" not in compose["services"]
+    assert "database" not in compose["volumes"]
+
+
+def test_render_external_db_phpfpm_points_at_external_host(
+    tmp_path: Path, standalone_external_db: RenderInput,
+) -> None:
+    """phpfpm environment must reference the operator's host / port /
+    user / db, and the password file must come in via the dedicated
+    /secrets/external_db_password bind-mount path."""
+    render_files(input_model=standalone_external_db, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    phpfpm = compose["services"]["phpfpm"]
+    env = phpfpm["environment"]
+
+    assert env["MARIADB_HOST"] == "${EXTERNAL_DB_HOST}"
+    assert env["MARIADB_PORT"] == "${EXTERNAL_DB_PORT:-3306}"
+    assert env["MARIADB_USER"] == "${EXTERNAL_DB_USER:-webtrees}"
+    assert env["MARIADB_DATABASE"] == "${EXTERNAL_DB_NAME:-webtrees}"
+    assert env["MARIADB_PASSWORD_FILE"] == "/secrets/external_db_password"
+
+    bind_mount = (
+        "${EXTERNAL_DB_PASSWORD_FILE:?EXTERNAL_DB_PASSWORD_FILE must "
+        "be set in .env}:/secrets/external_db_password:ro"
+    )
+    assert bind_mount in phpfpm["volumes"]
+
+
+def test_render_external_db_phpfpm_depends_on_init_not_db(
+    tmp_path: Path, standalone_external_db: RenderInput,
+) -> None:
+    """With no bundled db service, phpfpm needs the `init` secrets-volume
+    bootstrap directly — otherwise startup races on /secrets being empty."""
+    render_files(input_model=standalone_external_db, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    depends_on = compose["services"]["phpfpm"]["depends_on"]
+    assert "db" not in depends_on
+    assert depends_on["init"]["condition"] == "service_completed_successfully"
+
+
+def test_render_external_db_env_writes_external_db_vars(
+    tmp_path: Path, standalone_external_db: RenderInput,
+) -> None:
+    """The .env file must carry every operator-supplied external_db_*
+    value so the compose `${EXTERNAL_DB_*}` substitutions resolve."""
+    render_files(input_model=standalone_external_db, target_dir=tmp_path)
+    env_text = (tmp_path / ".env").read_text()
+
+    assert "EXTERNAL_DB_HOST=ext-mariadb.lan" in env_text
+    assert "EXTERNAL_DB_PORT=3307" in env_text
+    assert "EXTERNAL_DB_NAME=genealogy" in env_text
+    assert "EXTERNAL_DB_USER=wt_user" in env_text
+    assert "EXTERNAL_DB_PASSWORD_FILE=/run/secrets/wt_db_password" in env_text
+
+
+def test_render_external_db_init_does_not_seed_mariadb_secrets(
+    tmp_path: Path, standalone_external_db: RenderInput,
+) -> None:
+    """When use_external_db, the init container must NOT generate
+    mariadb_root_password / mariadb_password — they would sit unused in
+    the secrets volume and the wrong-named password file would mask the
+    operator-supplied one if the bind-mount silently fell off."""
+    render_files(input_model=standalone_external_db, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    init_cmd = "\n".join(compose["services"]["init"]["command"])
+    assert "mariadb_root_password" not in init_cmd
+    assert "mariadb_password" not in init_cmd
+
+
+def test_render_local_db_still_works_after_external_db_refactor(
+    tmp_path: Path, standalone_core: RenderInput,
+) -> None:
+    """Regression guard: the default (use_external_db=False) standalone
+    install must still render the bundled db service with all its
+    environment variables intact. A Jinja typo around the new conditional
+    block could silently drop the bundled db path."""
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert "db" in compose["services"]
+    assert "database" in compose["volumes"]
+
+    db_env = compose["services"]["db"]["environment"]
+    assert db_env["MARIADB_USER"] == "webtrees"
+    assert db_env["MARIADB_DATABASE"] == "webtrees"
+
+    phpfpm_env = compose["services"]["phpfpm"]["environment"]
+    assert phpfpm_env["MARIADB_HOST"] == "db"
+    assert "EXTERNAL_DB" not in (tmp_path / ".env").read_text()
+
+
+def test_render_external_db_requires_host(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """render_files must reject use_external_db=True with an empty host;
+    otherwise the rendered .env would carry EXTERNAL_DB_HOST= empty and
+    phpfpm would fail to resolve on first start."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="standalone",
+        app_port=8080,
+        domain=None,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        use_external_db=True,
+        external_db_host="",
+        external_db_password_file="/x",
+    )
+    with pytest.raises(ValueError, match="external_db_host"):
+        render_files(input_model=inp, target_dir=tmp_path)
+
+
+def test_render_external_db_with_admin_bootstrap_combines_both_paths(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """The (use_external_db=True, admin_bootstrap=True) quadrant exercises
+    both conditional blocks in compose.standalone.j2 simultaneously:
+    init still generates wt_admin_password but skips the mariadb_* set;
+    phpfpm reads MARIADB_HOST from EXTERNAL_DB_HOST and gets WT_ADMIN_*
+    env vars. A Jinja whitespace bug between the two `{%- if ... %}`
+    blocks would only surface here."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="standalone",
+        app_port=8080,
+        domain=None,
+        admin_bootstrap=True,
+        admin_user="admin",
+        admin_email="admin@example.org",
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        use_external_db=True,
+        external_db_host="ext-db.lan",
+        external_db_port=3306,
+        external_db_name="webtrees",
+        external_db_user="webtrees",
+        external_db_password_file="/run/secrets/wt_db",
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    init_cmd = "\n".join(compose["services"]["init"]["command"])
+    assert "wt_admin_password" in init_cmd
+    assert "mariadb_root_password" not in init_cmd
+    # The bare "mariadb_password" substring also matches as part of
+    # MARIADB_PASSWORD_FILE elsewhere in phpfpm.environment, so use the
+    # word-boundary form by checking just the init command, not the
+    # full compose render.
+    assert "mariadb_password" not in init_cmd
+
+    phpfpm_env = compose["services"]["phpfpm"]["environment"]
+    assert phpfpm_env["WT_ADMIN_USER"] == "admin"
+    assert phpfpm_env["MARIADB_HOST"] == "${EXTERNAL_DB_HOST}"
+
+
+def test_render_external_db_password_file_compose_guard(
+    tmp_path: Path, standalone_external_db: RenderInput,
+) -> None:
+    """Compose's `${VAR:?msg}` substitution refuses to bring up phpfpm
+    when EXTERNAL_DB_PASSWORD_FILE is unset in .env — closes the silent
+    'bind-mount empty path' failure mode."""
+    render_files(input_model=standalone_external_db, target_dir=tmp_path)
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    assert (
+        '"${EXTERNAL_DB_PASSWORD_FILE:?EXTERNAL_DB_PASSWORD_FILE '
+        'must be set in .env}'
+    ) in compose_text
+
+
+def test_render_external_db_requires_password_file(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """Same shape as host validation; reject empty password_file path."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="standalone",
+        app_port=8080,
+        domain=None,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        use_external_db=True,
+        external_db_host="db.example",
+        external_db_password_file="",
+    )
+    with pytest.raises(ValueError, match="external_db_password_file"):
+        render_files(input_model=inp, target_dir=tmp_path)

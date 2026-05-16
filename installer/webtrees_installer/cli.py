@@ -115,14 +115,50 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the schema init step in dev mode.",
     )
-    dev_group.add_argument(
+    parser.add_argument(
         "--use-external-db",
         action="store_true",
-        help="Skip the bundled db service in dev mode and write compose.external.yaml into the chain.",
+        help="Skip the bundled `db` service and connect phpfpm directly to an "
+             "operator-supplied MariaDB / MySQL host (see --external-db-* "
+             "flags below). Standalone mode: phpfpm reads MARIADB_HOST / "
+             "MARIADB_USER / MARIADB_PASSWORD_FILE / MARIADB_DATABASE from "
+             "the rendered .env. Dev mode: appends compose.external.yaml to "
+             "the COMPOSE_FILE chain. The wizard probes TCP reachability "
+             "before render and refuses fast on DNS / firewall / refused "
+             "errors. See docs/byod.md.",
     )
-    dev_group.add_argument(
+    parser.add_argument(
         "--external-db-host",
-        help="External MariaDB host (dev mode + --use-external-db).",
+        help="External MariaDB host (DNS name, container name, or IP). "
+             "Required with --use-external-db in both standalone and dev modes.",
+    )
+    parser.add_argument(
+        "--external-db-port",
+        type=int,
+        default=3306,
+        help="External MariaDB port (default 3306). Standalone mode only.",
+    )
+    parser.add_argument(
+        "--external-db-name",
+        default="webtrees",
+        help="External MariaDB database name (default 'webtrees'). "
+             "Must exist on the external server before install. "
+             "Standalone mode only.",
+    )
+    parser.add_argument(
+        "--external-db-user",
+        default="webtrees",
+        help="External MariaDB application user (default 'webtrees'). "
+             "Must have CREATE / DROP / SELECT / INSERT / UPDATE / DELETE / "
+             "ALTER / INDEX on --external-db-name. Standalone mode only.",
+    )
+    parser.add_argument(
+        "--external-db-password-file",
+        help="Host path to a file containing the --external-db-user's "
+             "password. Bind-mounted read-only into phpfpm at "
+             "/secrets/external_db_password. Recommended mode 0400 owned by "
+             "uid 33 (www-data). Required with --use-external-db in "
+             "standalone mode.",
     )
     dev_group.add_argument(
         "--local-user-id",
@@ -285,6 +321,12 @@ def _dispatch(args: argparse.Namespace) -> int:
         pretty_urls=args.pretty_urls,
         force=args.force,
         no_up=args.no_up,
+        use_external_db=args.use_external_db,
+        external_db_host=args.external_db_host,
+        external_db_port=args.external_db_port,
+        external_db_name=args.external_db_name,
+        external_db_user=args.external_db_user,
+        external_db_password_file=args.external_db_password_file,
     )
 
     return run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
@@ -303,9 +345,11 @@ def _validate_mode_compatibility(args: argparse.Namespace) -> None:
     ``--mode dev`` is passed: the dev flow does not read them and no
     operator-facing harm follows from ignoring them. Same direction the
     other way — dev-only flags (``--pma-port``, ``--dev-domain``,
-    ``--mariadb-*``, ``--use-*-db``, ``--external-db-host``,
-    ``--local-user-*``, ``--work-dir-host``) pass through silently in
-    standalone mode because the dev surface is a superset.
+    ``--mariadb-*``, ``--use-existing-db``, ``--local-user-*``,
+    ``--work-dir-host``) pass through silently in standalone mode
+    because the dev surface is a superset. ``--use-external-db`` and
+    its ``--external-db-*`` companions are first-class in both modes
+    (see GH-41 BYOD).
 
     ``--pretty-urls`` is the one explicit exception: a fresh install
     rendered with ``--mode dev --pretty-urls`` would silently ship a stack
