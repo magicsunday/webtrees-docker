@@ -44,6 +44,22 @@ class RenderInput:
     external_db_user: str = "webtrees"
     external_db_password_file: str = ""
 
+    # #41 BYOD slice 2: host-path bind-mount for the database + media
+    # named volumes. Empty string means "use a Docker-managed named
+    # volume" (the default); non-empty means the compose template renders
+    # `driver_opts: type=none, device=<path>, o=bind`. db_data_path is
+    # only meaningful when use_external_db=False (validated upstream).
+    db_data_path: str = ""
+    media_path: str = ""
+
+    # #41 BYOD slice 3: reuse named volumes from another compose project.
+    # The string is a compose project name; the rendered compose pins
+    # `database:` and `media:` to `<project>_database` / `<project>_media`
+    # with `external: true`. Mutually exclusive with use_external_db,
+    # db_data_path, and media_path — operators who want to mix patterns
+    # layer compose.override.yaml manually.
+    reuse_volumes_project: str = ""
+
 
 _VALID_EDITIONS = {"core", "full"}
 _VALID_PROXY_MODES = {"standalone", "traefik"}
@@ -91,6 +107,9 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
         "external_db_name": input_model.external_db_name,
         "external_db_user": input_model.external_db_user,
         "external_db_password_file": input_model.external_db_password_file,
+        "db_data_path": input_model.db_data_path,
+        "media_path": input_model.media_path,
+        "reuse_volumes_project": input_model.reuse_volumes_project,
         # Pin lives in webtrees_installer._alpine and is consumed verbatim;
         # the templates carry no fallback, so a renaming bug here trips
         # Jinja's StrictUndefined immediately.
@@ -153,4 +172,32 @@ def _validate(input_model: RenderInput) -> None:
         if not input_model.external_db_password_file:
             raise ValueError(
                 "use_external_db=True requires external_db_password_file"
+            )
+        # --db-data-path bind-mounts the bundled `db:` service's
+        # /var/lib/mysql. With use_external_db=True there is no `db:`
+        # service to mount into, so the two flags are mutually exclusive.
+        if input_model.db_data_path:
+            raise ValueError(
+                "use_external_db=True is incompatible with db_data_path: "
+                "the bundled db service is dropped, so there is nowhere to "
+                "bind-mount the path. Use --external-db-host to point at "
+                "your existing DB instead."
+            )
+    # reuse_volumes_project is the operator's "pick up an existing
+    # compose project's named volumes" shortcut; mixing it with the
+    # other BYOD shapes confuses both layers and produces a compose
+    # that compose itself rejects (cannot both `external: true` and
+    # carry `driver_opts`). One-of-three discipline.
+    if input_model.reuse_volumes_project:
+        conflicts = [
+            ("use_external_db", input_model.use_external_db),
+            ("db_data_path", bool(input_model.db_data_path)),
+            ("media_path", bool(input_model.media_path)),
+        ]
+        active_conflicts = [name for name, flag in conflicts if flag]
+        if active_conflicts:
+            raise ValueError(
+                f"reuse_volumes_project is incompatible with "
+                f"{', '.join(active_conflicts)}; "
+                f"pick exactly one BYOD pattern per install."
             )

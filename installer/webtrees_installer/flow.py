@@ -82,6 +82,18 @@ class StandaloneArgs:
     external_db_user: str = "webtrees"
     external_db_password_file: str | None = None
 
+    # #41 BYOD slice 2: host-path bind-mount for db data + media. None
+    # means "use the Docker named volume" (the default).
+    db_data_path: str | None = None
+    media_path: str | None = None
+
+    # #41 BYOD slice 3: pin database + media volumes to another compose
+    # project's `<project>_database` / `<project>_media` named volumes
+    # via `external: true`. Operator-supplied project name; the wizard
+    # verifies the volumes exist via `docker volume inspect` before
+    # render. None means "create fresh named volumes".
+    reuse_volumes_project: str | None = None
+
 
 # Default + fallback ports live in the 28k range (out of the
 # 80/8080 drive-by-scan band) to reduce bot traffic on a fresh
@@ -247,6 +259,16 @@ def run_standalone(
             host=args.external_db_host,
             port=args.external_db_port,
         )
+    # #41 BYOD slice 2: host-path bind-mounts. Validate before render
+    # so a typo'd path fails fast instead of producing a compose.yaml
+    # that errors out with `mount: not found` at first up.
+    if args.db_data_path is not None or args.media_path is not None:
+        _validate_byod_bind_paths(args)
+    # #41 BYOD slice 3: reuse named volumes from another compose project.
+    # Verify the volumes actually exist before rendering, otherwise
+    # compose-up reports a "volume not found" trail.
+    if args.reuse_volumes_project is not None:
+        _validate_byod_reuse_volumes(args)
 
     catalog = load_catalog(_resolve_manifest_dir())
     render_input = RenderInput(
@@ -271,6 +293,9 @@ def run_standalone(
         external_db_name=args.external_db_name,
         external_db_user=args.external_db_user,
         external_db_password_file=args.external_db_password_file or "",
+        db_data_path=args.db_data_path or "",
+        media_path=args.media_path or "",
+        reuse_volumes_project=args.reuse_volumes_project or "",
     )
 
     progress = ProgressReporter(
@@ -431,6 +456,257 @@ def _validate_external_db_inputs(args: StandaloneArgs) -> None:
             ),
             file=sys.stderr,
         )
+
+
+# Host paths the wizard refuses to bind-mount because container images
+# typically chown their data directories recursively on first start.
+# Pointing those at a system tree (e.g. /var/log, /etc) rewrites host
+# file ownership to the service account inside the container, breaking
+# host system files (logging, config, package metadata) silently.
+_FORBIDDEN_BIND_TREES = (
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/home",
+    "/lib",
+    "/lib64",
+    "/proc",
+    "/root",
+    "/run",
+    "/sbin",
+    "/sys",
+    "/usr",
+    "/var",
+)
+
+
+def _check_path_not_in_forbidden_tree(label: str, path: Path) -> None:
+    """Refuse if the path equals `/` or sits under a system directory
+    the installer must not bind-mount-and-recursively-chown."""
+    resolved = path.resolve()
+    if resolved == Path("/"):
+        raise PromptError(
+            f"{label} cannot be `/`; pick a dedicated path like "
+            f"/srv/webtrees/{label.removeprefix('--')}."
+        )
+    for forbidden in _FORBIDDEN_BIND_TREES:
+        forbidden_path = Path(forbidden)
+        try:
+            resolved.relative_to(forbidden_path)
+        except ValueError:
+            continue
+        raise PromptError(
+            f"{label} points at the system tree {resolved}. The "
+            f"container's first boot may recursively chown the "
+            f"directory to its service account, breaking host system "
+            f"files. Use a dedicated path like "
+            f"/srv/webtrees/{label.removeprefix('--')} instead."
+        )
+
+
+def _validate_byod_bind_paths(args: StandaloneArgs) -> None:
+    """Refuse to render a BYOD bind-mount install with bad host paths.
+
+    Compose accepts a missing source path at `up` time and reports a
+    cryptic `mount: <path>: not found`; refusing at install time gives
+    the operator the actionable single-line fix instead.
+
+    Mutual-exclusivity with --use-external-db is enforced in
+    render._validate, but we mirror the check here so the operator gets
+    a PromptError (exit-code 2) with the correct flag names rather than
+    a ValueError that bypasses the wizard's error channel.
+    """
+    if args.use_external_db and args.db_data_path is not None:
+        raise PromptError(
+            "--db-data-path is incompatible with --use-external-db: "
+            "the bundled `db` service is dropped, so there is nowhere "
+            "to bind-mount the path. Drop --db-data-path and point "
+            "phpfpm at your existing DB via --external-db-host."
+        )
+    for label, value in (
+        ("--db-data-path", args.db_data_path),
+        ("--media-path", args.media_path),
+    ):
+        if value is None:
+            continue
+        path = Path(value)
+        if not path.is_absolute():
+            raise PromptError(
+                f"{label} must be an absolute path, got {value!r}. "
+                f"Compose bind-mounts resolve against the host root."
+            )
+        # System-tree check runs before existence — the operator's
+        # intent (/var/log vs /srv/...) is the diagnostic that matters
+        # most. A non-existent /var/log is still the wrong path.
+        _check_path_not_in_forbidden_tree(label, path)
+        if not path.exists():
+            raise PromptError(
+                f"{label} does not exist on the host: {path}. "
+                f"Create the directory (mkdir -p {path}) first; the "
+                f"container's service user must be able to read+write "
+                f"it (chown to the image's mysql / www-data uid)."
+            )
+        if not path.is_dir():
+            raise PromptError(
+                f"{label} is not a directory: {path}. "
+                f"Bind-mount source must be a directory."
+            )
+    # MariaDB-signature probe: if --db-data-path is non-empty, refuse
+    # unless it carries the marker files mariadb expects (mysql/ subdir
+    # OR ibdata1). Catches the operator who points at a postgres
+    # datadir, a $HOME, or an unrelated dump dir; mariadb otherwise
+    # refuses to initialise but may write partial files into the dir
+    # before noticing.
+    if args.db_data_path is not None:
+        _probe_db_data_path(Path(args.db_data_path))
+
+
+def _probe_db_data_path(path: Path) -> None:
+    """Refuse non-empty --db-data-path that does not look like a MariaDB datadir."""
+    try:
+        contents = list(path.iterdir())
+    except OSError as exc:
+        raise PromptError(
+            f"--db-data-path {path} is unreadable: {exc}. "
+            f"Fix the host permissions or pick a different path."
+        ) from exc
+    if not contents:
+        return  # Empty dir → mariadb initialises fresh; nothing to probe.
+    if (path / "PG_VERSION").exists():
+        raise PromptError(
+            f"--db-data-path {path} contains a PostgreSQL data directory "
+            f"(PG_VERSION present). MariaDB will refuse to start; pick a "
+            f"different path or convert via pg_dump → mysqldump first."
+        )
+    if (path / "mysql.sock").exists():
+        raise PromptError(
+            f"--db-data-path {path} contains a live mysql.sock — another "
+            f"mariadb/mysqld is running against this directory. Two "
+            f"engines on one data dir corrupts InnoDB. Stop the other "
+            f"engine first."
+        )
+    has_mariadb_marker = (path / "mysql").is_dir() or (path / "ibdata1").exists()
+    if not has_mariadb_marker:
+        raise PromptError(
+            f"--db-data-path {path} is non-empty but does not look like "
+            f"a MariaDB/MySQL data directory (no `mysql/` subdir, no "
+            f"`ibdata1`). Pass an empty directory for a fresh init, or "
+            f"a real DB data dir for reuse."
+        )
+
+
+# Compose project names must match this regex per Docker Engine docs
+# (lowercase alnum, _ and - allowed; cannot start with _ or -). Use the
+# same shape for --reuse-volumes <project> so a fat-fingered name
+# fails fast rather than producing a compose with an external volume
+# reference Docker cannot resolve.
+_COMPOSE_PROJECT_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9_-]*\Z")
+
+
+_DOCKER_PROBE_TIMEOUT_S = 10.0
+
+
+def _run_docker_probe(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a docker CLI probe with a bounded timeout + OSError handling.
+
+    A daemon that wedges (deadlocked grpc, slow snapshotter) otherwise
+    blocks the installer indefinitely; a missing docker binary leaks a
+    bare FileNotFoundError past the exit-code-2 PromptError channel.
+    Both surfaces translate to operator-actionable PromptErrors here.
+    """
+    try:
+        return subprocess.run(
+            argv, capture_output=True, text=True,
+            timeout=_DOCKER_PROBE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PromptError(
+            f"docker daemon did not respond within "
+            f"{_DOCKER_PROBE_TIMEOUT_S:g}s while running "
+            f"{' '.join(argv)}. Check `docker info` and retry."
+        ) from exc
+    except OSError as exc:
+        raise PromptError(
+            f"docker CLI unavailable ({exc}); install docker before "
+            f"running the wizard."
+        ) from exc
+
+
+def _validate_byod_reuse_volumes(args: StandaloneArgs) -> None:
+    """Verify the operator's --reuse-volumes project actually has the
+    three named volumes (`_database` + `_media` + `_secrets`) Docker
+    can serve via `external: true` references, and that none of them
+    are currently mounted by a running container.
+
+    Refuse fast with the exact `docker volume ls` filter the operator
+    can paste back.
+    """
+    project = args.reuse_volumes_project
+    assert project is not None  # the call site gates on this
+    if not _COMPOSE_PROJECT_NAME_RE.match(project):
+        raise PromptError(
+            f"--reuse-volumes value is not a valid compose project name: "
+            f"{project!r}. Allowed: lowercase a-z 0-9 _ -, cannot start "
+            f"with _ or -."
+        )
+    # Mutual exclusion: render._validate also catches this but the flow
+    # layer's PromptError gives the operator the actionable flag names
+    # in the exit-code-2 channel.
+    conflicts = [
+        ("--use-external-db", args.use_external_db),
+        ("--db-data-path", args.db_data_path is not None),
+        ("--media-path", args.media_path is not None),
+    ]
+    active = [label for label, flag in conflicts if flag]
+    if active:
+        raise PromptError(
+            f"--reuse-volumes is incompatible with {', '.join(active)}; "
+            f"pick exactly one BYOD pattern per install."
+        )
+    # All three volumes (database, media, secrets) must exist — the
+    # `secrets` volume carries the original install's
+    # mariadb_root_password / mariadb_password files; without it the
+    # init container would generate fresh random passwords that no
+    # longer match the user-rows inside the reused DB.
+    for suffix in ("database", "media", "secrets"):
+        volume_name = f"{project}_{suffix}"
+        probe = _run_docker_probe(
+            ["docker", "volume", "inspect", volume_name],
+        )
+        if probe.returncode != 0:
+            stderr = probe.stderr.strip()
+            # Daemon-down sterr has a recognisable prefix; surface it
+            # distinctly so the operator does not chase a non-existent
+            # volume when the daemon is the actual problem.
+            if "Cannot connect to the Docker daemon" in stderr:
+                raise PromptError(
+                    f"docker daemon unreachable while inspecting "
+                    f"{volume_name!r}: {stderr}"
+                )
+            raise PromptError(
+                f"--reuse-volumes target {volume_name!r} not found. "
+                f"Confirm with `docker volume ls | grep {project}_`; the "
+                f"project name is the compose project, not the install "
+                f"directory. All three of {project}_database / _media / "
+                f"_secrets must be present."
+            )
+        # Detached-check: refuse if the volume is currently mounted by
+        # a running container. Two engines (the original install +
+        # this new one) on the same DB datadir corrupts InnoDB.
+        in_use = _run_docker_probe(
+            ["docker", "ps",
+             "--filter", f"volume={volume_name}",
+             "--format", "{{.Names}}"],
+        )
+        running = in_use.stdout.strip()
+        if running:
+            raise PromptError(
+                f"--reuse-volumes target {volume_name!r} is currently "
+                f"mounted by {running!r}. Stop the other stack first "
+                f"(`docker compose -p {project} down`) — two engines "
+                f"on one data directory corrupts InnoDB."
+            )
 
 
 def _compute_stage_total(*, no_up: bool, demo: bool) -> int:

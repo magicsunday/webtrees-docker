@@ -7,11 +7,14 @@ who already have webtrees data (an existing tree, media files, a
 production MariaDB hosting other apps), the BYOD flags let the
 rendered stack plug into that data without a dump-and-reimport cycle.
 
-The current release ships one of the three BYOD sub-scenarios from
-issue #41: **external database**. The other two (host-path bind-mount
-for `database` / `media`, and `--reuse-volumes` for picking up named
-volumes from a previous compose project) are tracked separately and
-will land in subsequent releases.
+Three independent BYOD patterns are supported; pick exactly one per
+install (the wizard rejects combinations that would collide):
+
+| Flag | Use case |
+|---|---|
+| `--use-external-db` | Connect phpfpm to an existing MariaDB / MySQL on another host. Bundled `db` service is dropped. |
+| `--db-data-path` / `--media-path` | Bind-mount MariaDB's data dir and/or webtrees' media dir to host paths. Useful when the data is on a specific filesystem or needs to be visible to other tools. |
+| `--reuse-volumes <project>` | Re-attach to another compose project's `<project>_database` + `<project>_media` named volumes via `external: true`. Useful when re-installing into a sibling directory while preserving the tree. |
 
 ## External database
 
@@ -115,10 +118,55 @@ bundled `database` volume re-appears). Re-run the installer without
 data, dump from the external DB with `mysqldump` and restore into
 the new bundled `db` service.
 
-## Tracking for the other BYOD sub-scenarios
+## Host-path bind-mount
 
-- `--db-data-path` / `--media-path` for host-path bind-mount: tracked
-  separately, follow-up to issue #41.
-- `--reuse-volumes <project>` for picking up an existing compose
-  project's named volumes: tracked separately, follow-up to issue
-  #41.
+Replace either named volume with a host-path bind-mount.
+
+```bash
+./install \
+    --proxy standalone --port 28080 \
+    --db-data-path /srv/webtrees/mariadb \
+    --media-path /srv/webtrees/media
+```
+
+Both flags are independent; pass either or both. The wizard refuses
+fast if the path is relative, missing, or not a directory.
+
+### Permissions
+
+- `--db-data-path`: the MariaDB image runs as its own `mysql` user.
+  On first start it expects an empty directory or a pre-populated
+  one from a compatible version. Pre-create the directory and chown
+  it to the image's mysql uid — read the uid back with
+  `docker run --rm <mariadb-image> id mysql` if you are unsure.
+- `--media-path`: the php-fpm container runs webtrees as its own
+  `www-data` user. Pre-create the directory and chown it to that
+  uid; read it back with `docker run --rm <php-image> id www-data`
+  on the exact image tag the wizard rendered (the uid differs
+  between Debian-based and Alpine-based php-fpm images).
+
+`--db-data-path` is incompatible with `--use-external-db` — the
+bundled `db` service is dropped, so there is nowhere to bind-mount
+into. `--media-path` works with both modes.
+
+## Reuse named volumes from an existing project
+
+Re-attach to an existing compose project's `<project>_database` and
+`<project>_media` named volumes. Useful when re-installing webtrees
+in a sibling directory without losing the tree.
+
+```bash
+./install \
+    --proxy standalone --port 28080 \
+    --reuse-volumes wt_old
+```
+
+The wizard verifies both target volumes exist via `docker volume
+inspect` before rendering — `--reuse-volumes wt_old` requires
+`wt_old_database` AND `wt_old_media` to be present. Confirm with
+`docker volume ls | grep wt_old_`.
+
+`--reuse-volumes` is mutually exclusive with the other two patterns
+(`--use-external-db`, `--db-data-path`, `--media-path`). Operators
+who need to mix shapes (e.g. reuse media but use a fresh DB) layer
+the override manually via `compose.override.yaml`.

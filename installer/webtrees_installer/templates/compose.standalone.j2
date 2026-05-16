@@ -1,11 +1,50 @@
 {# Standalone (no reverse proxy) compose layout. -#}
 volumes:
     secrets:
+{%- if reuse_volumes_project %}
+        # #41 BYOD: --reuse-volumes also externalises `secrets:` so the
+        # init container reads the original install's mariadb_password
+        # rather than generating a fresh random one that no longer
+        # matches the user/grant inside the reused database volume.
+        external: true
+        name: {{ reuse_volumes_project }}_secrets
+{%- endif %}
 {%- if not use_external_db %}
     database:
+{%- if reuse_volumes_project %}
+        # #41 BYOD: --reuse-volumes pins this stack's `database:` reference
+        # to the named volume from another compose project (typically a
+        # prior webtrees install). Compose treats `external: true` as
+        # "do not create, expect existing".
+        external: true
+        name: {{ reuse_volumes_project }}_database
+{%- elif db_data_path %}
+        # #41 BYOD: --db-data-path bind-mounts MariaDB's /var/lib/mysql to
+        # a host path. mariadb:11.8 expects the directory empty on first
+        # boot, or pre-populated by a prior compatible-version install.
+        driver: local
+        driver_opts:
+            type: none
+            device: {{ db_data_path }}
+            o: bind
+{%- endif %}
 {%- endif %}
     app:
     media:
+{%- if reuse_volumes_project %}
+        external: true
+        name: {{ reuse_volumes_project }}_media
+{%- elif media_path %}
+        # #41 BYOD: --media-path bind-mounts webtrees' data/media to a host
+        # path. The php-fpm container's runtime user must be able to
+        # read+write — chown the host path to that uid if you hit
+        # permission errors.
+        driver: local
+        driver_opts:
+            type: none
+            device: {{ media_path }}
+            o: bind
+{%- endif %}
 
 services:
     init:

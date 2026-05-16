@@ -156,9 +156,40 @@ def build_parser() -> argparse.ArgumentParser:
         "--external-db-password-file",
         help="Host path to a file containing the --external-db-user's "
              "password. Bind-mounted read-only into phpfpm at "
-             "/secrets/external_db_password. Recommended mode 0400 owned by "
-             "uid 33 (www-data). Required with --use-external-db in "
-             "standalone mode.",
+             "/secrets/external_db_password. Recommended mode 0400; "
+             "must be readable by the php-fpm container's runtime user. "
+             "Required with --use-external-db in standalone mode.",
+    )
+    parser.add_argument(
+        "--db-data-path",
+        help="Host path bind-mounted as MariaDB's /var/lib/mysql, replacing "
+             "the bundled `database` named volume. Useful when you have "
+             "existing webtrees data on disk, or when you want the DB on a "
+             "specific filesystem. Path must exist and be a directory; on "
+             "first start mariadb expects it empty (or pre-populated from a "
+             "compatible-version dump). Incompatible with --use-external-db "
+             "(no `db` service to mount into).",
+    )
+    parser.add_argument(
+        "--media-path",
+        help="Host path bind-mounted as webtrees' data/media directory, "
+             "replacing the bundled `media` named volume. Path must exist "
+             "and be a directory; the php-fpm container's runtime user "
+             "needs read+write — verify the image's www-data uid with "
+             "`docker run --rm <php-image> id www-data` if you hit "
+             "permission errors.",
+    )
+    parser.add_argument(
+        "--reuse-volumes",
+        dest="reuse_volumes_project",
+        help="Pin the rendered stack's `database` + `media` volumes to an "
+             "existing compose project's `<project>_database` + "
+             "`<project>_media` named volumes via `external: true`. "
+             "Useful when re-installing into a sibling directory while "
+             "preserving an existing tree. The wizard verifies both "
+             "volumes exist via `docker volume inspect` before render. "
+             "Mutually exclusive with --use-external-db / --db-data-path / "
+             "--media-path — pick exactly one BYOD pattern.",
     )
     dev_group.add_argument(
         "--local-user-id",
@@ -327,6 +358,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         external_db_name=args.external_db_name,
         external_db_user=args.external_db_user,
         external_db_password_file=args.external_db_password_file,
+        db_data_path=args.db_data_path,
+        media_path=args.media_path,
+        reuse_volumes_project=args.reuse_volumes_project,
     )
 
     return run_standalone(flow_args, stdin=sys.stdin, stdout=sys.stdout)
