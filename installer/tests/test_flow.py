@@ -86,8 +86,17 @@ def test_run_standalone_writes_compose_and_env(tmp_path: Path) -> None:
     assert (tmp_path / "compose.yaml").is_file()
     assert (tmp_path / ".env").is_file()
 
-    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
-    assert "webtrees-php-full:" in compose["services"]["phpfpm"]["image"]
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    compose = yaml.safe_load(compose_text)
+    assert compose["services"]["phpfpm"]["image"].startswith(
+        "ghcr.io/magicsunday/webtrees-php-full:"
+    )
+    # Negative guard for #58 deprecation contract: the rendered compose
+    # must NEVER carry the legacy nested name — operators on the legacy
+    # alias must read it only from images they've pulled, never from
+    # newly-rendered compose.yaml.
+    assert "magicsunday/webtrees/php" not in compose_text
+    assert "magicsunday/webtrees/nginx" not in compose_text
 
 
 def test_run_standalone_reveals_admin_password(tmp_path: Path) -> None:

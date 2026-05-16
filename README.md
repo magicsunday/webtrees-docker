@@ -71,8 +71,8 @@ in [`docs/portainer.md`](docs/portainer.md).
 
 | Edition | Image | Contains |
 |---|---|---|
-| Core | `webtrees/php` | Plain webtrees release |
-| Full (default) | `webtrees/php-full` | + Magic-Sunday charts: [fan](https://github.com/magicsunday/webtrees-fan-chart), [pedigree](https://github.com/magicsunday/webtrees-pedigree-chart), [descendants](https://github.com/magicsunday/webtrees-descendants-chart) |
+| Core | `webtrees-php` | Plain webtrees release |
+| Full (default) | `webtrees-php-full` | + Magic-Sunday charts: [fan](https://github.com/magicsunday/webtrees-fan-chart), [pedigree](https://github.com/magicsunday/webtrees-pedigree-chart), [descendants](https://github.com/magicsunday/webtrees-descendants-chart) |
 | Full + Demo | same as Full | + a 7-generation synthetic family tree imported on first boot |
 
 `--edition core` / `full` selects between the first two; add `--demo`

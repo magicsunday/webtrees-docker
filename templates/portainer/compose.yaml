@@ -44,7 +44,7 @@ services:
             start_period: 10s
 
     phpfpm:
-        image: ghcr.io/magicsunday/webtrees/php-full:2.2.6-php8.5
+        image: ghcr.io/magicsunday/webtrees-php-full:2.2.6-php8.5
         depends_on:
             db:
                 condition: service_healthy
@@ -78,7 +78,7 @@ services:
             - media:/var/www/html/data/media
 
     nginx:
-        image: ghcr.io/magicsunday/webtrees/nginx:1.30-r1
+        image: ghcr.io/magicsunday/webtrees-nginx:1.30-r1
         depends_on:
             phpfpm:
                 condition: service_healthy

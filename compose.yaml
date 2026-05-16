@@ -47,7 +47,7 @@ services:
         depends_on:
             db:
                 condition: service_healthy
-        image: ${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}
+        image: ${DOCKER_SERVER}/webtrees-php:${PHP_VERSION}
         environment:
             # Application environment (production, development)
             - ENVIRONMENT
@@ -137,7 +137,7 @@ services:
         depends_on:
             phpfpm:
                 condition: service_healthy
-        image: ${DOCKER_SERVER}/webtrees/nginx:${WEBTREES_NGINX_VERSION}
+        image: ${DOCKER_SERVER}/webtrees-nginx:${WEBTREES_NGINX_VERSION}
         environment:
             - ENFORCE_HTTPS
             # Optional extension of the X-Forwarded-Proto trust gate's

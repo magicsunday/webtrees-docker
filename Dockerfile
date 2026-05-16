@@ -282,7 +282,7 @@ LABEL org.opencontainers.image.title="Webtrees PHP-FPM" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.base.name="php:${PHP_VERSION}-fpm-alpine" \
-      org.opencontainers.image.ref.name="webtrees/php:${PHP_VERSION}" \
+      org.opencontainers.image.ref.name="webtrees-php:${PHP_VERSION}" \
       net.webtrees.upgrade-locked="true"
 
 # Bundle the composer-installed webtrees for first-run initialisation.
@@ -311,7 +311,7 @@ LABEL org.opencontainers.image.title="Webtrees PHP-FPM (Magic-Sunday-Edition)" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.base.name="php:${PHP_VERSION}-fpm-alpine" \
-      org.opencontainers.image.ref.name="webtrees/php-full:${PHP_VERSION}" \
+      org.opencontainers.image.ref.name="webtrees-php-full:${PHP_VERSION}" \
       net.webtrees.upgrade-locked="true" \
       net.webtrees.edition="full"
 
@@ -388,7 +388,7 @@ LABEL org.opencontainers.image.title="Webtrees Buildbox" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.base.name="${DOCKER_SERVER}/webtrees/php:${PHP_VERSION}" \
+      org.opencontainers.image.base.name="${DOCKER_SERVER}/webtrees-php:${PHP_VERSION}" \
       org.opencontainers.image.ref.name="webtrees/buildbox:${PHP_VERSION}"
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
@@ -423,7 +423,7 @@ LABEL org.opencontainers.image.title="Webtrees nginx" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.base.name="nginx:1.30-alpine" \
-      org.opencontainers.image.ref.name="webtrees/nginx:1.30-r${NGINX_CONFIG_REVISION}"
+      org.opencontainers.image.ref.name="webtrees-nginx:1.30-r${NGINX_CONFIG_REVISION}"
 
 # Baked configs: conf.d, includes, templates.
 COPY rootfs/etc/nginx/conf.d /etc/nginx/conf.d

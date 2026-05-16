@@ -11,11 +11,11 @@
 #
 # Usage:
 #   ./tests/test-nginx-config.sh
-#   TEST_NGINX_IMAGE=ghcr.io/magicsunday/webtrees/nginx:1.28-r1 ./tests/test-nginx-config.sh
+#   TEST_NGINX_IMAGE=ghcr.io/magicsunday/webtrees-nginx:1.28-r1 ./tests/test-nginx-config.sh
 
 set -o errexit -o nounset -o pipefail
 
-NGINX_IMAGE="${TEST_NGINX_IMAGE:-ghcr.io/magicsunday/webtrees/nginx:1.28-r1}"
+NGINX_IMAGE="${TEST_NGINX_IMAGE:-ghcr.io/magicsunday/webtrees-nginx:1.28-r1}"
 ROOTFS_NGINX="$(cd "$(dirname "$0")/.." && pwd)/rootfs/etc/nginx"
 
 pass=0

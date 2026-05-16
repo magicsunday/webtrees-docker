@@ -122,8 +122,8 @@ ls /tmp/wizard-smoke
 
 ## Image Builds
 
-CI publishes four image families to `ghcr.io/magicsunday/webtrees/`:
-`php`, `php-full`, `nginx`, and `installer`. The build is triggered
+CI publishes four image families on `ghcr.io/magicsunday/` (flat canonical names; the legacy nested form `magicsunday/webtrees/<name>` stays published as a deprecation alias):
+`webtrees-php`, `webtrees-php-full`, `webtrees-nginx`, and `webtrees-installer`. The build is triggered
 either manually or by a tag push:
 
 ```bash

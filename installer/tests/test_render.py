@@ -46,13 +46,22 @@ def standalone_core(catalog: Catalog) -> RenderInput:
 def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) -> None:
     render_files(input_model=standalone_core, target_dir=tmp_path)
 
-    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    compose = yaml.safe_load(compose_text)
     env = (tmp_path / ".env").read_text()
 
     phpfpm = compose["services"]["phpfpm"]
+    assert phpfpm["image"].startswith("ghcr.io/magicsunday/webtrees-php:")
     assert "php-full" not in phpfpm["image"]
     assert phpfpm["image"].endswith(":2.2.6-php8.5")
     assert "WT_ADMIN_USER" not in phpfpm["environment"]
+
+    assert compose["services"]["nginx"]["image"].startswith(
+        "ghcr.io/magicsunday/webtrees-nginx:"
+    )
+    # #58 negative guard: legacy nested name must never appear.
+    assert "magicsunday/webtrees/php" not in compose_text
+    assert "magicsunday/webtrees/nginx" not in compose_text
 
     nginx_ports = compose["services"]["nginx"]["ports"]
     assert any("8080" in p for p in nginx_ports)
@@ -176,7 +185,11 @@ def test_render_standalone_full_with_admin(tmp_path: Path, catalog: Catalog) -> 
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
 
     phpfpm = compose["services"]["phpfpm"]
-    assert "webtrees-php-full:" in phpfpm["image"]
+    assert phpfpm["image"].startswith("ghcr.io/magicsunday/webtrees-php-full:")
+    # Negative: the legacy nested name must NOT appear in rendered compose.
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    assert "magicsunday/webtrees/php" not in compose_text
+    assert "magicsunday/webtrees/nginx" not in compose_text
     assert phpfpm["environment"]["WT_ADMIN_USER"] == "admin"
     assert phpfpm["environment"]["WT_ADMIN_EMAIL"] == "admin@example.org"
     assert (
@@ -198,8 +211,20 @@ def test_render_traefik(tmp_path: Path, catalog: Catalog) -> None:
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
     )
     render_files(input_model=inp, target_dir=tmp_path)
-    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+    compose_text = (tmp_path / "compose.yaml").read_text()
+    compose = yaml.safe_load(compose_text)
     env = (tmp_path / ".env").read_text()
+
+    # #58 image-name pins on the traefik template — same shape as the
+    # standalone test, so a regression in compose.traefik.j2 is caught.
+    assert compose["services"]["phpfpm"]["image"].startswith(
+        "ghcr.io/magicsunday/webtrees-php:"
+    )
+    assert compose["services"]["nginx"]["image"].startswith(
+        "ghcr.io/magicsunday/webtrees-nginx:"
+    )
+    assert "magicsunday/webtrees/php" not in compose_text
+    assert "magicsunday/webtrees/nginx" not in compose_text
 
     assert "traefik" in compose["networks"]
     assert compose["networks"]["traefik"]["external"] is True

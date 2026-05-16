@@ -13,7 +13,7 @@
 
 set -o errexit -o nounset -o pipefail
 
-INSTALLER_IMAGE="${INSTALLER_IMAGE:-ghcr.io/magicsunday/webtrees/installer:latest}"
+INSTALLER_IMAGE="${INSTALLER_IMAGE:-ghcr.io/magicsunday/webtrees-installer:latest}"
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker is not on PATH. Install Docker Engine first: https://docs.docker.com/engine/install/" >&2

@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./tests/test-entrypoint.sh                              # uses default image
-#   TEST_IMAGE=ghcr.io/magicsunday/webtrees/php:8.5 ./tests/test-entrypoint.sh
+#   TEST_IMAGE=ghcr.io/magicsunday/webtrees-php:8.5 ./tests/test-entrypoint.sh
 #
 # Exit codes:
 #   0  all tests passed
@@ -16,7 +16,7 @@
 
 set -o errexit -o nounset -o pipefail
 
-IMAGE="${TEST_IMAGE:-ghcr.io/magicsunday/webtrees/php:8.5}"
+IMAGE="${TEST_IMAGE:-ghcr.io/magicsunday/webtrees-php:8.5}"
 
 # Source-tree entrypoint, bind-mounted only by tests that exercise
 # behaviour not yet baked into the published image. Once the change
