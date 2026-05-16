@@ -389,7 +389,7 @@ LABEL org.opencontainers.image.title="Webtrees Buildbox" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.base.name="${DOCKER_SERVER}/webtrees-php:${PHP_VERSION}" \
-      org.opencontainers.image.ref.name="webtrees/buildbox:${PHP_VERSION}"
+      org.opencontainers.image.ref.name="webtrees-buildbox:${PHP_VERSION}"
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 

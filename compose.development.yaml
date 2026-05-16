@@ -45,7 +45,7 @@ x-buildbox-base: &buildbox-base
             - WEBTREES_VERSION
             - VCS_REF
             - BUILD_DATE
-    image: ${DOCKER_SERVER}/webtrees/buildbox:${PHP_VERSION}
+    image: ${DOCKER_SERVER}/webtrees-buildbox:${PHP_VERSION}
     depends_on:
         - db
         - phpfpm
