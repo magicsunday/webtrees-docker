@@ -27,6 +27,8 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `compose.yaml` + `compose.*.yaml` | Base + override chain; the wizard picks subsets per mode |
 | `setup/` | Composer manifests (`composer-core.json` / `composer-full.json`) + patch files |
 | `dev/versions.json` | PHP × webtrees matrix the build workflow expands |
+| `dev/php-versions.json` | Single source of truth for supported PHP minors; `.supported` drives the auto-bump fan-out and is enforced against `versions.json` rows by `ci-php-versions-lockstep` |
+| `dev/nginx-version.json` | Canonical nginx pin (`nginx_base`, `config_revision`, `tag`); enforced across 5 mirror sites by `installer/tests/test_nginx_tag_lockstep.py` |
 | `.github/workflows/build.yml` | Image build + smoke matrix (manual / tag-triggered) |
 | `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases |
 | `.github/workflows/check-alpine.yml` | Daily cron polling Docker Hub for new Alpine minors |

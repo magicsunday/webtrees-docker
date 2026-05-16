@@ -101,12 +101,32 @@ jobs:
                       canonical_php=$(jq -r '.[] | select(.tags | index("latest")) | .php' dev/versions.json)
                       [ -n "$canonical_php" ] || { echo "::error::no row in dev/versions.json carries 'latest'"; exit 1; }
 
+                      # The supported PHP minors are the single source of
+                      # truth at `dev/php-versions.json`. ci-php-versions-
+                      # lockstep enforces that every existing webtrees row
+                      # already has one entry per supported minor, so the
+                      # fan-out below extends that invariant to the new
+                      # webtrees version with no hardcoded literal.
+                      php_minors=$(jq -c '.supported' dev/php-versions.json)
+                      [ -n "$php_minors" ] && [ "$php_minors" != "null" ] && [ "$php_minors" != "[]" ] || \
+                          { echo "::error::dev/php-versions.json missing or empty \`.supported\` array"; exit 1; }
+                      # Shape gate: refuse to fan out values that aren't
+                      # strict X.Y minors. Without this, a hand-edited
+                      # `.supported` value like `"8."` would propagate
+                      # verbatim into every new versions.json row, then
+                      # into the build matrix as `FROM php:8.-fpm-alpine`
+                      # — failing with a cryptic `invalid reference
+                      # format`. Mirrors Make/ci.mk's ci-php-versions-
+                      # lockstep regex so a green local CI is also a
+                      # green workflow run.
+                      jq -e 'all((.supported // [])[]; type == "string" and (. | test("^[1-9][0-9]*\\.[0-9]+$")))' dev/php-versions.json >/dev/null || \
+                          { echo "::error::dev/php-versions.json \`.supported\` contains a value not matching the strict X.Y minor shape; run \`make ci-php-versions-lockstep\` locally for the exact culprit"; exit 1; }
+
                       # Re-render in the project's compact one-row-per-line
                       # style: `jq -c` packs without spaces, then sed restores
                       # the `": "` / `, "` separators so the diff stays minimal.
-                      # The new entry opens three PHP rows (8.3/8.4/8.5) to
-                      # mirror the existing matrix; the row at canonical_php
-                      # carries the rolling bundle.
+                      # The new entry opens one PHP row per supported minor;
+                      # the row at canonical_php carries the rolling bundle.
                       #
                       # The final array is partitioned so every row carrying
                       # a `latest`-style tag comes first — a cosmetic-stable
@@ -115,10 +135,10 @@ jobs:
                       # that every unique webtrees / php value across all
                       # rows appears in the static README badge URLs,
                       # independent of which row carries which value.
-                      new_rows=$(jq -c --arg ver "$version" --arg php "$canonical_php" --argjson rolling "$rolling" '
+                      new_rows=$(jq -c --arg ver "$version" --arg php "$canonical_php" --argjson rolling "$rolling" --argjson minors "$php_minors" '
                           (map(.tags -= $rolling)
-                           + ([["8.3"], ["8.4"], ["8.5"]]
-                              | map(.[0] as $p | {webtrees: $ver, php: $p, tags: (if $p == $php then $rolling else [] end)})))
+                           + ($minors
+                              | map({webtrees: $ver, php: ., tags: (if . == $php then $rolling else [] end)})))
                           | [.[] | select(.tags | index("latest"))] + [.[] | select(.tags | index("latest") | not)]
                           | .[]
                       ' dev/versions.json \
