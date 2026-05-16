@@ -154,6 +154,23 @@ Full guide: [`docs/customizing.md`](docs/customizing.md) — covers
 `compose.override.yaml` patterns (PHP limits, custom nginx snippets,
 external database, third-party modules) plus Backup / Restore.
 
+## Image-name migration (legacy → flat)
+
+The image names flattened from nested sub-paths to dotted-dash form:
+
+| Old (legacy alias, deprecated) | New (canonical) |
+|---|---|
+| `ghcr.io/magicsunday/webtrees/php` | `ghcr.io/magicsunday/webtrees-php` |
+| `ghcr.io/magicsunday/webtrees/php-full` | `ghcr.io/magicsunday/webtrees-php-full` |
+| `ghcr.io/magicsunday/webtrees/nginx` | `ghcr.io/magicsunday/webtrees-nginx` |
+| `ghcr.io/magicsunday/webtrees/installer` | `ghcr.io/magicsunday/webtrees-installer` |
+
+The build workflow publishes both names. Existing installs on the
+legacy nested name keep pulling without change; new installs from the
+wizard pin the flat canonical name. The legacy alias stays published
+for at least two minor releases — plan to migrate your compose.yaml
+to the flat names within that window.
+
 ## Choosing a webtrees line
 
 Two parallel image tracks are published:
@@ -164,8 +181,8 @@ Two parallel image tracks are published:
 | `2.1` | 2.1.x (LTS-style) | 8.3 / 8.4 / 8.5 | Stay on the older line until you are ready for the 2.1 → 2.2 upgrade. |
 
 Pin a specific PHP minor with a fully-qualified tag — e.g.
-`ghcr.io/magicsunday/webtrees/php:2.1.27-php8.4` or
-`ghcr.io/magicsunday/webtrees/php:2.2.6-php8.5`. The line aliases
+`ghcr.io/magicsunday/webtrees-php:2.1.27-php8.4` or
+`ghcr.io/magicsunday/webtrees-php:2.2.6-php8.5`. The line aliases
 (`latest`, `2`, `2.1`, `2.2`) follow the rolling top-of-line PHP entry
 (currently php8.5); pin a numeric tag if you need build determinism.
 
@@ -224,7 +241,7 @@ Full procedure (DB dump, media tar, restore, scheduling): see
   falls back to 28081 automatically. If 28081 is also taken, pass
   `--port <free-port>` explicitly.
 - **`docker compose pull` fails** — confirm GHCR is reachable
-  (`docker pull ghcr.io/magicsunday/webtrees/nginx:1.30-r1`) and re-run.
+  (`docker pull ghcr.io/magicsunday/webtrees-nginx:1.30-r1`) and re-run.
 - **Admin login fails** — the password is printed once in the install
   banner and not saved to disk. If you missed it, re-run the wizard with
   `--force` to regenerate (your tree data in the named volumes survives).
@@ -280,7 +297,7 @@ cd webtrees-docker
 docker run --rm -it \
   -v "$PWD:/work" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/magicsunday/webtrees/installer:latest --mode dev
+  ghcr.io/magicsunday/webtrees-installer:latest --mode dev
 ```
 
 The dev flow writes a `.env` with the compose chain that bind-mounts

@@ -87,7 +87,7 @@ def test_run_standalone_writes_compose_and_env(tmp_path: Path) -> None:
     assert (tmp_path / ".env").is_file()
 
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
-    assert "/php-full:" in compose["services"]["phpfpm"]["image"]
+    assert "webtrees-php-full:" in compose["services"]["phpfpm"]["image"]
 
 
 def test_run_standalone_reveals_admin_password(tmp_path: Path) -> None:

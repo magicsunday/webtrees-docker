@@ -84,9 +84,16 @@ jobs:
               id: tags
               run: |
                   set -euo pipefail
-                  primary="ghcr.io/magicsunday/webtrees/php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  tags="$primary"
+                  # #58 image-namespace flatten: dual-publish on the flat
+                  # name (canonical going forward) AND the legacy nested
+                  # name for a deprecation window. Operators still on
+                  # `webtrees/php:<tag>` keep working until they update
+                  # their compose to `webtrees-php:<tag>`.
+                  flat_primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  nested_primary="ghcr.io/magicsunday/webtrees/php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  tags="$flat_primary,$nested_primary"
                   for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
+                      tags="$tags,ghcr.io/magicsunday/webtrees-php:$extra"
                       tags="$tags,ghcr.io/magicsunday/webtrees/php:$extra"
                   done
                   printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
@@ -134,9 +141,13 @@ jobs:
               id: tags
               run: |
                   set -euo pipefail
-                  primary="ghcr.io/magicsunday/webtrees/php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  tags="$primary"
+                  # #58 image-namespace flatten — see the build-php job
+                  # for rationale. Dual-publish on flat + nested names.
+                  flat_primary="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  nested_primary="ghcr.io/magicsunday/webtrees/php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  tags="$flat_primary,$nested_primary"
                   for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
+                      tags="$tags,ghcr.io/magicsunday/webtrees-php-full:$extra"
                       tags="$tags,ghcr.io/magicsunday/webtrees/php-full:$extra"
                   done
                   printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
@@ -189,7 +200,11 @@ jobs:
                   # /etc/hosts read-only, so the stub now arrives via --add-host
                   # rather than the old `echo >> /etc/hosts` workaround.
                   add-hosts: phpfpm=127.0.0.1
+                  # #58 image-namespace flatten — dual-publish on flat
+                  # (canonical) + nested (legacy deprecation alias).
                   tags: |
+                      ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}
+                      ghcr.io/magicsunday/webtrees-nginx:latest
                       ghcr.io/magicsunday/webtrees/nginx:${{ needs.matrix.outputs.nginx_tag }}
                       ghcr.io/magicsunday/webtrees/nginx:latest
                   build-args: |
@@ -227,7 +242,11 @@ jobs:
                   file: installer/Dockerfile
                   platforms: linux/amd64,linux/arm64
                   push: true
+                  # #58 image-namespace flatten — dual-publish on flat
+                  # (canonical) + nested (legacy deprecation alias).
                   tags: |
+                      ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}
+                      ghcr.io/magicsunday/webtrees-installer:latest
                       ghcr.io/magicsunday/webtrees/installer:${{ needs.matrix.outputs.installer_tag }}
                       ghcr.io/magicsunday/webtrees/installer:latest
                   cache-from: type=gha,scope=installer

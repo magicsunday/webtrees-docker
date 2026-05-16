@@ -176,7 +176,7 @@ def test_render_standalone_full_with_admin(tmp_path: Path, catalog: Catalog) -> 
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
 
     phpfpm = compose["services"]["phpfpm"]
-    assert "/php-full:" in phpfpm["image"]
+    assert "webtrees-php-full:" in phpfpm["image"]
     assert phpfpm["environment"]["WT_ADMIN_USER"] == "admin"
     assert phpfpm["environment"]["WT_ADMIN_EMAIL"] == "admin@example.org"
     assert (

@@ -93,7 +93,7 @@ services:
 {%- endif %}
 
     phpfpm:
-        image: ghcr.io/magicsunday/webtrees/php{% if edition == "full" %}-full{% endif %}:{{ webtrees_version }}-php{{ php_version }}
+        image: ghcr.io/magicsunday/webtrees-php{% if edition == "full" %}-full{% endif %}:{{ webtrees_version }}-php{{ php_version }}
         depends_on:
 {%- if use_external_db %}
             init:
@@ -152,7 +152,7 @@ services:
 {%- endif %}
 
     nginx:
-        image: ghcr.io/magicsunday/webtrees/nginx:{{ nginx_tag }}
+        image: ghcr.io/magicsunday/webtrees-nginx:{{ nginx_tag }}
         depends_on:
             phpfpm:
                 condition: service_healthy

@@ -43,5 +43,5 @@ runs:
                   -e COMPOSE_PROJECT_NAME="${project_name}" \
                   -v "${WORK_DIR}:/work" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
-                  "ghcr.io/magicsunday/webtrees/installer:${INSTALLER_TAG}" \
+                  "ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}" \
                   ${INSTALLER_ARGS}
