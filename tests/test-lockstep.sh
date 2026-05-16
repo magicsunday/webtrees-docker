@@ -551,6 +551,23 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-healthcheck-lockstep — entire start_period line deleted from template
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: installer template nginx start_period line deleted entirely"
+# A future refactor that drops the start_period: key altogether (vs the
+# blanked-value case above) must still surface as `::error::start_period
+# not found`, not a bash-pipefail abort with no annotation. The
+# `|| true` after the grep in check-healthcheck-start-period.sh
+# preserves the explicit empty-value diagnostic on this path.
+sed -i '/^    nginx:/,/^    [a-z]/{/start_period:/d;}' \
+    "$worktree/installer/webtrees_installer/templates/compose.standalone.j2"
+assert_lockstep_fails \
+    "ci-healthcheck-lockstep: deleted start_period line in template fails the lookup" \
+    ci-healthcheck-lockstep \
+    "start_period not found"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # ci-port-default-lockstep — default port drift in a mirror site
 # ──────────────────────────────────────────────────────────────────────
 echo "Setting up: docs/env-vars.md APP_PORT default mutated from 28080 to 80"
