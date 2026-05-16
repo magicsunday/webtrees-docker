@@ -183,7 +183,40 @@ def test_scanner_detects_a_seeded_legacy_ref(tmp_path: Path) -> None:
     offender.write_text("image: ghcr.io/magicsunday/webtrees/php:1.0\n")
 
     hits = _scan_repo_for_legacy_refs(tmp_path)
-    assert "fake-compose.yaml" in hits
+    # Equality (not containment) so an over-broad refactor that
+    # accidentally returns every file in the tmp tree fails loud.
+    assert hits == {"fake-compose.yaml"}
+
+
+def test_resolve_repo_root_honours_env_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WT_REPO_ROOT` env var must win over `parents[2]` so a future
+    Make/ci.mk edit that drops the `-e WT_REPO_ROOT=/repo` line — or
+    a typo in the env-var name — gets caught here instead of silently
+    re-introducing the Round-3 'guard always skips' bug."""
+    monkeypatch.setenv("WT_REPO_ROOT", str(tmp_path))
+    assert _resolve_repo_root() == tmp_path
+
+
+def test_resolve_repo_root_falls_back_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without WT_REPO_ROOT, fall back to parents[2] of the test file."""
+    monkeypatch.delenv("WT_REPO_ROOT", raising=False)
+    expected = Path(__file__).resolve().parents[2]
+    assert _resolve_repo_root() == expected
+
+
+def test_resolve_repo_root_treats_empty_env_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty-string env var falls through to the parents[2] path —
+    avoids `Path('')` ever reaching the marker-file check (which would
+    silently resolve to cwd)."""
+    monkeypatch.setenv("WT_REPO_ROOT", "")
+    expected = Path(__file__).resolve().parents[2]
+    assert _resolve_repo_root() == expected
 
 
 def test_scanner_ignores_module_repo_slugs(tmp_path: Path) -> None:
