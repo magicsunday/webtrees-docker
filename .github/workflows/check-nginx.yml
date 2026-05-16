@@ -60,16 +60,26 @@ jobs:
                   # like `1.30.1-alpine` or stable channels like
                   # `mainline-alpine`). Strip the `-alpine` suffix so we
                   # can compare against `.nginx_base` directly.
+                  #
+                  # Stable-only filter: nginx uses even-numbered minors for
+                  # the stable branch (1.26, 1.28, 1.30, …) and odd minors
+                  # for mainline (1.27, 1.29, 1.31, …). Mainline is not
+                  # production-suited for this project, so the awk filter
+                  # drops every odd minor. The self-test below catches a
+                  # filter regression: it requires the pinned `nginx_base`
+                  # to survive the filter, and our policy pins only even
+                  # minors. Documented in docs/maintenance.md.
                   available=$(printf '%s' "$all_tags" \
                       | { grep -E '^1\.[0-9]+-alpine$' || true; } \
                       | sed 's/-alpine$//' \
+                      | awk -F. '$2 % 2 == 0' \
                       | sort -uV)
 
                   # Self-test: the pinned minor MUST appear in the API
                   # response — otherwise the filter or pagination
                   # silently dropped it, and a green run scanned nothing.
                   if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
-                      echo "::error::Pinned nginx minor ${pinned_minor} not found in the Docker Hub tag listing. Likely causes: page_size cap silently lowered, name=alpine filter regressed, ordering quirk dropping the pin mid-pagination, or response schema change."
+                      echo "::error::Pinned nginx minor ${pinned_minor} not found in the Docker Hub tag listing. Likely causes: pin is an odd minor (mainline channel) — project policy requires even-numbered stable minors (see docs/maintenance.md); the awk stable-only filter was edited; page_size cap silently lowered; name=alpine filter regressed; ordering quirk dropping the pin mid-pagination; or response schema change."
                       exit 1
                   fi
 
@@ -82,17 +92,17 @@ jobs:
                               exit 1
                           }
                           if [ "$existing" = "0" ]; then
-                              gh issue create \
-                                  --title "$title" \
-                                  --body "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`).
-
-**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:
-
-  1. Review release notes for nginx ${ver} (config-format / module-set changes).
-  2. Run \`make bump-nginx VERSION=${ver}\` — updates \`dev/nginx-version.json\` (\`nginx_base\`, \`config_revision=1\`, \`.tag\`) and syncs the 5 mirror sites enforced by the lockstep test (Make recipe, 2 test scripts, Portainer compose, README operator prose).
-  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally.
-  4. Open a PR; \`build.yml\` rebuilds the nginx image stage.
-  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`."
+                              body=$(printf '%s\n' \
+                                  "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`)." \
+                                  "" \
+                                  "**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:" \
+                                  "" \
+                                  "  1. Review release notes for nginx ${ver} (config-format / module-set changes)." \
+                                  "  2. Run \`make bump-nginx VERSION=${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test." \
+                                  "  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally." \
+                                  "  4. Open a PR; \`build.yml\` rebuilds the nginx image stage." \
+                                  "  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`.")
+                              gh issue create --title "$title" --body "$body"
                           fi
                       fi
                   done

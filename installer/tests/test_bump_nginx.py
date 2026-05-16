@@ -82,11 +82,16 @@ def _seed_repo(root: Path, tag: str = "1.30-r1") -> None:
     finds at least one substitution per site. Real repo content is
     irrelevant to the bumper's contract — only the tag literal matters.
     """
-    base, _, _ = tag.partition("-")
+    base, _, rev_suffix = tag.partition("-")
+    # `1.30-r3` → revision 3. Match the canonical's own format so a
+    # test seeding `tag="1.30-r3"` lands with `config_revision: 3`,
+    # not a hardcoded 1.
+    revision = int(rev_suffix.lstrip("r")) if rev_suffix else 1
     (root / "dev").mkdir(parents=True, exist_ok=True)
     (root / "dev" / "nginx-version.json").write_text(
         json.dumps(
-            {"nginx_base": base, "config_revision": 1, "tag": tag}, indent=4
+            {"nginx_base": base, "config_revision": revision, "tag": tag},
+            indent=4,
         )
         + "\n",
         encoding="utf-8",
@@ -119,15 +124,16 @@ def _seed_repo(root: Path, tag: str = "1.30-r1") -> None:
 def test_bump_writes_canonical_and_syncs_all_mirrors(
     bumper: ModuleType, tmp_path: Path
 ) -> None:
-    """Happy path: nginx 1.30-r1 -> 1.31-r1. Canonical JSON is rewritten
-    and every mirror site picks up the new tag."""
+    """Happy path: nginx 1.30-r1 -> 1.32-r1 (next stable minor).
+    Canonical JSON is rewritten and every mirror site picks up the
+    new tag."""
     _seed_repo(tmp_path)
-    rc = bumper.bump(tmp_path, "1.31")
+    rc = bumper.bump(tmp_path, "1.32")
     assert rc == 0
     canonical = json.loads(
         (tmp_path / "dev" / "nginx-version.json").read_text(encoding="utf-8")
     )
-    assert canonical == {"nginx_base": "1.31", "config_revision": 1, "tag": "1.31-r1"}
+    assert canonical == {"nginx_base": "1.32", "config_revision": 1, "tag": "1.32-r1"}
     for relative in (
         "Make/ci.mk",
         "tests/test-nginx-config.sh",
@@ -136,7 +142,7 @@ def test_bump_writes_canonical_and_syncs_all_mirrors(
         "README.md",
     ):
         body = (tmp_path / relative).read_text(encoding="utf-8")
-        assert "webtrees-nginx:1.31-r1" in body
+        assert "webtrees-nginx:1.32-r1" in body
         assert "webtrees-nginx:1.30-r1" not in body
 
 
@@ -176,13 +182,219 @@ def test_bump_allows_revision_only_increment(
 def test_bump_rejects_patch_pinned_minor(
     bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Pin policy: X.Y only. A `1.31.0` argv must fail with an
-    actionable error rather than silently producing `1.31.0-r1`."""
+    """Pin policy: X.Y only. A `1.30.1` argv must fail with an
+    actionable error rather than silently producing `1.30.1-r1`."""
     _seed_repo(tmp_path)
-    rc = bumper.bump(tmp_path, "1.31.0")
+    rc = bumper.bump(tmp_path, "1.30.1")
     assert rc == 1
     err = capsys.readouterr().err
     assert "must match X.Y" in err
+
+
+def test_bump_rejects_odd_mainline_minor(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Stable-only policy: nginx publishes even-numbered minors on the
+    stable line (1.26, 1.28, 1.30, …) and odd minors on mainline. An
+    odd-minor bump must fail loud before mutating the canonical or
+    any mirror site — this prevents the cascade where the bump lands,
+    the lockstep tests pass (they only verify mirror agreement, not
+    the minor's parity), the PR merges, and only the daily
+    check-nginx.yml self-test catches the policy violation 24h later."""
+    _seed_repo(tmp_path)
+    rc = bumper.bump(tmp_path, "1.31")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "mainline" in err
+    assert "stable" in err
+    # Canonical must remain unchanged on policy-violation reject.
+    canonical = json.loads(
+        (tmp_path / "dev" / "nginx-version.json").read_text(encoding="utf-8")
+    )
+    assert canonical["nginx_base"] == "1.30"
+
+
+def test_bump_rejects_leading_zero_minor(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Pin policy: canonical form is `X.Y` without leading zeros.
+    `1.030` would parse as int 30 (even, parity-clean) and silently
+    pin a `webtrees-nginx:1.030-r1` tag that no Docker Hub variant
+    publishes. The tightened regex must reject leading-zero shapes
+    before mutating any file."""
+    _seed_repo(tmp_path)
+    rc = bumper.bump(tmp_path, "1.030")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "must match X.Y" in err
+    canonical = json.loads(
+        (tmp_path / "dev" / "nginx-version.json").read_text(encoding="utf-8")
+    )
+    assert canonical["nginx_base"] == "1.30"
+
+
+def test_bump_fails_loud_on_odd_current_base_seed(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A poisoned canonical (`current_base` on an odd-minor mainline
+    minor) misdirects the operator if the bumper proceeds — the mirror
+    sed would diagnose 'missing literal' and the message would point
+    at the mirrors, not the actual root cause. The current-pin parity
+    self-check must catch the policy violation upfront."""
+    _seed_repo(tmp_path, tag="1.31-r1")
+    rc = bumper.bump(tmp_path, "1.32")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "mainline" in err
+    assert "policy-violating state" in err
+    # The canonical is left untouched so the operator can restore by
+    # hand without first reverting an in-flight write.
+    canonical = json.loads(
+        (tmp_path / "dev" / "nginx-version.json").read_text(encoding="utf-8")
+    )
+    assert canonical["nginx_base"] == "1.31"
+
+
+def test_bump_rejects_non_monotonic_downgrade(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Monotonic-bump guard: a downgrade (1.30 → 1.28) goes through
+    the regex + parity + canonical checks cleanly, but must be
+    rejected as a downgrade. Genuine rollbacks need an explicit
+    manual JSON edit so they land in commit history with intent."""
+    _seed_repo(tmp_path)
+    rc = bumper.bump(tmp_path, "1.28")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "older than the current pin" in err
+    assert "refuses to downgrade" in err
+    canonical = json.loads(
+        (tmp_path / "dev" / "nginx-version.json").read_text(encoding="utf-8")
+    )
+    assert canonical["nginx_base"] == "1.30"
+
+
+def test_bump_rejects_revision_only_downgrade(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Same-minor revision downgrade (1.30-r3 → 1.30-r1) goes through
+    the regex / parity / canonical / idempotency checks (1 != 3, so
+    not idempotent) and the minor-tuple comparison is equal, so a
+    naive minor-only monotonic guard would let it through. The
+    extended guard compares (parts, config_revision) so the rollback
+    is caught here."""
+    _seed_repo(tmp_path, tag="1.30-r3")
+    rc = bumper.bump(tmp_path, "1.30", config_revision=1)
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "older than the current pin" in err
+    canonical = json.loads(
+        (tmp_path / "dev" / "nginx-version.json").read_text(encoding="utf-8")
+    )
+    assert canonical["tag"] == "1.30-r3"
+
+
+def test_bump_fails_loud_when_canonical_json_is_invalid(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A canonical file that parses cleanly as a path but not as JSON
+    must surface an actionable `::error::canonical malformed` line,
+    not a Python traceback. Downstream consumers (CI annotations,
+    operator log grep) rely on the `::error::` prefix for failure
+    detection."""
+    _seed_repo(tmp_path)
+    (tmp_path / "dev" / "nginx-version.json").write_text(
+        "not json {{{", encoding="utf-8"
+    )
+    rc = bumper.bump(tmp_path, "1.32")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "::error::canonical malformed" in err
+    assert "JSONDecodeError" in err
+
+
+def test_bump_fails_loud_when_canonical_json_is_missing_key(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A canonical JSON with the wrong shape (missing `nginx_base`)
+    must surface a `::error::canonical malformed` line naming the
+    error type, not a bare KeyError traceback."""
+    _seed_repo(tmp_path)
+    (tmp_path / "dev" / "nginx-version.json").write_text(
+        '{"config_revision": 1, "tag": "1.30-r1"}\n', encoding="utf-8"
+    )
+    rc = bumper.bump(tmp_path, "1.32")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "::error::canonical malformed" in err
+    assert "KeyError" in err
+
+
+def test_bump_fails_loud_when_canonical_config_revision_is_non_integer(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The except clause covers ValueError too: a canonical with a
+    non-integer `config_revision` (e.g. an accidentally-quoted value)
+    must surface the malformed-canonical error, not a ValueError
+    traceback from `int()`."""
+    _seed_repo(tmp_path)
+    (tmp_path / "dev" / "nginx-version.json").write_text(
+        '{"nginx_base":"1.30","config_revision":"not-a-number","tag":"1.30-r1"}\n',
+        encoding="utf-8",
+    )
+    rc = bumper.bump(tmp_path, "1.32")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "::error::canonical malformed" in err
+    assert "ValueError" in err
+
+
+def test_bump_fails_loud_when_current_base_is_malformed_x_y(
+    bumper: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A canonical with an nginx_base value that parses cleanly as
+    JSON string but does not match X.Y (e.g. patch-pinned `1.30.5`,
+    leading-zero `01.30`, or garbage `abc`) must surface the
+    `is malformed` error before the parity check or any mutation."""
+    _seed_repo(tmp_path)
+    (tmp_path / "dev" / "nginx-version.json").write_text(
+        '{"nginx_base":"1.30.5","config_revision":1,"tag":"1.30.5-r1"}\n',
+        encoding="utf-8",
+    )
+    rc = bumper.bump(tmp_path, "1.32")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "is malformed" in err
+    assert "restore a clean X.Y stable pin" in err
+
+
+def test_main_rejects_non_positive_config_revision(
+    bumper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--config-revision 0` and negative values must be rejected at
+    argv parse time. A cross-minor bump with a negative revision
+    (e.g. `--config-revision -5 1.32` against canonical 1.28) would
+    otherwise slip past the monotonic guard (minor dominates the
+    tuple compare) and produce a malformed tag like `1.32-r-5` that
+    the lockstep regex `r[0-9]+` can't match — misdirecting the
+    operator toward a mirror-drift diagnosis."""
+    monkeypatch.setattr(
+        sys, "argv", ["bump-nginx", "--config-revision", "-5", "1.32"]
+    )
+    rc = bumper.main()
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "must be a positive integer" in err
+
+    monkeypatch.setattr(
+        sys, "argv", ["bump-nginx", "--config-revision", "0", "1.32"]
+    )
+    rc = bumper.main()
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "must be a positive integer" in err
 
 
 def test_bump_fails_loud_when_canonical_missing(
@@ -190,7 +402,7 @@ def test_bump_fails_loud_when_canonical_missing(
 ) -> None:
     """No canonical JSON under the working directory: refuse rather
     than fabricating one."""
-    rc = bumper.bump(tmp_path, "1.31")
+    rc = bumper.bump(tmp_path, "1.32")
     assert rc == 1
     err = capsys.readouterr().err
     assert "canonical file missing" in err
@@ -205,7 +417,7 @@ def test_bump_fails_loud_when_mirror_lacks_pin_literal(
     operator can choose to revert or restructure."""
     _seed_repo(tmp_path)
     (tmp_path / "Make" / "ci.mk").write_text("NGINX_IMAGE=\"some-other-form\"\n", encoding="utf-8")
-    rc = bumper.bump(tmp_path, "1.31")
+    rc = bumper.bump(tmp_path, "1.32")
     assert rc == 1
     err = capsys.readouterr().err
     assert "mirror sync failed" in err
@@ -253,13 +465,13 @@ def test_bump_does_not_corrupt_suffixed_tag_lookalike(
         'NGINX_DEBUG_IMAGE="ghcr.io/magicsunday/webtrees-nginx:1.30-r1-debug"\n',
         encoding="utf-8",
     )
-    rc = bumper.bump(tmp_path, "1.31")
+    rc = bumper.bump(tmp_path, "1.32")
     assert rc == 0
     body = (tmp_path / "Make" / "ci.mk").read_text(encoding="utf-8")
-    assert "webtrees-nginx:1.31-r1" in body
+    assert "webtrees-nginx:1.32-r1" in body
     # The suffixed tag is left untouched.
     assert "webtrees-nginx:1.30-r1-debug" in body
-    assert "webtrees-nginx:1.31-r1-debug" not in body
+    assert "webtrees-nginx:1.32-r1-debug" not in body
 
 
 def test_main_argv_flag_before_positional(

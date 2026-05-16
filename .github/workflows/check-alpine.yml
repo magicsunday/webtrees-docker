@@ -110,17 +110,17 @@ jobs:
                               exit 1
                           }
                           if [ "$existing" = "0" ]; then
-                              gh issue create \
-                                  --title "$title" \
-                                  --body "Docker Hub publishes an \`alpine:${ver}\` tag newer than the installer's current pin (\`alpine:${pinned_minor}\`).
-
-**Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:
-
-  1. Review release notes for Alpine ${ver} (busybox / musl / apk changes).
-  2. Update \`ALPINE_BASE_IMAGE\` in \`installer/webtrees_installer/_alpine.py\` to \`\"alpine:${ver}\"\`.
-  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced.
-  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint).
-  5. Open a PR; CI rebuilds every Alpine-derived image stage."
+                              body=$(printf '%s\n' \
+                                  "Docker Hub publishes an \`alpine:${ver}\` tag newer than the installer's current pin (\`alpine:${pinned_minor}\`)." \
+                                  "" \
+                                  "**Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:" \
+                                  "" \
+                                  "  1. Review release notes for Alpine ${ver} (busybox / musl / apk changes)." \
+                                  "  2. Update \`ALPINE_BASE_IMAGE\` in \`installer/webtrees_installer/_alpine.py\` to \`\"alpine:${ver}\"\`." \
+                                  "  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced." \
+                                  "  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint)." \
+                                  "  5. Open a PR; CI rebuilds every Alpine-derived image stage.")
+                              gh issue create --title "$title" --body "$body"
                           fi
                       fi
                   done

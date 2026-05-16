@@ -52,7 +52,7 @@ directly inside a python:3.13-slim container:
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/app" -w /app \
-    python:3.13-slim python3 scripts/bump-nginx.py 1.31
+    python:3.13-slim python3 scripts/bump-nginx.py 1.32
 ```
 
 The Python script's own argv handling does not interpret shell
@@ -62,9 +62,27 @@ metacharacters and is unaffected by Make's command-line parser.
 
 Triggered by a `nginx X.Y-alpine available` issue from `check-nginx.yml`.
 
+### Stable-only policy
+
+nginx publishes two parallel branches:
+
+  * **Stable** — even-numbered minors (1.26, 1.28, 1.30, …). Production-
+    suited. Only critical fixes land on the active stable line.
+  * **Mainline** — odd-numbered minors (1.27, 1.29, 1.31, …). Carries
+    new features and experimental changes; not production-suited.
+
+This project pins the stable line. `check-nginx.yml` filters Docker Hub
+results to even-numbered minors (`awk -F. '$2 % 2 == 0'`) so mainline
+releases do not trigger spurious bump tickets. The filter is enforced
+by the workflow's self-test: a pinned mainline minor would fail because
+it could not survive the even-only filter.
+
 ### 1. Review release notes
 
-  * https://nginx.org/en/CHANGES
+  * Stable-branch changelog: `https://nginx.org/en/CHANGES-X.Y`
+    (substitute the new minor, e.g. `https://nginx.org/en/CHANGES-1.32`).
+    `nginx.org/en/CHANGES` carries the mainline changelog only and is
+    not the right page for this project's pin track.
   * Focus on directive renames, removed/added modules, default-value
     changes, and any item flagged "Backward incompatibility".
   * Particularly relevant for this stack: `http_realip_module`,

@@ -107,17 +107,17 @@ jobs:
                               exit 1
                           }
                           if [ "$existing" = "0" ]; then
-                              gh issue create \
-                                  --title "$title" \
-                                  --body "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`).
-
-**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:
-
-  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes).
-  2. Run \`make bump-mariadb VERSION=${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test.
-  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes.
-  4. Run \`make ci-pytest ci-lockstep-tests\` locally.
-  5. Open a PR; CI re-runs the smoke matrix against the new pin."
+                              body=$(printf '%s\n' \
+                                  "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`)." \
+                                  "" \
+                                  "**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:" \
+                                  "" \
+                                  "  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes)." \
+                                  "  2. Run \`make bump-mariadb VERSION=${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test." \
+                                  "  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes." \
+                                  "  4. Run \`make ci-pytest ci-lockstep-tests\` locally." \
+                                  "  5. Open a PR; CI re-runs the smoke matrix against the new pin.")
+                              gh issue create --title "$title" --body "$body"
                           fi
                       fi
                   done

@@ -14,7 +14,9 @@ Behaviour:
   3. Write the new canonical: `nginx_base`, `config_revision`
      (defaults to 1; pass `--config-revision N` to override —
      typically only useful for a same-minor nginx.conf revision),
-     `tag=<base>-r<revision>`.
+     `tag=<base>-r<revision>`. The new minor must be even (nginx's
+     stable line); odd minors are mainline and policy-rejected.
+     See docs/maintenance.md → Stable-only policy.
   4. sed-replace every `webtrees-nginx:<OLD_TAG>` literal in the five
      mirror sites enforced by `test_nginx_tag_lockstep._TAG_SITES`.
   5. Print a next-steps reminder (review release notes, smoke matrix,
@@ -44,7 +46,7 @@ _MIRROR_SITES: tuple[str, ...] = (
     "README.md",
 )
 
-_MINOR_RE = re.compile(r"^[0-9]+\.[0-9]+$")
+_MINOR_RE = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _TAG_RE = re.compile(r"webtrees-nginx:([0-9]+\.[0-9]+-r[0-9]+)")
 
 
@@ -99,7 +101,22 @@ def bump(root: pathlib.Path, new_minor: str, config_revision: int = 1) -> int:
     if not _MINOR_RE.fullmatch(new_minor):
         print(
             f"::error::new minor {new_minor!r} must match X.Y "
-            f"(e.g. '1.31'); patch-pins like 1.31.0 are policy-rejected",
+            f"(e.g. '1.30'); patch-pins like 1.30.1 are policy-rejected",
+            file=sys.stderr,
+        )
+        return 1
+    # nginx publishes even-numbered minors on the stable line (1.26,
+    # 1.28, 1.30, …) and odd minors on mainline (1.27, 1.29, 1.31, …).
+    # This project pins stable only; an odd-minor bump would route
+    # mainline (experimental) code into production. See
+    # docs/maintenance.md → "Stable-only policy" for the rationale.
+    new_parts = tuple(int(p) for p in new_minor.split("."))
+    if new_parts[1] % 2 != 0:
+        print(
+            f"::error::new minor {new_minor!r} is mainline "
+            f"(odd-numbered minor); project pins stable only "
+            f"(even-numbered: 1.26, 1.28, 1.30, …). "
+            f"See docs/maintenance.md → Stable-only policy.",
             file=sys.stderr,
         )
         return 1
@@ -112,12 +129,63 @@ def bump(root: pathlib.Path, new_minor: str, config_revision: int = 1) -> int:
         )
         return 1
 
-    current_base, current_rev, current_tag = _read_canonical(root)
+    try:
+        current_base, current_rev, current_tag = _read_canonical(root)
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        print(
+            f"::error::canonical malformed at {_CANONICAL}: "
+            f"{type(exc).__name__}: {exc}. "
+            f"Restore a clean `{{\"nginx_base\":\"X.Y\","
+            f"\"config_revision\":N,\"tag\":\"X.Y-rN\"}}` JSON file "
+            f"before bumping.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Sanity-check the CURRENT pin too: a regression / bad merge could
+    # leave canonical on an odd (mainline) minor, in which case the
+    # mirror sync below would diagnose "missing literal" and misdirect
+    # the operator to fix the mirrors. Fail loud on the actual root
+    # cause instead.
+    if not _MINOR_RE.fullmatch(current_base):
+        print(
+            f"::error::canonical nginx_base={current_base!r} is "
+            f"malformed; restore a clean X.Y stable pin before bumping",
+            file=sys.stderr,
+        )
+        return 1
+    current_parts = tuple(int(p) for p in current_base.split("."))
+    if current_parts[1] % 2 != 0:
+        print(
+            f"::error::canonical nginx_base={current_base!r} is "
+            f"on the mainline (odd-minor) branch — the canonical is "
+            f"in a policy-violating state. Restore the previous stable "
+            f"minor in dev/nginx-version.json before bumping forward.",
+            file=sys.stderr,
+        )
+        return 1
+
     if new_minor == current_base and config_revision == current_rev:
         print(
             f"::error::pin already at {current_tag}; pass "
             f"--config-revision <N> to bump the config-revision "
             f"counter only, or supply a different minor",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Monotonic-bump guard: refuse to downgrade silently. A genuine
+    # rollback (e.g. reverting a bad stable release or backing out a
+    # nginx.conf revision) must be done by editing
+    # dev/nginx-version.json by hand so the choice is explicit in
+    # the commit history. The comparison includes config_revision so
+    # a same-minor revision rollback (r3 → r1) is also rejected.
+    if (new_parts, config_revision) < (current_parts, current_rev):
+        print(
+            f"::error::new pin {new_minor}-r{config_revision} is "
+            f"older than the current pin {current_tag}; this tool "
+            f"refuses to downgrade silently. Edit dev/nginx-version.json "
+            f"by hand if a rollback is genuinely intended.",
             file=sys.stderr,
         )
         return 1
@@ -176,6 +244,15 @@ def main() -> int:
             except ValueError:
                 print("::error::--config-revision must be an integer", file=sys.stderr)
                 return 2
+            if config_revision < 1:
+                print(
+                    "::error::--config-revision must be a positive integer "
+                    "(>= 1); negative or zero values produce malformed "
+                    "tag shapes like `1.32-r-5` that the lockstep test "
+                    "would mis-diagnose as a mirror drift.",
+                    file=sys.stderr,
+                )
+                return 2
         else:
             print(f"::error::unknown flag {flag!r}", file=sys.stderr)
             return 2
@@ -183,9 +260,11 @@ def main() -> int:
     if len(argv) != 1:
         print(
             f"usage: {sys.argv[0]} [--config-revision N] <new-minor>\n"
-            f"  e.g. {sys.argv[0]} 1.31\n"
+            f"  e.g. {sys.argv[0]} 1.32\n"
             f"       {sys.argv[0]} --config-revision 2 1.30\n"
-            f"  flags must precede the positional <new-minor>",
+            f"  flags must precede the positional <new-minor>\n"
+            f"  <new-minor> must be even (stable line); see "
+            f"docs/maintenance.md",
             file=sys.stderr,
         )
         return 2
