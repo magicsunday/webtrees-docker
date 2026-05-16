@@ -84,9 +84,10 @@ jobs:
               id: tags
               run: |
                   set -euo pipefail
-                  # #58 image-namespace flatten — REMOVE legacy block via #97: dual-publish on the flat
-                  # name (canonical going forward) AND the legacy nested
-                  # name for a deprecation window. Operators still on
+                  # WT-CLEANUP-97 — #58 image-namespace flatten:
+                  # dual-publish on the flat name (canonical going
+                  # forward) AND the legacy nested name for a
+                  # deprecation window. Operators still on
                   # `webtrees/php:<tag>` keep working until they update
                   # their compose to `webtrees-php:<tag>`.
                   flat_primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
@@ -141,7 +142,7 @@ jobs:
               id: tags
               run: |
                   set -euo pipefail
-                  # #58 image-namespace flatten (REMOVE legacy via #97) — see build-php
+                  # WT-CLEANUP-97 — see build-php
                   # for rationale. Dual-publish on flat + nested names.
                   flat_primary="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
                   nested_primary="ghcr.io/magicsunday/webtrees/php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
@@ -202,7 +203,7 @@ jobs:
                   add-hosts: phpfpm=127.0.0.1
                   # #58 image-namespace flatten — dual-publish on flat
                   # (canonical) + nested (legacy deprecation alias).
-                  # Remove the legacy `webtrees/...` entries via #97.
+                  # WT-CLEANUP-97 — remove the legacy nested entries.
                   tags: |
                       ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}
                       ghcr.io/magicsunday/webtrees-nginx:latest
@@ -245,7 +246,7 @@ jobs:
                   push: true
                   # #58 image-namespace flatten — dual-publish on flat
                   # (canonical) + nested (legacy deprecation alias).
-                  # Remove the legacy `webtrees/...` entries via #97.
+                  # WT-CLEANUP-97 — remove the legacy nested entries.
                   tags: |
                       ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}
                       ghcr.io/magicsunday/webtrees-installer:latest

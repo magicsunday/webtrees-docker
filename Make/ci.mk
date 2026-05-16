@@ -45,18 +45,21 @@ ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make hel
 
 ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 	echo -e "${FBLUE}▶ pytest (installer)${FRESET}"
-	# `apt-get install make` brings GNU make into the throwaway container
-	# so the Makefile-render tests (test_render_makefile_parses_under_make_n
-	# + test_render_makefile_switch_flips_env) actually exercise the
-	# rendered Makefile instead of skipping. ~5MB extra image bytes,
-	# transparent under the pip-cache volume reuse.
+	# `apt-get install make git` brings GNU make + git into the
+	# throwaway container so the Makefile-render tests
+	# (test_render_makefile_parses_under_make_n +
+	# test_render_makefile_switch_flips_env) actually exercise the
+	# rendered Makefile, and the legacy-image-ref grep guard
+	# (test_no_legacy_nested_image_refs_outside_allowlist) can call
+	# `git grep`. ~30MB extra image bytes, transparent under the
+	# pip-cache volume reuse.
 	docker run --rm \
 		-v "$(PWD)/installer:/app" \
 		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
 		python:3.13-slim \
-		-c "apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends make >/dev/null && pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
+		-c "apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends make git >/dev/null && pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
 
 # All four ci-{ruff,mypy,vulture,cpd} targets share the same install
 # step against the installer's `.[static]` optional-deps. The targets
@@ -129,7 +132,7 @@ ci-entrypoint: .logo ## Runs the docker-entrypoint.sh state-machine tests.
 	# from dev/versions.json (the row carrying the rolling `latest` bundle).
 	# Pre-pull so test-entrypoint.sh's "Image not found locally" guard does
 	# not trip on a fresh runner that has never built/pulled the image.
-	IMAGE="ghcr.io/magicsunday/webtrees/php:$(LATEST_PHP_TAG)"; \
+	IMAGE="ghcr.io/magicsunday/webtrees-php:$(LATEST_PHP_TAG)"; \
 		docker pull "$$IMAGE" >/dev/null || { \
 			echo "::error::docker pull failed for $$IMAGE" >&2; \
 			exit 1; \
@@ -142,7 +145,7 @@ ci-nginx-config: .logo ## Runs the nginx config syntax + trust-gate regression t
 	# nginx image, plus regression guards on the X-Forwarded-Proto trust
 	# gate (default.conf reads $$xfp_https, trust-proxy-map.conf carries
 	# the expected CIDR set with LAN ranges out of default trust).
-	NGINX_IMAGE="ghcr.io/magicsunday/webtrees/nginx:1.28-r1"; \
+	NGINX_IMAGE="ghcr.io/magicsunday/webtrees-nginx:1.28-r1"; \
 		docker pull "$$NGINX_IMAGE" >/dev/null || { \
 			echo "::error::docker pull failed for $$NGINX_IMAGE" >&2; \
 			exit 1; \

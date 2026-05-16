@@ -102,7 +102,9 @@ to also seed the demo tree.
   your stack has `<project>_database`, `<project>_media`,
   `<project>_app`, `<project>_secrets`.
 - **GHCR** — GitHub Container Registry. All images are pulled from
-  `ghcr.io/magicsunday/webtrees/...`.
+  `ghcr.io/magicsunday/webtrees-*` (flat canonical names; the legacy
+  nested `ghcr.io/magicsunday/webtrees/...` form stays published as a
+  deprecation alias).
 
 ## What the wizard writes
 
