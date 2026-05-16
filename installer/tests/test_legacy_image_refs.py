@@ -17,29 +17,45 @@ expand the allowlist with rationale).
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 import pytest
 
 
-# Repo root resolves from the test file: tests/ → installer/ → repo root.
-# In the buildbox CI container only the installer/ dir is mounted, so
-# parents[2] resolves to filesystem root — the scan then has nothing
-# to walk and the test passes trivially (acceptable: the legacy-ref
-# check is the gate for *new* contributor commits; CI ALSO runs the
-# pytest suite against the full repo via ci-test-buildbox which mounts
-# the full tree, and the standalone hosted CI runs in the actions
-# checkout dir which IS the full repo).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+def _resolve_repo_root() -> Path:
+    """Resolve the repo root for the legacy-ref scan.
+
+    Precedence:
+    1. ``WT_REPO_ROOT`` env var — set by the ci-pytest container so the
+       test can walk the full tree even though only ``installer/`` is
+       the working dir.
+    2. ``parents[2]`` of this file — works for host-shell pytest runs
+       from any directory inside the repo (tests/ → installer/ → root).
+
+    The marker-file check in ``_looks_like_repo_root`` is what actually
+    decides whether the scan runs; this function just supplies the
+    candidate path.
+    """
+    env_root = os.environ.get("WT_REPO_ROOT")
+    if env_root:
+        return Path(env_root)
+    return Path(__file__).resolve().parents[2]
 
 
-# Files where the nested `magicsunday/webtrees/X` form is intentionally
-# kept. Add to this list ONLY with an accompanying comment in the
-# touched file explaining why the legacy ref must stay.
+_REPO_ROOT = _resolve_repo_root()
+
+
+# Files where the nested `magicsunday/webtrees/X` form intentionally
+# matches the regex below. AGENTS.md and docs/{developing,env-vars}.md
+# DO mention the legacy form, but in brace-expansion / placeholder
+# shapes the regex does not match — they don't need allowlisting today.
+# A future edit that introduces a concrete `magicsunday/webtrees/php`
+# in one of those docs would (correctly) trigger the guard.
 #
-# Update at WT-CLEANUP-97 time: the build.yml + README entries collapse
-# once the dual-publish window closes.
+# Update at WT-CLEANUP-97 time: the build.yml + README + tests entries
+# collapse once the dual-publish window closes.
 _LEGACY_REF_ALLOWLIST = frozenset({
     # Build workflow: WT-CLEANUP-97 dual-publish blocks. Each of the
     # four build jobs emits both the flat canonical name and the legacy
@@ -50,13 +66,6 @@ _LEGACY_REF_ALLOWLIST = frozenset({
     # point of the table. README glossary + Editions table now use the
     # flat form.
     "README.md",
-    # AGENTS.md Distribution row mentions the deprecation alias in the
-    # same sentence as the canonical form, for completeness.
-    "AGENTS.md",
-    # docs/* sentences that name the legacy form alongside the canonical
-    # to document the deprecation contract.
-    "docs/developing.md",
-    "docs/env-vars.md",
     # Historical planning + spec docs from the original design phase.
     # Touching these rewrites history without value; archive material.
     "docs/superpowers/plans/2026-05-11-out-of-the-box-self-host-phase1.md",
@@ -64,13 +73,14 @@ _LEGACY_REF_ALLOWLIST = frozenset({
     "docs/superpowers/plans/2026-05-12-out-of-the-box-self-host-phase2b.md",
     "docs/superpowers/plans/2026-05-12-out-of-the-box-self-host-phase3.md",
     "docs/superpowers/specs/2026-05-11-out-of-the-box-self-host-design.md",
-    # This test file references the legacy form in error messages and
-    # in the allowlist comments above.
-    "installer/tests/test_legacy_image_refs.py",
     # Negative assertions: these tests deliberately check that the
     # legacy form is ABSENT from rendered compose.yaml.
     "installer/tests/test_flow.py",
     "installer/tests/test_render.py",
+    # This file: the positive-control test seeds a tmp file with a
+    # legacy ref to prove the scanner detects it; the literal string
+    # also lives in the test source on disk.
+    "installer/tests/test_legacy_image_refs.py",
 })
 
 
@@ -156,3 +166,37 @@ def test_no_legacy_nested_image_refs_outside_allowlist() -> None:
             "explaining why the legacy reference must stay during the "
             "deprecation window."
         )
+
+
+def test_scanner_detects_a_seeded_legacy_ref(tmp_path: Path) -> None:
+    """Positive-control: a tmp tree carrying a forbidden ref must be
+    detected. Catches a future refactor where `_scan_repo_for_legacy_refs`
+    silently returns an empty set (which would make the guard above
+    pass-by-accident on a clean tree)."""
+    # Marker files so _looks_like_repo_root() succeeds against tmp_path.
+    (tmp_path / "dev").mkdir()
+    (tmp_path / "dev" / "versions.json").write_text("[]")
+    (tmp_path / "installer").mkdir()
+    (tmp_path / "installer" / "pyproject.toml").write_text("")
+
+    offender = tmp_path / "fake-compose.yaml"
+    offender.write_text("image: ghcr.io/magicsunday/webtrees/php:1.0\n")
+
+    hits = _scan_repo_for_legacy_refs(tmp_path)
+    assert "fake-compose.yaml" in hits
+
+
+def test_scanner_ignores_module_repo_slugs(tmp_path: Path) -> None:
+    """Negative-control: the hyphenated module-repo form
+    (`magicsunday/webtrees-fan-chart`) must NOT match — those are
+    separate repositories, not deprecated aliases."""
+    (tmp_path / "dev").mkdir()
+    (tmp_path / "dev" / "versions.json").write_text("[]")
+    (tmp_path / "installer").mkdir()
+    (tmp_path / "installer" / "pyproject.toml").write_text("")
+
+    decoy = tmp_path / "module-link.md"
+    decoy.write_text("See magicsunday/webtrees-fan-chart for the chart.\n")
+
+    hits = _scan_repo_for_legacy_refs(tmp_path)
+    assert hits == set(), f"unexpected hits: {hits}"
