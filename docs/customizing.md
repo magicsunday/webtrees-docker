@@ -169,7 +169,7 @@ rather than written by the wizard. Add them by hand when you need them:
 
 | Variable | Purpose |
 |---|---|
-| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` (standalone proxy mode only) for `FALSE`. The wizard rejects `--no-https --proxy traefik` because the rendered Traefik router still terminates TLS at the edge. Runtime fallback when the key is unset is `FALSE`. See the **HTTPS trust gate** section below for which proxies are allowed to flip the redirect off via `X-Forwarded-Proto`. Cert provisioning itself is a separate concern — see issue #44. Flipping the value post-install: run `make switch-https` (or `make switch-http`) from the install directory — see below. |
+| `ENFORCE_HTTPS` | `TRUE` forces HTTPS redirects in nginx + webtrees. Fresh wizard installs default to `TRUE`; pass `--no-https` (standalone proxy mode only) for `FALSE`. The wizard rejects `--no-https --proxy traefik` because the rendered Traefik router still terminates TLS at the edge. Runtime fallback when the key is unset is `FALSE`. See the **HTTPS trust gate** section below for which proxies are allowed to flip the redirect off via `X-Forwarded-Proto`. Cert provisioning itself is a separate concern — see [`https-certs.md`](https-certs.md). Flipping the value post-install: run `make switch-https` (or `make switch-http`) from the install directory — see below. |
 | `WEBTREES_VERSION` | Pins the webtrees image tag. The wizard writes this; bump it manually for an out-of-cycle upgrade. |
 | `APP_PORT` | Host port published by the standalone overlay (default `28080` — the 28k range stays out of the 80/8080 drive-by-scan band; override with `--port`). |
 | `WEBTREES_REWRITE_URLS` | `1` enables webtrees pretty URLs (`/tree/.../individual/...` instead of `?route=...`); `0` keeps query-string routing. The wizard wires this from `--pretty-urls`. The entrypoint applies it on first boot only (gated on the `.webtrees-bootstrapped` marker inside the app volume); webtrees has no admin-UI toggle for `rewrite_urls`. To flip the value post-install, run `docker compose exec phpfpm php /var/www/html/public/index.php config-ini --rewrite-urls` (or `--no-rewrite-urls`) — the same CLI the entrypoint invokes. |
@@ -197,9 +197,11 @@ yourself — the Makefile targets only encode that exact sequence.
 
 When switching to HTTPS, make sure your reverse proxy (Traefik / Caddy
 / nginx-on-host) is already terminating TLS — the webtrees stack
-itself doesn't provision certs (issue #44). The HTTPS trust gate
-below explains which proxies are allowed to forward `X-Forwarded-Proto:
-https` and skip the in-container 301 redirect.
+itself doesn't provision certs. See [`https-certs.md`](https-certs.md)
+for the Traefik + ACME and bring-your-own-cert workflows.
+The HTTPS trust gate below explains which proxies are allowed to
+forward `X-Forwarded-Proto: https` and skip the in-container 301
+redirect.
 
 ### HTTPS trust gate
 

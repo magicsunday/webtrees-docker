@@ -14,7 +14,7 @@ Traefik side is a one-time setup the operator owns.
 | Pre-requisite | Why |
 |---|---|
 | **A Traefik instance reachable on a Docker network** | The wizard joins the rendered stack to an external network whose name defaults to `traefik`. Override at install time with `--traefik-network <name>` if your Traefik runs on a differently-named network (e.g. `proxy`, `edge-net`). |
-| **An ACME / Let's Encrypt resolver on that Traefik** | Webtrees ships `ENFORCE_HTTPS=TRUE`; the rendered router pins `tls=true` + the `websecure` entrypoint. Without a working cert resolver, browsers will hit a TLS error before reaching webtrees. The cert workflow itself is tracked in issue #44 — this walkthrough assumes the Traefik admin has already wired ACME (e.g. via `traefik.yml` `certificatesResolvers`). |
+| **An ACME / Let's Encrypt resolver on that Traefik** | Webtrees ships `ENFORCE_HTTPS=TRUE`; the rendered router pins `tls=true` + the `websecure` entrypoint. Without a working cert resolver, browsers will hit a TLS error before reaching webtrees. The cert workflow itself is documented in [`https-certs.md`](https-certs.md) — this walkthrough assumes the Traefik admin has already wired ACME (e.g. via `traefik.yml` `certificatesResolvers`). |
 | **A DNS record pointing the chosen hostname at the Traefik host** | A `webtrees.example.com` A or CNAME record must resolve to the IP Traefik publishes its `websecure` entrypoint on, otherwise ACME's HTTP-01 / DNS-01 challenge cannot complete. |
 | **Traefik configured to accept Docker labels** | `--providers.docker=true` on the Traefik command line (or the equivalent file-provider config). The wizard emits standard `traefik.http.routers.*` labels; nothing custom. |
 
