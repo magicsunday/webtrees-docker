@@ -14,28 +14,46 @@ other three. This test enforces that all four sites agree.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 import pytest
 
 
-_PIN_RE = re.compile(r"^\s*image:\s*mariadb:([0-9]+\.[0-9]+)\s*$", re.MULTILINE)
+# Pattern symmetric with the check-mariadb.yml workflow's
+# `^\s*image:\s*mariadb:[0-9]+\.[0-9]+` grep — both must accept the same
+# line shapes. The trailing portion is `(?:\s.*)?$` (not `\s*$`) so a
+# YAML inline comment like `image: mariadb:11.8  # rolling-minor` is
+# accepted by BOTH parsers; otherwise the workflow would parse a pin
+# that the lockstep test reports as missing.
+_PIN_RE = re.compile(
+    r"^\s*image:\s*mariadb:([0-9]+\.[0-9]+)(?:\s.*)?$",
+    re.MULTILINE,
+)
 
 
-def _repo_root() -> Path:
+def _resolve_repo_root() -> Path | None:
     """Resolve the repo root.
 
-    Returns Path("") when the test file's `parents[2]` is not a real
-    repo root (partial-mount CI container); callers gate on the
-    marker-file check.
-    """
-    import os
+    Precedence:
+    1. ``WT_REPO_ROOT`` env var — set by Make/ci.mk's ci-pytest so the
+       test can walk the full tree even though only ``installer/`` is
+       the working dir.
+    2. ``parents[2]`` of this file — works for host-shell pytest runs
+       from inside the repo.
 
+    Returns ``None`` when neither candidate exists (test file moved /
+    `parents[2]` raises IndexError); the caller fails loud instead of
+    silently skipping.
+    """
     env_root = os.environ.get("WT_REPO_ROOT")
     if env_root:
         return Path(env_root)
-    return Path(__file__).resolve().parents[2]
+    try:
+        return Path(__file__).resolve().parents[2]
+    except IndexError:
+        return None
 
 
 _PIN_SITES = (
@@ -56,11 +74,23 @@ def test_mariadb_pin_consistent_across_all_sites() -> None:
     """Every shipped compose file that pins MariaDB must agree on the
     same X.Y minor. A drift would let the check-mariadb.yml cron silently
     track the wrong baseline."""
-    root = _repo_root()
-    if not _looks_like_repo_root(root):
+    root = _resolve_repo_root()
+    if root is None or not _looks_like_repo_root(root):
+        # CI must set WT_REPO_ROOT to the bind-mounted full repo. Skip
+        # only when running from outside a real repo (e.g. an installed
+        # wheel's test-extras suite); fail loud inside CI where the env
+        # var is the load-bearing wire — a silent skip there would let
+        # mariadb-pin drift through unguarded.
+        if os.environ.get("WT_REPO_ROOT"):
+            pytest.fail(
+                f"WT_REPO_ROOT={os.environ['WT_REPO_ROOT']!r} does not "
+                f"resolve to a real repo root (missing dev/versions.json "
+                f"or installer/pyproject.toml). Fix the bind-mount in "
+                f"Make/ci.mk's ci-pytest target."
+            )
         pytest.skip(
-            f"repo root not reachable from {root} — running in a "
-            f"partial-mount container; the full-tree run is authoritative."
+            f"repo root not reachable from {root} — running from an "
+            f"installed wheel or partial checkout."
         )
 
     pins: dict[str, str] = {}
@@ -84,3 +114,22 @@ def test_mariadb_pin_consistent_across_all_sites() -> None:
             f"MariaDB pin drift across compose sites — every line must "
             f"carry the same X.Y minor:\n  {rows}"
         )
+
+
+def test_pin_regex_accepts_trailing_comment() -> None:
+    """Symmetry guard with the workflow grep: a trailing YAML comment on
+    the image line is a valid (if unusual) shape that both parsers must
+    accept. Without this case the lockstep test would report a missing
+    pin while the workflow scans against it."""
+    sample = "        image: mariadb:11.9  # rolling-minor"
+    match = _PIN_RE.search(sample)
+    assert match is not None, "regex must accept trailing-comment image lines"
+    assert match.group(1) == "11.9"
+
+
+def test_pin_regex_rejects_comment_only_line() -> None:
+    """A bare comment mentioning `mariadb:X.Y` (such as the BYOD
+    section's prose explainer) MUST NOT match — that ambiguity was
+    exactly the Round-1 finding."""
+    sample = "        # a host path. mariadb:11.8 expects the directory empty"
+    assert _PIN_RE.search(sample) is None

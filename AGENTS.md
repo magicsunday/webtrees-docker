@@ -29,6 +29,10 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `dev/versions.json` | PHP × webtrees matrix the build workflow expands |
 | `.github/workflows/build.yml` | Image build + smoke matrix (manual / tag-triggered) |
 | `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases |
+| `.github/workflows/check-alpine.yml` | Daily cron polling Docker Hub for new Alpine minors |
+| `.github/workflows/check-php.yml` | Daily cron polling Docker Hub for new PHP minors |
+| `.github/workflows/check-nginx.yml` | Daily cron polling Docker Hub for new nginx minors |
+| `.github/workflows/check-mariadb.yml` | Daily cron polling Docker Hub for new MariaDB 11.x minors |
 | `docs/developing.md` | Module-maintainer guide |
 | `docs/customizing.md` | Self-hoster customising + backup |
 | `docs/env-vars.md` | Env-var inventory + collision audit (every name → consumer + default) |
@@ -44,6 +48,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `docker build -f installer/Dockerfile -t webtrees-installer:dev .` | Build wizard image locally |
 | `gh workflow run build.yml --ref main` | Trigger full image-matrix + smoke build on CI |
 | `gh workflow run check-versions.yml --ref main` | Run the upstream-release poller |
+| `gh workflow run check-{alpine,php,nginx,mariadb}.yml --ref main` | Run a base-image-drift poller on demand |
 | `docker run --rm -v $(pwd):/repo -w /repo rhysd/actionlint:latest <workflow>` | Lint a workflow file |
 
 Multi-platform image builds (linux/amd64 + linux/arm64) are slow under
