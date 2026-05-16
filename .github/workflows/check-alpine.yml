@@ -49,10 +49,10 @@ jobs:
                   # Docker Hub library/alpine tag listing. We page through
                   # every `next` link until exhausted so the scan can't
                   # miss a new minor that lands beyond an arbitrary
-                  # page-size cap. The previous one-shot fetch with
-                  # `ordering=name` sorted alphabetically (3.9.x lands
-                  # after 3.20.x), so a new release could fall off the
-                  # first 100 results and go unnoticed.
+                  # page-size cap. `ordering=last_updated` is required
+                  # because `ordering=name` would sort alphabetically
+                  # (3.9.x lands after 3.20.x) and could push a new
+                  # release off the first 100 results unnoticed.
                   url="https://hub.docker.com/v2/repositories/library/alpine/tags/?name=3.&page_size=100&ordering=last_updated"
                   all_tags=""
                   while [ -n "$url" ] && [ "$url" != "null" ]; do
@@ -112,7 +112,15 @@ jobs:
                           if [ "$existing" = "0" ]; then
                               gh issue create \
                                   --title "$title" \
-                                  --body "Docker Hub publishes an \`alpine:${ver}\` tag that is newer than the installer's current pin (\`alpine:${pinned_minor}\`). Review the Alpine ${ver} release notes for breaking changes in busybox / musl, then bump \`webtrees_installer._alpine.ALPINE_BASE_IMAGE\` and re-run the smoke matrix."
+                                  --body "Docker Hub publishes an \`alpine:${ver}\` tag newer than the installer's current pin (\`alpine:${pinned_minor}\`).
+
+**Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:
+
+  1. Review release notes for Alpine ${ver} (busybox / musl / apk changes).
+  2. Update \`ALPINE_BASE_IMAGE\` in \`installer/webtrees_installer/_alpine.py\` to \`\"alpine:${ver}\"\`.
+  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced.
+  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint).
+  5. Open a PR; CI rebuilds every Alpine-derived image stage."
                           fi
                       fi
                   done

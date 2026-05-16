@@ -37,6 +37,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `docs/customizing.md` | Self-hoster customising + backup |
 | `docs/env-vars.md` | Env-var inventory + collision audit (every name → consumer + default) |
 | `docs/portainer.md` | Portainer one-click stack walkthrough |
+| `docs/maintenance.md` | Operator procedures for base-image bumps (nginx / MariaDB / Alpine / PHP); pairs with `make bump-{nginx,mariadb}` |
 | `templates/portainer/` | Release-time pre-rendered `compose.yaml` + `.env.example` for Portainer's Web-URL import path |
 | `scripts/render-portainer-templates.sh` | Maintainer helper that re-renders `templates/portainer/` from the installer's Jinja sources; invoke via `make portainer-templates` at release time |
 

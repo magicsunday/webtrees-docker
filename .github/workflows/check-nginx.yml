@@ -84,7 +84,15 @@ jobs:
                           if [ "$existing" = "0" ]; then
                               gh issue create \
                                   --title "$title" \
-                                  --body "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`). Review the nginx ${ver} release notes for breaking changes in the config file format / module set, then bump \`nginx_base\` in \`dev/nginx-version.json\`, reset \`config_revision\` to 1, regenerate \`.tag\`, and re-run the smoke matrix."
+                                  --body "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`).
+
+**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:
+
+  1. Review release notes for nginx ${ver} (config-format / module-set changes).
+  2. Run \`make bump-nginx VERSION=${ver}\` — updates \`dev/nginx-version.json\` (\`nginx_base\`, \`config_revision=1\`, \`.tag\`) and syncs the 5 mirror sites enforced by the lockstep test (Make recipe, 2 test scripts, Portainer compose, README operator prose).
+  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally.
+  4. Open a PR; \`build.yml\` rebuilds the nginx image stage.
+  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`."
                           fi
                       fi
                   done

@@ -109,7 +109,15 @@ jobs:
                           if [ "$existing" = "0" ]; then
                               gh issue create \
                                   --title "$title" \
-                                  --body "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`). Review the MariaDB ${ver} release notes for schema-migration / config-format changes, then bump the pin in every shipped artifact carrying a \`mariadb:X.Y\` literal: \`installer/webtrees_installer/templates/compose.standalone.j2\`, \`installer/webtrees_installer/templates/compose.traefik.j2\`, the dev-mode \`compose.yaml\`, and \`templates/portainer/compose.yaml\`. Re-run the smoke matrix afterwards."
+                                  --body "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`).
+
+**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:
+
+  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes).
+  2. Run \`make bump-mariadb VERSION=${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test.
+  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes.
+  4. Run \`make ci-pytest ci-lockstep-tests\` locally.
+  5. Open a PR; CI re-runs the smoke matrix against the new pin."
                           fi
                       fi
                   done
