@@ -151,7 +151,7 @@ ci-nginx-config: .logo ## Runs the nginx config syntax + trust-gate regression t
 	# nginx image, plus regression guards on the X-Forwarded-Proto trust
 	# gate (default.conf reads $$xfp_https, trust-proxy-map.conf carries
 	# the expected CIDR set with LAN ranges out of default trust).
-	NGINX_IMAGE="ghcr.io/magicsunday/webtrees-nginx:1.28-r1"; \
+	NGINX_IMAGE="ghcr.io/magicsunday/webtrees-nginx:1.30-r1"; \
 		docker pull "$$NGINX_IMAGE" >/dev/null || { \
 			echo "::error::docker pull failed for $$NGINX_IMAGE" >&2; \
 			exit 1; \

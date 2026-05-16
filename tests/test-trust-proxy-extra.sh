@@ -14,11 +14,11 @@
 #
 # Usage:
 #   ./tests/test-trust-proxy-extra.sh
-#   TEST_NGINX_IMAGE=ghcr.io/magicsunday/webtrees-nginx:1.28-r1 ./tests/test-trust-proxy-extra.sh
+#   TEST_NGINX_IMAGE=ghcr.io/magicsunday/webtrees-nginx:1.30-r1 ./tests/test-trust-proxy-extra.sh
 
 set -o nounset -o pipefail
 
-NGINX_IMAGE="${TEST_NGINX_IMAGE:-ghcr.io/magicsunday/webtrees-nginx:1.28-r1}"
+NGINX_IMAGE="${TEST_NGINX_IMAGE:-ghcr.io/magicsunday/webtrees-nginx:1.30-r1}"
 SCRIPT_PATH="$(cd "$(dirname "$0")/.." && pwd)/rootfs/docker-entrypoint.d/35-trust-proxy-extra.sh"
 
 pass=0
