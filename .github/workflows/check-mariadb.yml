@@ -1,0 +1,111 @@
+name: Check for MariaDB updates
+
+# Polls Docker Hub once a day at 12:15 UTC for new MariaDB minor
+# releases in the 11.x line beyond what the compose templates currently
+# pin. A new minor needs a human review for schema-migration / config
+# changes; the workflow only opens a tracking issue rather than touching
+# the templates.
+#
+# Mirrors check-alpine.yml + check-nginx.yml's "scan for new minor"
+# logic — see check-alpine.yml for the rationale behind cross-cutting
+# decisions (curl --max-time, pagination, self-test, `|| true` after
+# grep).
+#
+# 12.x major releases are NOT tracked here — moving across a major
+# requires an explicit migration plan; the workflow would otherwise
+# spam an issue every time a 12.0 patch lands.
+
+on:
+    schedule:
+        - cron: '15 12 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    issues: write
+    actions: write
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Scan for new MariaDB minor in the 11.x line
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  # The pin is hardcoded in installer compose templates +
+                  # the dev compose.yaml. Read the standalone template's
+                  # `mariadb:X.Y` literal as the canonical source — a
+                  # lockstep check elsewhere keeps the three sites in
+                  # sync.
+                  pinned_minor=$(grep -hoE 'mariadb:[0-9]+\.[0-9]+' \
+                      installer/webtrees_installer/templates/compose.standalone.j2 \
+                      | head -1 \
+                      | sed 's|mariadb:||')
+                  if [ -z "$pinned_minor" ]; then
+                      echo "::error::Could not parse the mariadb pin from compose.standalone.j2; expected an 'image: mariadb:X.Y' line"
+                      exit 1
+                  fi
+                  echo "Pinned MariaDB minor: ${pinned_minor}"
+
+                  # library/mariadb publishes `X.Y` rolling-minor tags
+                  # alongside `X.Y.Z` patch-pinned ones; we track only
+                  # the `11.X` shape so the workflow doesn't open an
+                  # issue every time a patch lands.
+                  url="https://hub.docker.com/v2/repositories/library/mariadb/tags/?name=11.&page_size=100&ordering=last_updated"
+                  all_tags=""
+                  while [ -n "$url" ] && [ "$url" != "null" ]; do
+                      page=$(curl -sf --retry 3 --max-time 30 "$url") || {
+                          echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
+                          exit 0
+                      }
+                      all_tags+=$'\n'$(printf '%s' "$page" | jq -r '.results[]?.name // empty')
+                      url=$(printf '%s' "$page" | jq -r '.next // empty')
+                  done
+
+                  # Filter to `11.X` (minor) tags only. Patch tags
+                  # `11.X.Y` and channel tags `11-jammy` / `lts` get
+                  # filtered out by the regex.
+                  available=$(printf '%s' "$all_tags" \
+                      | { grep -E '^11\.[0-9]+$' || true; } \
+                      | sort -uV)
+
+                  # Self-test: the pinned minor MUST appear.
+                  if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
+                      echo "::error::Pinned MariaDB minor ${pinned_minor} not found in the Docker Hub tag listing for the 11.x line. Likely causes: pagination dropped it, the filter shape changed, or MariaDB renamed the rolling-minor convention."
+                      exit 1
+                  fi
+
+                  for ver in $available; do
+                      if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
+                          && [ "$ver" != "$pinned_minor" ]; then
+                          title="MariaDB ${ver} available — consider bumping the compose-template pin"
+                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
+                              echo "::error::gh issue list failed for '$title'"
+                              exit 1
+                          }
+                          if [ "$existing" = "0" ]; then
+                              gh issue create \
+                                  --title "$title" \
+                                  --body "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`). Review the MariaDB ${ver} release notes for schema-migration / config-format changes, then bump the pin in \`installer/webtrees_installer/templates/compose.standalone.j2\`, \`compose.traefik.j2\`, and the dev-mode \`compose.yaml\`. Re-run the smoke matrix afterwards."
+                          fi
+                      fi
+                  done
+
+    notify-on-failure:
+        name: Notify on workflow failure
+        needs: [check]
+        if: failure() && github.event_name != 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        steps:
+            - uses: actions/checkout@v6
+            - uses: ./.github/actions/notify-on-failure
+              with:
+                  copilot-pat: ${{ secrets.COPILOT_PAT }}

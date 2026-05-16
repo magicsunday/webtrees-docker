@@ -1,0 +1,104 @@
+name: Check for nginx updates
+
+# Polls Docker Hub once a day at 12:30 UTC for new nginx minor releases
+# beyond what `dev/nginx-version.json` currently pins. A new minor needs
+# a human review for breaking changes; the workflow only opens a
+# tracking issue rather than touching the version file.
+#
+# Mirrors check-alpine.yml's "scan for new minor" logic: poll Docker
+# Hub, compare against the currently-pinned minor, file an issue when
+# something newer is published. See check-alpine.yml for the rationale
+# behind each cross-cutting decision (curl --max-time, pagination,
+# self-test, `|| true` after grep).
+
+on:
+    schedule:
+        - cron: '30 12 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    issues: write
+    actions: write
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Scan for new nginx minor
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  # Single source of truth: dev/nginx-version.json
+                  # `.nginx_base` carries the X.Y minor; the rendered
+                  # nginx-build stage in Dockerfile uses `nginx:<X.Y>-alpine`.
+                  pinned_minor=$(jq -r '.nginx_base' dev/nginx-version.json)
+                  echo "Pinned nginx minor: ${pinned_minor}"
+
+                  # library/nginx publishes hundreds of tags. We filter
+                  # to the -alpine line on the API side (`name=alpine`)
+                  # and the X.Y-alpine shape on the client side. Page
+                  # through until exhausted so an alphabetical-ordering
+                  # quirk (1.30 sorts after 1.9 by string) cannot drop
+                  # a new minor off the first page.
+                  url="https://hub.docker.com/v2/repositories/library/nginx/tags/?name=alpine&page_size=100&ordering=last_updated"
+                  all_tags=""
+                  while [ -n "$url" ] && [ "$url" != "null" ]; do
+                      page=$(curl -sf --retry 3 --max-time 30 "$url") || {
+                          echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
+                          exit 0
+                      }
+                      all_tags+=$'\n'$(printf '%s' "$page" | jq -r '.results[]?.name // empty')
+                      url=$(printf '%s' "$page" | jq -r '.next // empty')
+                  done
+
+                  # `1.X-alpine` minor tags only (not patch-pinned variants
+                  # like `1.30.1-alpine` or stable channels like
+                  # `mainline-alpine`). Strip the `-alpine` suffix so we
+                  # can compare against `.nginx_base` directly.
+                  available=$(printf '%s' "$all_tags" \
+                      | { grep -E '^1\.[0-9]+-alpine$' || true; } \
+                      | sed 's/-alpine$//' \
+                      | sort -uV)
+
+                  # Self-test: the pinned minor MUST appear in the API
+                  # response — otherwise the filter or pagination
+                  # silently dropped it, and a green run scanned nothing.
+                  if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
+                      echo "::error::Pinned nginx minor ${pinned_minor} not found in the Docker Hub tag listing. Likely causes: page_size cap silently lowered, name=alpine filter regressed, ordering quirk dropping the pin mid-pagination, or response schema change."
+                      exit 1
+                  fi
+
+                  for ver in $available; do
+                      if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
+                          && [ "$ver" != "$pinned_minor" ]; then
+                          title="nginx ${ver}-alpine available — consider bumping dev/nginx-version.json"
+                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
+                              echo "::error::gh issue list failed for '$title'"
+                              exit 1
+                          }
+                          if [ "$existing" = "0" ]; then
+                              gh issue create \
+                                  --title "$title" \
+                                  --body "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`). Review the nginx ${ver} release notes for breaking changes in the config file format / module set, then bump \`nginx_base\` in \`dev/nginx-version.json\`, reset \`config_revision\` to 1, regenerate \`.tag\`, and re-run the smoke matrix."
+                          fi
+                      fi
+                  done
+
+    notify-on-failure:
+        name: Notify on workflow failure
+        needs: [check]
+        if: failure() && github.event_name != 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        steps:
+            - uses: actions/checkout@v6
+            - uses: ./.github/actions/notify-on-failure
+              with:
+                  copilot-pat: ${{ secrets.COPILOT_PAT }}
