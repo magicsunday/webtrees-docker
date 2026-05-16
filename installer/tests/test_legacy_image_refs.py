@@ -48,24 +48,12 @@ _REPO_ROOT = _resolve_repo_root()
 
 
 # Files where the nested `magicsunday/webtrees/X` form intentionally
-# matches the regex below. AGENTS.md and docs/{developing,env-vars}.md
-# DO mention the legacy form, but in brace-expansion / placeholder
-# shapes the regex does not match — they don't need allowlisting today.
-# A future edit that introduces a concrete `magicsunday/webtrees/php`
-# in one of those docs would (correctly) trigger the guard.
-#
-# Update at WT-CLEANUP-97 time: the build.yml + README + tests entries
-# collapse once the dual-publish window closes.
+# matches the regex below. With GH-97 closed, the build workflow no
+# longer publishes the legacy alias and the README migration table is
+# gone — the only legitimate residual hits are historical planning
+# docs (archive material) and the test files themselves (negative
+# assertions + this file's own positive-control fixture).
 _LEGACY_REF_ALLOWLIST = frozenset({
-    # Build workflow: WT-CLEANUP-97 dual-publish blocks. Each of the
-    # four build jobs emits both the flat canonical name and the legacy
-    # nested alias. Removed when the deprecation window closes.
-    ".github/workflows/build.yml",
-    # README: image-name migration table (lines ~163-166) shows the
-    # mapping from legacy → canonical; the legacy column is the whole
-    # point of the table. README glossary + Editions table now use the
-    # flat form.
-    "README.md",
     # Historical planning + spec docs from the original design phase.
     # Touching these rewrites history without value; archive material.
     "docs/superpowers/plans/2026-05-11-out-of-the-box-self-host-phase1.md",

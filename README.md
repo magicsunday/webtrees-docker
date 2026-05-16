@@ -102,9 +102,7 @@ to also seed the demo tree.
   your stack has `<project>_database`, `<project>_media`,
   `<project>_app`, `<project>_secrets`.
 - **GHCR** — GitHub Container Registry. All images are pulled from
-  `ghcr.io/magicsunday/webtrees-*` (flat canonical names; the legacy
-  nested `ghcr.io/magicsunday/webtrees/...` form stays published as a
-  deprecation alias).
+  `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}`.
 
 ## What the wizard writes
 
@@ -155,23 +153,6 @@ Inspect with `docker volume ls`.
 Full guide: [`docs/customizing.md`](docs/customizing.md) — covers
 `compose.override.yaml` patterns (PHP limits, custom nginx snippets,
 external database, third-party modules) plus Backup / Restore.
-
-## Image-name migration (legacy → flat)
-
-The image names flattened from nested sub-paths to dotted-dash form:
-
-| Old (legacy alias, deprecated) | New (canonical) |
-|---|---|
-| `ghcr.io/magicsunday/webtrees/php` | `ghcr.io/magicsunday/webtrees-php` |
-| `ghcr.io/magicsunday/webtrees/php-full` | `ghcr.io/magicsunday/webtrees-php-full` |
-| `ghcr.io/magicsunday/webtrees/nginx` | `ghcr.io/magicsunday/webtrees-nginx` |
-| `ghcr.io/magicsunday/webtrees/installer` | `ghcr.io/magicsunday/webtrees-installer` |
-
-The build workflow publishes both names. Existing installs on the
-legacy nested name keep pulling without change; new installs from the
-wizard pin the flat canonical name. The legacy alias stays published
-for at least two minor releases — plan to migrate your compose.yaml
-to the flat names within that window.
 
 ## Choosing a webtrees line
 

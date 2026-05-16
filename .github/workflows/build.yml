@@ -84,18 +84,10 @@ jobs:
               id: tags
               run: |
                   set -euo pipefail
-                  # WT-CLEANUP-97 — #58 image-namespace flatten:
-                  # dual-publish on the flat name (canonical going
-                  # forward) AND the legacy nested name for a
-                  # deprecation window. Operators still on
-                  # `webtrees/php:<tag>` keep working until they update
-                  # their compose to `webtrees-php:<tag>`.
-                  flat_primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  nested_primary="ghcr.io/magicsunday/webtrees/php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  tags="$flat_primary,$nested_primary"
+                  primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  tags="$primary"
                   for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
                       tags="$tags,ghcr.io/magicsunday/webtrees-php:$extra"
-                      tags="$tags,ghcr.io/magicsunday/webtrees/php:$extra"
                   done
                   printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
 
@@ -142,14 +134,10 @@ jobs:
               id: tags
               run: |
                   set -euo pipefail
-                  # WT-CLEANUP-97 — see build-php
-                  # for rationale. Dual-publish on flat + nested names.
-                  flat_primary="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  nested_primary="ghcr.io/magicsunday/webtrees/php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  tags="$flat_primary,$nested_primary"
+                  primary="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  tags="$primary"
                   for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
                       tags="$tags,ghcr.io/magicsunday/webtrees-php-full:$extra"
-                      tags="$tags,ghcr.io/magicsunday/webtrees/php-full:$extra"
                   done
                   printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
 
@@ -203,12 +191,9 @@ jobs:
                   add-hosts: phpfpm=127.0.0.1
                   # #58 image-namespace flatten — dual-publish on flat
                   # (canonical) + nested (legacy deprecation alias).
-                  # WT-CLEANUP-97 — remove the legacy nested entries.
                   tags: |
                       ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}
                       ghcr.io/magicsunday/webtrees-nginx:latest
-                      ghcr.io/magicsunday/webtrees/nginx:${{ needs.matrix.outputs.nginx_tag }}
-                      ghcr.io/magicsunday/webtrees/nginx:latest
                   build-args: |
                       NGINX_CONFIG_REVISION=${{ needs.matrix.outputs.nginx_config_revision }}
                       VCS_REF=${{ github.sha }}
@@ -246,12 +231,9 @@ jobs:
                   push: true
                   # #58 image-namespace flatten — dual-publish on flat
                   # (canonical) + nested (legacy deprecation alias).
-                  # WT-CLEANUP-97 — remove the legacy nested entries.
                   tags: |
                       ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}
                       ghcr.io/magicsunday/webtrees-installer:latest
-                      ghcr.io/magicsunday/webtrees/installer:${{ needs.matrix.outputs.installer_tag }}
-                      ghcr.io/magicsunday/webtrees/installer:latest
                   cache-from: type=gha,scope=installer
                   cache-to: type=gha,scope=installer,mode=max
 

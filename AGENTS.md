@@ -11,7 +11,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 |---|---|
 | Purpose | Docker images + Python wizard for self-hosting [webtrees](https://www.webtrees.net/) |
 | Stacks | Python wizard (`installer/`, ≥3.12), multi-stage `Dockerfile` (PHP-FPM + nginx), bash launchers (`install`, `upgrade`) |
-| Distribution | Container images on `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}` (canonical, flat names); the legacy nested form `ghcr.io/magicsunday/webtrees/{php,php-full,nginx,installer}` stays published as a deprecation alias. Matrix lives in `dev/versions.json` |
+| Distribution | Container images on `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}`; matrix lives in `dev/versions.json` |
 | Entry point for end-users | `curl … /install \| bash` |
 
 ## Repo layout
