@@ -70,55 +70,32 @@ jobs:
                   fi
                   echo "Pinned MariaDB minor: ${pinned_minor}"
 
-                  # library/mariadb publishes `X.Y` rolling-minor tags
-                  # alongside `X.Y.Z` patch-pinned ones; we track only
-                  # the `11.X` shape so the workflow doesn't open an
-                  # issue every time a patch lands.
-                  url="https://hub.docker.com/v2/repositories/library/mariadb/tags/?name=11.&page_size=100&ordering=last_updated"
-                  all_tags=""
-                  while [ -n "$url" ] && [ "$url" != "null" ]; do
-                      page=$(curl -sf --retry 3 --max-time 30 "$url") || {
-                          echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
-                          exit 0
-                      }
-                      all_tags+=$'\n'$(printf '%s' "$page" | jq -r '.results[]?.name // empty')
-                      url=$(printf '%s' "$page" | jq -r '.next // empty')
-                  done
-
-                  # Filter to `11.X` (minor) tags only. Patch tags
-                  # `11.X.Y` and channel tags `11-jammy` / `lts` get
-                  # filtered out by the regex.
-                  available=$(printf '%s' "$all_tags" \
-                      | { grep -E '^11\.[0-9]+$' || true; } \
-                      | sort -uV)
-
-                  # Self-test: the pinned minor MUST appear.
-                  if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
-                      echo "::error::Pinned MariaDB minor ${pinned_minor} not found in the Docker Hub tag listing for the 11.x line. Likely causes: pagination dropped it, the filter shape changed, or MariaDB renamed the rolling-minor convention."
-                      exit 1
-                  fi
+                  # Docker Hub polling + filter + pin-self-test all live
+                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # the alpine/nginx/php cron workflows. The `11.X` regex
+                  # restricts to rolling-minor tags (drops `11.X.Y` patch
+                  # variants and channel tags like `11-jammy`/`lts`).
+                  available=$(REPO_NAME=mariadb \
+                      NAME_FILTER=11. \
+                      REGEX='^11\.[0-9]+$' \
+                      PINNED_MINOR="$pinned_minor" \
+                      ./scripts/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
                           && [ "$ver" != "$pinned_minor" ]; then
                           title="MariaDB ${ver} available — consider bumping the compose-template pin"
-                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
-                              echo "::error::gh issue list failed for '$title'"
-                              exit 1
-                          }
-                          if [ "$existing" = "0" ]; then
-                              body=$(printf '%s\n' \
-                                  "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`)." \
-                                  "" \
-                                  "**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:" \
-                                  "" \
-                                  "  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes)." \
-                                  "  2. Run \`./scripts/bump-mariadb.sh ${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (\`make bump-mariadb VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
-                                  "  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes." \
-                                  "  4. Run \`make ci-pytest ci-lockstep-tests\` locally." \
-                                  "  5. Open a PR; CI re-runs the smoke matrix against the new pin.")
-                              gh issue create --title "$title" --body "$body"
-                          fi
+                          body=$(printf '%s\n' \
+                              "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`)." \
+                              "" \
+                              "**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:" \
+                              "" \
+                              "  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes)." \
+                              "  2. Run \`./scripts/bump-mariadb.sh ${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (\`make bump-mariadb VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
+                              "  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes." \
+                              "  4. Run \`make ci-pytest ci-lockstep-tests\` locally." \
+                              "  5. Open a PR; CI re-runs the smoke matrix against the new pin.")
+                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
                       fi
                   done
 

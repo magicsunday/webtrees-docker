@@ -35,93 +35,39 @@ jobs:
               run: |
                   set -euo pipefail
                   # Reuse the parser script that ci-alpine-lockstep already
-                  # exercises locally on every PR. Reading the literal pin
-                  # via one shared parser keeps this workflow from drifting
-                  # if a future _alpine.py reformat changes the assignment
-                  # shape (Final[str], single quotes, indented).
-                  # ci-alpine-lockstep enforces `alpine:X.Y` shape on every
-                  # PR, so by the time this cron runs the pin is guaranteed
-                  # to be `alpine:X.Y` (no patch).
+                  # exercises locally on every PR. ci-alpine-lockstep
+                  # enforces `alpine:X.Y` shape on every PR, so by the
+                  # time this cron runs the pin is guaranteed to be
+                  # `alpine:X.Y` (no patch).
                   pinned=$(./scripts/parse-alpine-pin.sh)
                   pinned_minor=${pinned#alpine:}
                   echo "Pinned Alpine minor: ${pinned_minor}"
 
-                  # Docker Hub library/alpine tag listing. We page through
-                  # every `next` link until exhausted so the scan can't
-                  # miss a new minor that lands beyond an arbitrary
-                  # page-size cap. `ordering=last_updated` is required
-                  # because `ordering=name` would sort alphabetically
-                  # (3.9.x lands after 3.20.x) and could push a new
-                  # release off the first 100 results unnoticed.
-                  url="https://hub.docker.com/v2/repositories/library/alpine/tags/?name=3.&page_size=100&ordering=last_updated"
-                  all_tags=""
-                  while [ -n "$url" ] && [ "$url" != "null" ]; do
-                      # --max-time caps the whole exchange (DNS + TCP +
-                      # TLS + body) per attempt so a Docker Hub hang
-                      # cannot stretch beyond the job's timeout-minutes
-                      # budget; --retry 3 still gives three goes within
-                      # that cap.
-                      page=$(curl -sf --retry 3 --max-time 30 "$url") || {
-                          echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
-                          exit 0
-                      }
-                      # `?` + `// empty` keep jq tolerant of a future schema
-                      # regression where .results is null/missing — without
-                      # them, `set -euo pipefail` aborts the script mid-loop
-                      # before the self-check below can fire the documented
-                      # ::error:: annotation about schema changes.
-                      all_tags+=$'\n'$(printf '%s' "$page" | jq -r '.results[]?.name // empty')
-                      url=$(printf '%s' "$page" | jq -r '.next // empty')
-                  done
-
-                  # We look for `<major>.<minor>` tags (e.g. 3.23, 3.24),
-                  # not patch tags (e.g. 3.23.4). `|| true` swallows grep's
-                  # no-match exit so `set -e` + `pipefail` don't abort the
-                  # script before the self-check below can fire the
-                  # documented `::error::` annotation — `name=3.` filter
-                  # regression and schema-change failure modes route
-                  # through here.
-                  available=$(printf '%s' "$all_tags" \
-                      | { grep -E '^[0-9]+\.[0-9]+$' || true; } \
-                      | sort -uV)
-
-                  # Self-test: the polling can only spot newer minors if
-                  # the current pin is reachable from the response. If the
-                  # API query degrades (page_size cap silently lowered, the
-                  # filter pattern stops matching, ordering quirk, schema
-                  # change), this guard fails the workflow instead of
-                  # silently shipping a green run that scanned nothing.
-                  if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
-                      echo "::error::Pinned Alpine minor ${pinned_minor} not found in the Docker Hub tag listing. Likely causes: page_size cap silently lowered, name=3. filter regressed, ordering quirk dropping the pin mid-pagination, or response schema change. Inspect the curl output and adjust the query."
-                      exit 1
-                  fi
+                  # Docker Hub polling + filter + pin-self-test all live
+                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # the mariadb/nginx/php cron workflows. See its header
+                  # for the env-var contract and failure-mode semantics.
+                  available=$(REPO_NAME=alpine \
+                      NAME_FILTER=3. \
+                      REGEX='^[0-9]+\.[0-9]+$' \
+                      PINNED_MINOR="$pinned_minor" \
+                      ./scripts/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
                           && [ "$ver" != "$pinned_minor" ]; then
                           title="Alpine ${ver} available — consider bumping installer/webtrees_installer/_alpine.py"
-                          # Split the gh-list capture from the predicate so a
-                          # transient gh-CLI failure (rate limit, network blip,
-                          # auth glitch) propagates as a workflow-level failure
-                          # rather than being swallowed by the pipefail-vs-if
-                          # interaction that silently skips the create branch.
-                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
-                              echo "::error::gh issue list failed for '$title'"
-                              exit 1
-                          }
-                          if [ "$existing" = "0" ]; then
-                              body=$(printf '%s\n' \
-                                  "Docker Hub publishes an \`alpine:${ver}\` tag newer than the installer's current pin (\`alpine:${pinned_minor}\`)." \
-                                  "" \
-                                  "**Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:" \
-                                  "" \
-                                  "  1. Review release notes for Alpine ${ver} (busybox / musl / apk changes)." \
-                                  "  2. Update \`ALPINE_BASE_IMAGE\` in \`installer/webtrees_installer/_alpine.py\` to \`\"alpine:${ver}\"\`." \
-                                  "  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced." \
-                                  "  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint)." \
-                                  "  5. Open a PR; CI rebuilds every Alpine-derived image stage.")
-                              gh issue create --title "$title" --body "$body"
-                          fi
+                          body=$(printf '%s\n' \
+                              "Docker Hub publishes an \`alpine:${ver}\` tag newer than the installer's current pin (\`alpine:${pinned_minor}\`)." \
+                              "" \
+                              "**Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:" \
+                              "" \
+                              "  1. Review release notes for Alpine ${ver} (busybox / musl / apk changes)." \
+                              "  2. Update \`ALPINE_BASE_IMAGE\` in \`installer/webtrees_installer/_alpine.py\` to \`\"alpine:${ver}\"\`." \
+                              "  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced." \
+                              "  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint)." \
+                              "  5. Open a PR; CI rebuilds every Alpine-derived image stage.")
+                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
                       fi
                   done
 

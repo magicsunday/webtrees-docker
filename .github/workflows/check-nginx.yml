@@ -39,71 +39,44 @@ jobs:
                   pinned_minor=$(jq -r '.nginx_base' dev/nginx-version.json)
                   echo "Pinned nginx minor: ${pinned_minor}"
 
-                  # library/nginx publishes hundreds of tags. We filter
-                  # to the -alpine line on the API side (`name=alpine`)
-                  # and the X.Y-alpine shape on the client side. Page
-                  # through until exhausted so an alphabetical-ordering
-                  # quirk (1.30 sorts after 1.9 by string) cannot drop
-                  # a new minor off the first page.
-                  url="https://hub.docker.com/v2/repositories/library/nginx/tags/?name=alpine&page_size=100&ordering=last_updated"
-                  all_tags=""
-                  while [ -n "$url" ] && [ "$url" != "null" ]; do
-                      page=$(curl -sf --retry 3 --max-time 30 "$url") || {
-                          echo "::warning::Docker Hub tag fetch failed, skipping minor scan"
-                          exit 0
-                      }
-                      all_tags+=$'\n'$(printf '%s' "$page" | jq -r '.results[]?.name // empty')
-                      url=$(printf '%s' "$page" | jq -r '.next // empty')
-                  done
-
-                  # `1.X-alpine` minor tags only (not patch-pinned variants
-                  # like `1.30.1-alpine` or stable channels like
-                  # `mainline-alpine`). Strip the `-alpine` suffix so we
-                  # can compare against `.nginx_base` directly.
-                  #
-                  # Stable-only filter: nginx uses even-numbered minors for
-                  # the stable branch (1.26, 1.28, 1.30, …) and odd minors
-                  # for mainline (1.27, 1.29, 1.31, …). Mainline is not
-                  # production-suited for this project, so the awk filter
-                  # drops every odd minor. The self-test below catches a
-                  # filter regression: it requires the pinned `nginx_base`
-                  # to survive the filter, and our policy pins only even
-                  # minors. Documented in docs/maintenance.md.
-                  available=$(printf '%s' "$all_tags" \
-                      | { grep -E '^1\.[0-9]+-alpine$' || true; } \
-                      | sed 's/-alpine$//' \
-                      | awk -F. '$2 % 2 == 0' \
-                      | sort -uV)
-
-                  # Self-test: the pinned minor MUST appear in the API
-                  # response — otherwise the filter or pagination
-                  # silently dropped it, and a green run scanned nothing.
-                  if ! printf '%s\n' "$available" | grep -qFx "$pinned_minor"; then
-                      echo "::error::Pinned nginx minor ${pinned_minor} not found in the Docker Hub tag listing. Likely causes: pin is an odd minor (mainline channel) — project policy requires even-numbered stable minors (see docs/maintenance.md); the awk stable-only filter was edited; page_size cap silently lowered; name=alpine filter regressed; ordering quirk dropping the pin mid-pagination; or response schema change."
-                      exit 1
-                  fi
+                  # Docker Hub polling + filter + pin-self-test all live
+                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # the alpine/mariadb/php cron workflows. nginx-specific
+                  # variants:
+                  #   STRIP_SUFFIX=-alpine     drops the `-alpine` tag
+                  #                            suffix so the result
+                  #                            compares directly against
+                  #                            `.nginx_base`.
+                  #   EVEN_MINORS_ONLY=1       project policy pins only
+                  #                            even minors (1.26, 1.28,
+                  #                            1.30, …); odd minors are
+                  #                            the mainline channel and
+                  #                            not production-suited.
+                  #                            Documented in
+                  #                            docs/maintenance.md.
+                  available=$(REPO_NAME=nginx \
+                      NAME_FILTER=alpine \
+                      REGEX='^1\.[0-9]+-alpine$' \
+                      STRIP_SUFFIX='-alpine$' \
+                      EVEN_MINORS_ONLY=1 \
+                      PINNED_MINOR="$pinned_minor" \
+                      ./scripts/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
                           && [ "$ver" != "$pinned_minor" ]; then
                           title="nginx ${ver}-alpine available — consider bumping dev/nginx-version.json"
-                          existing=$(gh issue list --state all --search "$title in:title" --json number --jq 'length') || {
-                              echo "::error::gh issue list failed for '$title'"
-                              exit 1
-                          }
-                          if [ "$existing" = "0" ]; then
-                              body=$(printf '%s\n' \
-                                  "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`)." \
-                                  "" \
-                                  "**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:" \
-                                  "" \
-                                  "  1. Review release notes for nginx ${ver} (config-format / module-set changes)." \
-                                  "  2. Run \`./scripts/bump-nginx.sh ${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test. (\`make bump-nginx VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
-                                  "  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally." \
-                                  "  4. Open a PR; \`build.yml\` rebuilds the nginx image stage." \
-                                  "  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`.")
-                              gh issue create --title "$title" --body "$body"
-                          fi
+                          body=$(printf '%s\n' \
+                              "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`)." \
+                              "" \
+                              "**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:" \
+                              "" \
+                              "  1. Review release notes for nginx ${ver} (config-format / module-set changes)." \
+                              "  2. Run \`./scripts/bump-nginx.sh ${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test. (\`make bump-nginx VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
+                              "  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally." \
+                              "  4. Open a PR; \`build.yml\` rebuilds the nginx image stage." \
+                              "  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`.")
+                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
                       fi
                   done
 

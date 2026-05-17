@@ -17,13 +17,13 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-shared-scripts-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -223,6 +223,19 @@ ci-lockstep-tests: .logo ## Failure-path tests for the ci-*-lockstep drift check
 	# the lockstep is supposed to catch and asserts the recipe still fails
 	# with the documented error annotation.
 	./tests/test-lockstep.sh
+
+ci-shared-scripts-tests: .logo ## Failure-path tests for the workflow-shared scripts under scripts/.
+	echo -e "${FBLUE}▶ shared-script failure-path tests${FRESET}"
+	# The four workflow-extracted scripts (check-docker-hub-minor.sh,
+	# file-bump-issue.sh, probe-php-digests.sh,
+	# batch-bump-webtrees-versions.sh) carry defensive branches that only
+	# fire under specific Docker Hub / gh-CLI / docker-buildx failure
+	# modes. This harness mocks curl/gh/docker/git via a PATH-shimmed stub
+	# directory and asserts each branch emits the documented annotation
+	# and exit code. Without it, a future refactor removing `|| true`
+	# after grep, the `// empty` jq guard, a `[ -n ... ] || exit 1`
+	# self-test, or the ALLOW_MISSING_PIN downgrade would ship green.
+	./tests/test-shared-scripts.sh
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"
