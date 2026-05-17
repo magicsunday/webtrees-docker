@@ -30,7 +30,7 @@ read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/deve
 | `dev/php-versions.json` | Single source of truth for supported PHP minors; `.supported` drives the auto-bump fan-out and is enforced against `versions.json` rows by `ci-php-versions-lockstep` |
 | `dev/nginx-version.json` | Canonical nginx pin (`nginx_base`, `config_revision`, `tag`); enforced across 5 mirror sites by `installer/tests/test_nginx_tag_lockstep.py` |
 | `.github/workflows/build.yml` | Image build + smoke matrix (manual / tag-triggered) |
-| `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases |
+| `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases (opens an auto-bump PR that atomically updates `dev/versions.json` + README badges) |
 | `.github/workflows/check-alpine.yml` | Daily cron polling Docker Hub for new Alpine minors |
 | `.github/workflows/check-php.yml` | Daily cron polling Docker Hub for new PHP minors |
 | `.github/workflows/check-nginx.yml` | Daily cron polling Docker Hub for new nginx minors |

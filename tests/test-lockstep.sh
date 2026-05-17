@@ -235,26 +235,27 @@ mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
 assert_lockstep_fails \
     "ci-readme-badge-lockstep: new unique webtrees value missing from badge fails" \
     ci-readme-badge-lockstep \
-    'webtrees badge does not encode'
+    'webtrees badge does not encode the same set'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# ci-readme-badge-lockstep — natural-sort ordering against 2-digit minor
+# ci-readme-badge-lockstep — 4-value PHP badge accepted under set-equality
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: dev/versions.json grows PHP 8.10; README must encode 8.3|8.4|8.5|8.10"
+echo "Setting up: dev/versions.json grows PHP 8.10; README badge encodes all four values"
 # Adds a row with PHP 8.10 (and an existing webtrees value so the
-# webtrees badge stays satisfied). The recipe's natural-sort
-# `tonumber? // 0` clause must place 8.10 AFTER 8.5; a regression to
-# plain lexical `sort` would emit `8.10|8.3|8.4|8.5` and the README
-# would have to be rewritten in the wrong order — this test pins the
-# natural-sort contract by overwriting the README badge to the
-# natural-order spelling and asserting the recipe accepts it.
+# webtrees badge stays satisfied). The set-equality recipe accepts
+# any order, so this fixture exercises a 4-value badge end-to-end and
+# pins that adding a 2-digit minor doesn't break the recipe's URL
+# parsing or set comparison. Natural-sort ordering itself is pinned
+# by installer/tests/test_rewrite_readme_badges.py — the recipe is
+# order-independent by design, so the lockstep cannot validate sort
+# order.
 docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
     -c '. + [{"webtrees":"2.2.6","php":"8.10","tags":[]}]' versions.json > "$worktree/dev/versions.json.new"
 mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
 sed -i 's|PHP-8.3%7C8.4%7C8.5-787CB5|PHP-8.3%7C8.4%7C8.5%7C8.10-787CB5|' "$worktree/README.md"
 assert_lockstep_passes \
-    "ci-readme-badge-lockstep: PHP 8.10 lands AFTER 8.5 (natural sort)" \
+    "ci-readme-badge-lockstep: 4-value PHP badge accepted (set-equality)" \
     ci-readme-badge-lockstep
 restore_worktree
 
@@ -290,7 +291,7 @@ sed -i 's|webtrees-2.1.27%7C2.2.6-blue|webtrees-2.1.27%7C2.2.6%7C2.3.0-beta.1-bl
 assert_lockstep_fails \
     "ci-readme-badge-lockstep: hyphen-bearing badge value not in versions.json fails" \
     ci-readme-badge-lockstep \
-    'webtrees badge does not encode'
+    'webtrees badge does not encode the same set'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
@@ -308,7 +309,42 @@ mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
 assert_lockstep_fails \
     "ci-readme-badge-lockstep: renderer added webtrees row without README sync fails" \
     ci-readme-badge-lockstep \
-    'webtrees badge does not encode'
+    'webtrees badge does not encode the same set'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — duplicate value within a single badge URL
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: README webtrees badge encodes 2.1.27 twice (hand-edit/merge artefact)"
+# Hand-edit / merge-conflict resolution could leave a duplicate value
+# in the badge URL: `webtrees-2.1.27%7C2.2.6%7C2.1.27-blue`. A naive
+# `sort -u | comm` would silently accept this because the SET still
+# matches versions.json. The lockstep must reject duplicate values
+# WITHIN a single badge URL so the rendered badge cannot ship as
+# `2.1.27 | 2.2.6 | 2.1.27` to readers.
+sed -i 's|webtrees-2.1.27%7C2.2.6-blue|webtrees-2.1.27%7C2.2.6%7C2.1.27-blue|' "$worktree/README.md"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: duplicate value in single badge URL rejected" \
+    ci-readme-badge-lockstep \
+    'duplicate values'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — second webtrees badge with stale value
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: README carries a second webtrees-...-blue URL out of sync with versions.json"
+# The rewriter uses `re.subn` (replaces every match), so the checker
+# must scan ALL matching badge URLs and aggregate their values into a
+# single union set. A second context-specific badge (changelog / docs
+# example / archived screenshot caption) whose union diverges from
+# versions.json must fail the lockstep loud so the divergence cannot
+# slip through as a green-CI no-op when the canonical badge alone
+# still matches the catalog.
+printf '\nLegacy badge example: ![old](https://img.shields.io/badge/webtrees-1.7.0-blue)\n' >> "$worktree/README.md"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: second webtrees badge with extra value rejected" \
+    ci-readme-badge-lockstep \
+    'webtrees badge does not encode the same set'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
@@ -320,6 +356,70 @@ assert_lockstep_fails \
     "ci-readme-badge-lockstep: empty versions.json fails with actionable message" \
     ci-readme-badge-lockstep \
     'empty pin extraction'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — unparseable JSON in versions.json
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: dev/versions.json is not valid JSON"
+# A truncated / hand-mangled versions.json must surface as an
+# actionable annotation rather than a generic `docker run failed`.
+# The recipe's first guard runs `jq empty versions.json` and must
+# trip on syntactic garbage.
+echo 'not-json-at-all' > "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: unparseable versions.json fails with actionable message" \
+    ci-readme-badge-lockstep \
+    'is not parseable JSON'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — trailing-whitespace in versions.json value
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: dev/versions.json row carries a trailing-space php value"
+# A hand-edit / paste accident leaves `"php":"8.5 "` (trailing space)
+# in the catalog. The Python rewriter strips whitespace before
+# writing to README; the jq lockstep must mirror that strip so the
+# expected set matches the rewriter's canonical output. Without the
+# alignment, expected_php would carry `"8.5 "` while actual would
+# carry `"8.5"`, deadlocking the lockstep on a character-identical
+# visual diff that's hours to debug.
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '. + [{"webtrees":"2.2.6","php":"8.5 ","tags":[]}]' versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_passes \
+    "ci-readme-badge-lockstep: trailing-whitespace php value strip-aligned with rewriter" \
+    ci-readme-badge-lockstep
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — README missing the webtrees badge URL entirely
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: README has no webtrees-...-blue URL at all"
+# If the webtrees badge URL is removed from README (e.g. accidental
+# delete during a docs sweep), the recipe must fail loud with the
+# `no img.shields.io/badge/webtrees-...-blue URL found` annotation,
+# not a confusing set-equality diff.
+sed -i '/img\.shields\.io\/badge\/webtrees/d' "$worktree/README.md"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: README without webtrees badge URL fails loud" \
+    ci-readme-badge-lockstep \
+    'no img.shields.io/badge/webtrees-...-blue URL found'
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-readme-badge-lockstep — README missing the PHP badge URL entirely
+# ──────────────────────────────────────────────────────────────────────
+echo "Setting up: README has no PHP-...-787CB5 URL at all"
+# Symmetric to the webtrees case above: deleting the PHP badge URL
+# entirely must surface the dedicated `no img.shields.io/badge/PHP-
+# ...-787CB5 URL found` annotation rather than degrading to a
+# set-equality diff against an empty actual set.
+sed -i '/img\.shields\.io\/badge\/PHP/d' "$worktree/README.md"
+assert_lockstep_fails \
+    "ci-readme-badge-lockstep: README without PHP badge URL fails loud" \
+    ci-readme-badge-lockstep \
+    'no img.shields.io/badge/PHP-...-787CB5 URL found'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
@@ -652,7 +752,7 @@ sed -i 's|PHP-8.3%7C8.4%7C8.5-787CB5|PHP-8.4%7C8.5-787CB5|' "$worktree/README.md
 assert_lockstep_fails \
     "ci-readme-badge-lockstep: PHP badge missing a unique value fails" \
     ci-readme-badge-lockstep \
-    'PHP badge does not encode'
+    'PHP badge does not encode the same set'
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
