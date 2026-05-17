@@ -57,14 +57,7 @@ ci-pytest: .logo ## Runs the installer Python test suite via $(CI_IMAGE_PYTHON).
 	# verify the four shipped compose sites agree on `mariadb:X.Y`;
 	# WT_REPO_ROOT carries the path so the test resolves it without
 	# depending on relative pathlib walks from the installer/ cwd.
-	docker run --rm \
-		-v "$(PWD):/repo:ro" \
-		-v "$(PWD)/installer:/app" \
-		-v webtrees-ci-pip-cache:/root/.cache/pip \
-		-w /app \
-		-e WT_REPO_ROOT=/repo \
-		--entrypoint sh \
-		$(CI_IMAGE_PYTHON) \
+	$(CI_RUN_PYTHON_WITH_REPO) \
 		-c "apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends make >/dev/null && pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
 
 # All four ci-{ruff,mypy,vulture,cpd} targets share the same install
@@ -74,22 +67,12 @@ ci-pytest: .logo ## Runs the installer Python test suite via $(CI_IMAGE_PYTHON).
 # the others.
 ci-ruff: .logo ## Lints the installer Python package with ruff.
 	echo -e "${FBLUE}▶ ruff${FRESET}"
-	docker run --rm \
-		-v "$(PWD)/installer:/app" \
-		-v webtrees-ci-pip-cache:/root/.cache/pip \
-		-w /app \
-		--entrypoint sh \
-		$(CI_IMAGE_PYTHON) \
+	$(CI_RUN_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && ruff check webtrees_installer"
 
 ci-mypy: .logo ## Type-checks the installer Python package with mypy --strict.
 	echo -e "${FBLUE}▶ mypy --strict${FRESET}"
-	docker run --rm \
-		-v "$(PWD)/installer:/app" \
-		-v webtrees-ci-pip-cache:/root/.cache/pip \
-		-w /app \
-		--entrypoint sh \
-		$(CI_IMAGE_PYTHON) \
+	$(CI_RUN_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && mypy webtrees_installer"
 
 ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
@@ -97,12 +80,7 @@ ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
 	# --min-confidence 80 trims trivial false positives (e.g. constants
 	# referenced via reflection / template lookup) while still surfacing
 	# unused functions/imports/variables that the codebase no longer needs.
-	docker run --rm \
-		-v "$(PWD)/installer:/app" \
-		-v webtrees-ci-pip-cache:/root/.cache/pip \
-		-w /app \
-		--entrypoint sh \
-		$(CI_IMAGE_PYTHON) \
+	$(CI_RUN_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && vulture webtrees_installer --min-confidence 80"
 
 ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint duplicate-code).
@@ -111,18 +89,13 @@ ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint d
 	# for Python; disabling everything else gives us narrow CPD without
 	# pulling in a second tool. Threshold lives in pyproject.toml
 	# (min-similarity-lines).
-	docker run --rm \
-		-v "$(PWD)/installer:/app" \
-		-v webtrees-ci-pip-cache:/root/.cache/pip \
-		-w /app \
-		--entrypoint sh \
-		$(CI_IMAGE_PYTHON) \
+	$(CI_RUN_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && pylint webtrees_installer"
 
 # Resolve the rolling-`latest` image tag (e.g. `2.2.6-php8.5`) from the
 # version manifest. Containerised so the aggregate honours the "docker only"
 # contract of this file — no jq / python / yq host install required.
-LATEST_PHP_TAG = $$(docker run --rm -v "$(PWD)/dev:/d:ro" -w /d $(CI_IMAGE_JQ) \
+LATEST_PHP_TAG = $$($(CI_RUN_JQ) \
 	-r '.[] | select(.tags | index("latest")) | "\(.webtrees)-php\(.php)"' versions.json)
 
 # Runs on the host: the script spawns ephemeral docker containers and
@@ -165,10 +138,7 @@ ci-yamllint: .logo ## Lints workflow + compose YAML files.
 	# line-length stays a warning (not error): GHA `run: |` blocks routinely
 	# contain long inline strings (PR/issue body literals, multi-flag gh
 	# commands) that read cleaner on one line than as line-continuations.
-	docker run --rm \
-		-v "$(PWD):/work" \
-		-w /work \
-		$(CI_IMAGE_YAMLLINT) \
+	$(CI_RUN_YAMLLINT) \
 		-d "{extends: default, rules: {line-length: {max: 200, level: warning}, document-start: disable, truthy: {check-keys: false}, comments: {min-spaces-from-content: 1}}}" \
 		.github/workflows/ compose.yaml compose.pma.yaml compose.traefik.yaml compose.publish.yaml compose.development.yaml
 
@@ -196,11 +166,7 @@ ci-shellcheck: .logo ## Lints every tracked shell script.
 	# that sources them.
 	files=$$(git ls-files -z | xargs -0 grep -lE '^#!.*\b(bash|sh|dash|ksh)\b' 2>/dev/null | sort); \
 		[ -n "$$files" ] || { echo "::error::ci-shellcheck found no shell scripts to lint" >&2; exit 1; }; \
-		printf '%s\n' "$$files" | xargs -d '\n' docker run --rm \
-			-v "$(PWD):/work" \
-			-w /work \
-			$(CI_IMAGE_SHELLCHK) \
-			-x
+		printf '%s\n' "$$files" | xargs -d '\n' $(CI_RUN_SHELLCHK) -x
 
 ci-readme-badge-lockstep: .logo ## Asserts README webtrees/PHP badge values cover every unique entry in dev/versions.json.
 	echo -e "${FBLUE}▶ README badge lockstep${FRESET}"
@@ -246,6 +212,6 @@ ci-hadolint: .logo ## Lints the Dockerfiles.
 	# Failure threshold: warning. Any new DL/SC finding above info level
 	# fails CI. Existing exemptions live as inline `# hadolint ignore=…`
 	# directives with a rationale comment above each one.
-	docker run --rm -i $(CI_IMAGE_HADOLINT) hadolint --failure-threshold warning - < Dockerfile
+	$(CI_RUN_HADOLINT) hadolint --failure-threshold warning - < Dockerfile
 	echo -e "${FBLUE}▶ hadolint (installer/Dockerfile)${FRESET}"
-	docker run --rm -i $(CI_IMAGE_HADOLINT) hadolint --failure-threshold warning - < installer/Dockerfile
+	$(CI_RUN_HADOLINT) hadolint --failure-threshold warning - < installer/Dockerfile

@@ -43,3 +43,64 @@ CI_IMAGE_SHELLCHK := koalaman/shellcheck:stable
 # yamllint for workflow + compose YAML. cytopia/yamllint is a minimal
 # debian-slim wrapper around the upstream Python package.
 CI_IMAGE_YAMLLINT := cytopia/yamllint:latest
+
+# =============================================================================
+# CI run wrappers — full `docker run` invocations consumers can $(CI_RUN_*) verbatim.
+# =============================================================================
+#
+# Same single-source-of-truth rationale as the top-level Makefile's
+# `COMPOSE_BUILD := $(COMPOSE_BIN) run --rm -e COMPOSER_AUTH buildbox`
+# style: the volume mounts, the workdir, the --entrypoint, and the
+# image pin all live in one place. Recipes spell out the
+# tool-specific command line; everything before that is a single
+# variable expansion.
+#
+# Variants:
+#
+# - `CI_RUN_PYTHON`        — the four ci-{ruff,mypy,vulture,cpd}
+#   targets share this base: installer/ mounted at /app, pip-cache
+#   volume reused, --entrypoint sh ready to take a `-c "<cmd>"`.
+# - `CI_RUN_PYTHON_WITH_REPO` — ci-pytest adds the repo-root read-only
+#   mount + WT_REPO_ROOT env so the mariadb-pin / Makefile-render
+#   lockstep tests can walk the actual repo.
+# - `CI_RUN_JQ`            — jq queries against dev/versions.json.
+# - `CI_RUN_HADOLINT`      — `-i` for stdin Dockerfile.
+# - `CI_RUN_SHELLCHK`      — repo bind-mounted at /work; called via
+#   `xargs … $(CI_RUN_SHELLCHK) -x` because the file list is piped in.
+# - `CI_RUN_YAMLLINT`      — repo at /work for compose + workflow paths.
+#
+# A future ci-* target needing one of these shapes reuses the
+# variable instead of copy-pasting 6 docker-run flags (#120).
+
+CI_RUN_PYTHON := docker run --rm \
+	-v "$(PWD)/installer:/app" \
+	-v webtrees-ci-pip-cache:/root/.cache/pip \
+	-w /app \
+	--entrypoint sh \
+	$(CI_IMAGE_PYTHON)
+
+CI_RUN_PYTHON_WITH_REPO := docker run --rm \
+	-v "$(PWD):/repo:ro" \
+	-v "$(PWD)/installer:/app" \
+	-v webtrees-ci-pip-cache:/root/.cache/pip \
+	-w /app \
+	-e WT_REPO_ROOT=/repo \
+	--entrypoint sh \
+	$(CI_IMAGE_PYTHON)
+
+CI_RUN_JQ := docker run --rm \
+	-v "$(PWD)/dev:/d:ro" \
+	-w /d \
+	$(CI_IMAGE_JQ)
+
+CI_RUN_HADOLINT := docker run --rm -i $(CI_IMAGE_HADOLINT)
+
+CI_RUN_SHELLCHK := docker run --rm \
+	-v "$(PWD):/work" \
+	-w /work \
+	$(CI_IMAGE_SHELLCHK)
+
+CI_RUN_YAMLLINT := docker run --rm \
+	-v "$(PWD):/work" \
+	-w /work \
+	$(CI_IMAGE_YAMLLINT)
