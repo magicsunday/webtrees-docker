@@ -409,7 +409,12 @@ def test_run_dev_invokes_compose_pull_and_install(
     run_dev(args, stdin=StringIO(), stdout=StringIO())
 
     invocations = [c.args[0] for c in silence_dev_runtime.call_args_list]
-    assert ["compose", "pull"] in invocations
+    # Issue #132: `compose pull --ignore-buildable` skips the
+    # locally-built dev images (buildbox, phpfpm) that aren't in any
+    # public registry, and a separate `compose build` step makes the
+    # build output visible before the install-application run.
+    assert ["compose", "pull", "--ignore-buildable"] in invocations
+    assert ["compose", "build"] in invocations
     assert any(
         inv[:3] == ["compose", "run", "--rm"] and "buildbox" in inv
         for inv in invocations
@@ -419,7 +424,7 @@ def test_run_dev_invokes_compose_pull_and_install(
 def test_run_dev_fails_cleanly_when_compose_pull_breaks(
     tmp_path: Path, silence_dev_runtime
 ) -> None:
-    """Pull fails with rc=1 + stderr → exit 4 (install branch never runs)."""
+    """Pull fails with rc=1 + stderr → exit 4 (build / install branches never run)."""
     import subprocess as _sp
     from webtrees_installer.dev_flow import run_dev
 
@@ -432,18 +437,19 @@ def test_run_dev_fails_cleanly_when_compose_pull_breaks(
 
     assert exit_code == 4
     invocations = [c.args[0] for c in silence_dev_runtime.call_args_list]
-    assert invocations == [["compose", "pull"]]
+    assert invocations == [["compose", "pull", "--ignore-buildable"]]
 
 
 def test_run_dev_fails_cleanly_when_install_breaks(
     tmp_path: Path, silence_dev_runtime
 ) -> None:
-    """Pull succeeds, install returns rc=1 → exit 4 (separate branch coverage)."""
+    """Pull + build succeed, install returns rc=1 → exit 4 (separate branch coverage)."""
     import subprocess as _sp
     from webtrees_installer.dev_flow import run_dev
 
     silence_dev_runtime.side_effect = [
-        _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),  # pull
+        _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),  # build
         _sp.CompletedProcess(args=[], returncode=1, stdout="", stderr="install boom"),
     ]
     args = _args(work_dir=tmp_path)
@@ -452,8 +458,9 @@ def test_run_dev_fails_cleanly_when_install_breaks(
 
     assert exit_code == 4
     invocations = [c.args[0] for c in silence_dev_runtime.call_args_list]
-    assert invocations[0] == ["compose", "pull"]
-    assert invocations[1][:3] == ["compose", "run", "--rm"]
+    assert invocations[0] == ["compose", "pull", "--ignore-buildable"]
+    assert invocations[1] == ["compose", "build"]
+    assert invocations[2][:3] == ["compose", "run", "--rm"]
 
 
 def test_run_dev_aborts_on_existing_files_without_force(

@@ -432,7 +432,14 @@ def run_dev(
         return 0
 
     err_term = Term.for_stream(sys.stderr)
-    pull = _compose(["compose", "pull"], cwd=work_dir)
+    # `--ignore-buildable` skips services with a `build:` block.
+    # The dev compose has `build:` for `buildbox`, `buildbox-root`,
+    # and `phpfpm` (locally-built dev images that don't exist in any
+    # registry — see issue #132); pulling them would error with
+    # `manifest unknown` and abort the wizard. Pullable images
+    # (mariadb, browser, etc.) still fetch their latest tags.
+    # Requires Compose v2.22+ (already required by check_prerequisites).
+    pull = _compose(["compose", "pull", "--ignore-buildable"], cwd=work_dir)
     if pull.returncode != 0:
         # Errors route to sys.stderr so a `docker run ... | grep error`
         # in CI picks them up, matching how PrereqError / PromptError /
@@ -440,6 +447,19 @@ def run_dev(
         print(
             f"{err_term.error('error:')} docker compose pull failed: "
             f"{pull.stderr.strip() or pull.stdout.strip()}",
+            file=sys.stderr,
+        )
+        return 4
+
+    # Build the locally-buildable dev images explicitly before `compose
+    # run` invokes one of them. `compose run` would build on-demand but
+    # surfaces the build output as part of the run step, hiding image-
+    # build failures behind the install-script output (issue #132).
+    build = _compose(["compose", "build"], cwd=work_dir)
+    if build.returncode != 0:
+        print(
+            f"{err_term.error('error:')} docker compose build failed: "
+            f"{build.stderr.strip() or build.stdout.strip()}",
             file=sys.stderr,
         )
         return 4
