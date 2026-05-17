@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
 from io import StringIO
@@ -15,6 +16,7 @@ from webtrees_installer.cli import build_parser
 from webtrees_installer.flow import (
     StandaloneArgs,
     _list_surviving_volumes as real_list_surviving_volumes,
+    _print_banner,
     _wipe_volumes as real_wipe_volumes,
     run_standalone,
 )
@@ -910,23 +912,31 @@ def test_print_banner_standalone_enforce_https_shows_warning_no_url() -> None:
     browser; it must surface the reverse-proxy requirement explicitly
     AND the `--no-https` escape hatch. Pins issue #118's contract so
     a future refactor cannot silently restore the misleading URL."""
-    from pathlib import Path
-    from webtrees_installer.flow import _print_banner
     out = StringIO()
-    _print_banner(
-        stdout=out,
-        work_dir=Path("/tmp/wt"),
-        proxy_mode="standalone",
-        app_port=50024,
-        domain=None,
-        admin_user=None,
-        admin_password=None,
-        enforce_https=True,
-        no_up=False,
-    )
+    # Patch HOST_LAN_IP to a value that WOULD render a LAN line in the
+    # ENFORCE_HTTPS=FALSE branch — proves the warning branch never
+    # routes through `print_standalone_http_url_lines` regardless of
+    # the env. Pins the issue #118 / #117 cross-talk boundary.
+    with patch.dict(os.environ, {"HOST_LAN_IP": "192.168.178.25"}, clear=False):
+        _print_banner(
+            stdout=out,
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="standalone",
+            app_port=50024,
+            domain=None,
+            admin_user=None,
+            admin_password=None,
+            enforce_https=True,
+            no_up=False,
+        )
     text = out.getvalue()
     assert "https://localhost:50024" not in text, (
         "must not advertise an https:// URL that hits a plain-HTTP socket"
+    )
+    # The enforce_https warning branch must NOT route through the
+    # LAN-URL helper even though HOST_LAN_IP is set above.
+    assert "Webtrees URL: http://" not in text, (
+        "enforce_https branch must not emit any LAN/localhost Webtrees URL line"
     )
     assert "Direct browser access not possible" in text
     assert "TLS-terminating reverse proxy" in text
@@ -938,23 +948,58 @@ def test_print_banner_standalone_no_https_shows_http_url() -> None:
     published port, directly browser-reachable. Banner must show
     `http://` (not `https://`) so an operator pasting the URL into a
     browser actually lands on the app."""
-    from pathlib import Path
-    from webtrees_installer.flow import _print_banner
     out = StringIO()
-    _print_banner(
-        stdout=out,
-        work_dir=Path("/tmp/wt"),
-        proxy_mode="standalone",
-        app_port=8080,
-        domain=None,
-        admin_user=None,
-        admin_password=None,
-        enforce_https=False,
-        no_up=False,
-    )
+    # Clear HOST_LAN_IP so the test pins only the localhost branch
+    # — the LAN-IP rendering is covered by test__banner.py and by
+    # test_print_banner_standalone_no_https_includes_lan_url_when_env_set.
+    with patch.dict(os.environ, {"HOST_LAN_IP": ""}, clear=False):
+        _print_banner(
+            stdout=out,
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="standalone",
+            app_port=8080,
+            domain=None,
+            admin_user=None,
+            admin_password=None,
+            enforce_https=False,
+            no_up=False,
+        )
     text = out.getvalue()
     assert "http://localhost:8080/" in text
     assert "https://localhost" not in text
+
+
+def test_print_banner_standalone_no_https_includes_lan_url_when_env_set() -> None:
+    """When the install bootstrap detected the host's LAN IP and
+    exported it via HOST_LAN_IP, the banner adds a second URL line
+    for the LAN address so a remote operator (WSL→NAS, SSH-into-
+    server) sees a URL that resolves on the right machine.
+
+    Pins the integration path (`os.environ.get('HOST_LAN_IP') → helper`)
+    plus the URL-line count so a future refactor that swaps the helper
+    or accidentally emits the LAN URL three times surfaces here. The
+    LAN-URL copy itself (the disambiguator label) is pinned at the
+    helper level in test__banner.py — repeating it here would double
+    the maintenance cost for one behaviour."""
+    out = StringIO()
+    with patch.dict(os.environ, {"HOST_LAN_IP": "192.168.178.25"}, clear=False):
+        _print_banner(
+            stdout=out,
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="standalone",
+            app_port=50024,
+            domain=None,
+            admin_user=None,
+            admin_password=None,
+            enforce_https=False,
+            no_up=False,
+        )
+    text = out.getvalue()
+    assert "http://localhost:50024/" in text
+    assert "http://192.168.178.25:50024/" in text
+    assert text.count("Webtrees URL:") == 2, (
+        "must emit exactly two URL lines (localhost + LAN) when HOST_LAN_IP is set"
+    )
 
 
 def test_print_banner_traefik_shows_https_domain_url() -> None:
@@ -962,19 +1007,49 @@ def test_print_banner_traefik_shows_https_domain_url() -> None:
     fronting proxy. Banner shows the public-facing https://<domain>/
     URL regardless of ENFORCE_HTTPS (which only governs nginx's own
     redirect, irrelevant when traefik is in front)."""
-    from pathlib import Path
-    from webtrees_installer.flow import _print_banner
     out = StringIO()
-    _print_banner(
-        stdout=out,
-        work_dir=Path("/tmp/wt"),
-        proxy_mode="traefik",
-        app_port=None,
-        domain="wt.example.com",
-        admin_user=None,
-        admin_password=None,
-        enforce_https=True,
-        no_up=False,
-    )
+    # Set HOST_LAN_IP to a value that WOULD render a LAN URL line in
+    # the standalone branch — proves the traefik branch never routes
+    # through `print_standalone_http_url_lines` regardless of the env.
+    with patch.dict(os.environ, {"HOST_LAN_IP": "192.168.178.25"}, clear=False):
+        _print_banner(
+            stdout=out,
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="traefik",
+            app_port=None,
+            domain="wt.example.com",
+            admin_user=None,
+            admin_password=None,
+            enforce_https=True,
+            no_up=False,
+        )
     text = out.getvalue()
     assert "https://wt.example.com/" in text
+    assert "Webtrees URL: http://" not in text, (
+        "traefik branch must not emit any LAN/localhost Webtrees URL line"
+    )
+
+
+def test_print_banner_standalone_raises_when_app_port_unresolved() -> None:
+    """The standalone branch invariant raises RuntimeError (not
+    AssertionError) when a caller passes app_port=None, so the
+    contract check survives `python -O` / PYTHONOPTIMIZE. Pins the
+    rationale in flow.py for the `raise` vs `assert` choice — a
+    future refactor that swaps back to `assert app_port is not None`
+    must break this test."""
+    # Match on `app_port` only — the test's contract is the exception
+    # TYPE (RuntimeError, not AssertionError) so the check survives
+    # `python -O`. Pinning the full prose would fail on stylistic
+    # message edits that leave the contract intact.
+    with pytest.raises(RuntimeError, match=r"app_port"):
+        _print_banner(
+            stdout=StringIO(),
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="standalone",
+            app_port=None,
+            domain=None,
+            admin_user=None,
+            admin_password=None,
+            enforce_https=False,
+            no_up=False,
+        )

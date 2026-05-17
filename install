@@ -58,6 +58,174 @@ if [ -z "$COMPOSE_PROJECT_NAME" ]; then
 fi
 export COMPOSE_PROJECT_NAME
 
+# Detect the host's primary LAN IPv4 so the installer can surface a
+# browser-reachable URL for operators who run the install from one
+# machine and browse from another (WSL→NAS, SSH-into-server, etc.).
+# `localhost` only works from the docker host itself; without the
+# LAN-IP hint the post-install banner sends a remote operator to a
+# URL that resolves on the wrong machine.
+#
+# The installer image runs without --network host, so `hostname -I`
+# or `getsockname()` INSIDE the container would return the container
+# bridge IP (172.x.x.x) — useless. Detect on the host shell and pass
+# the value via env. The installer treats an empty/unset HOST_LAN_IP
+# as "skip the LAN URL line", so detection failure degrades to the
+# previous localhost-only behaviour.
+#
+# Detection order:
+#   1. Caller-supplied HOST_LAN_IP env wins (operator override for
+#      multi-interface hosts where the first hit is wrong).
+#   2. `hostname -I` (Linux util-linux): first non-loopback IPv4.
+#   3. `ipconfig getifaddr en0` (macOS).
+#   4. Empty string → installer falls back silently.
+#
+# `${HOST_LAN_IP+x}` tests whether the variable is SET, not whether
+# it's empty. An operator who exports `HOST_LAN_IP=` explicitly is
+# opting OUT of detection ("never advertise a LAN URL even on this
+# Linux host where hostname -I would otherwise succeed") — the
+# previous `-z` gate conflated unset and empty, so explicit-empty
+# overrides on plain Linux were silently overwritten by detection.
+if [ -z "${HOST_LAN_IP+x}" ]; then
+    # Default empty — every skip path leaves this untouched, so the
+    # installer falls back to the localhost-only banner whenever
+    # detection is skipped or yields nothing usable.
+    _lan_ip=""
+
+    # Skip detection when `hostname -I` would advertise the wrong
+    # machine's IP. Two cases:
+    #
+    # 1. Remote-daemon contexts (DOCKER_HOST=ssh://…, tcp://…, etc.):
+    #    the bootstrap runs on the CLIENT shell but the stack ends up
+    #    on the daemon's host. Peers on the daemon's LAN cannot reach
+    #    the client. Only TRULY remote schemes skip — `unix://` paths
+    #    (rootless docker, colima, Docker Desktop, lima, Synology
+    #    DSM-managed sockets) point at a daemon ON this host, so
+    #    detection runs as normal there.
+    #
+    # 2. WSL2 (osrelease contains 'microsoft' or 'wsl'): `hostname -I`
+    #    inside WSL2 returns the distro's NAT'd vEthernet address
+    #    (172.x or Windows-internal 10.x), not routable from the home
+    #    LAN. Operators on WSL2 who want a LAN URL should explicitly
+    #    `export HOST_LAN_IP=…` on the Windows host's IP.
+    _skip_detection=0
+    # RFC 3986 §3.1 makes URI schemes case-insensitive; Docker's own
+    # client accepts `SSH://`, `TCP://`, etc. Lowercase before
+    # matching so a `DOCKER_HOST=SSH://daemon` operator doesn't slip
+    # past the skip and produce a banner that advertises the CLIENT's
+    # LAN IP for a stack running on the REMOTE daemon's host.
+    # `tcp://localhost:2375` (and `127.0.0.1`) is intentionally
+    # included in the skip — the local-tcp case is conservative: we
+    # prefer "banner shows only localhost" over "banner advertises
+    # the wrong host". `fd://` is server-side socket activation only
+    # and never appears in a client's DOCKER_HOST, so the entry is a
+    # no-op for completeness.
+    # Strip every leading non-alphanumeric byte, then ALL ASCII
+    # whitespace, then case-fold to lowercase. The leading-byte strip
+    # covers paste-pollution prefixes that POSIX `tr -d '[:space:]'`
+    # misses because it operates byte-by-byte on ASCII only:
+    # U+00A0 NBSP (0xC2 0xA0), U+FEFF BOM (0xEF 0xBB 0xBF), em-space
+    # U+2003, zero-width-space U+200B — common artefacts from smart
+    # substitution (macOS), wrapped Confluence/Notion code blocks,
+    # CRLF .env files, etc. Docker's URL parser silently trims these,
+    # so the bootstrap must too or the same `SSH://`-uppercase /
+    # `\nssh://`-newline class of bypass returns under a different
+    # byte sequence. Valid Docker URIs never start with non-alphanum.
+    #
+    # Missing sed/tr (BusyBox-only, minimal recovery shells) must not
+    # abort the bootstrap. On pipeline failure, force the
+    # skip-conservative path (`_skip_detection=1`): we can't normalise
+    # DOCKER_HOST → we don't know whether the scheme is local or
+    # remote → "banner shows only localhost" is strictly safer than
+    # "banner advertises the client's LAN IP for a remote-daemon
+    # stack". Mirrors the defensive degrade-on-missing-tool pattern
+    # used by the detection awk later in this file, but with the
+    # OPPOSITE polarity: an unparseable DOCKER_HOST means SKIP, not
+    # RUN (the case match needs the scheme prefix to fire).
+    _docker_host_lc=$(printf '%s' "${DOCKER_HOST:-}" \
+        | sed -e 's/^[^a-zA-Z0-9]*//' 2>/dev/null \
+        | tr -d '[:space:]' 2>/dev/null \
+        | tr '[:upper:]' '[:lower:]' 2>/dev/null) || {
+        _docker_host_lc=""
+        _skip_detection=1
+    }
+    case "$_docker_host_lc" in
+        ssh://*|tcp://*|http://*|https://*|fd://*) _skip_detection=1 ;;
+    esac
+    if [ "$_skip_detection" -eq 0 ] \
+        && [ -r /proc/sys/kernel/osrelease ] \
+        && grep -qi -e microsoft -e wsl /proc/sys/kernel/osrelease 2>/dev/null; then
+        _skip_detection=1
+    fi
+
+    if [ "$_skip_detection" -eq 0 ]; then
+        # Capture-then-process (AGENTS.md "Recent traps to avoid":
+        # never `hostname … | awk` under pipefail because the awk
+        # early-exit SIGPIPEs the upstream, then pipefail swallows
+        # the upstream exit code — fragile). Capture into a
+        # variable first, then operate on it.
+        if command -v hostname >/dev/null 2>&1; then
+            _hostname_out=$(hostname -I 2>/dev/null) || _hostname_out=""
+            # First non-loopback IPv4 that is NOT docker bridge
+            # (172.16/12), CGNAT/tailscale (100.64/10), or VPN-style
+            # link-local. Operators on multi-interface hosts where
+            # this heuristic picks the wrong NIC export HOST_LAN_IP
+            # before invoking the installer.
+            # `|| _lan_ip=""` so a missing awk (BusyBox-only / minimal
+            # recovery shells / NixOS without GNU awk) degrades to the
+            # documented localhost-only fallback instead of aborting
+            # the whole installer bootstrap under `set -o errexit`.
+            _lan_ip=$(awk -v ips="$_hostname_out" 'BEGIN {
+                n = split(ips, a, " ")
+                for (i = 1; i <= n; i++) {
+                    if (a[i] !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) continue
+                    if (a[i] ~ /^127\./) continue
+                    if (a[i] ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) continue
+                    if (a[i] ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./) continue
+                    if (a[i] ~ /^169\.254\./) continue
+                    print a[i]
+                    exit
+                }
+            }' 2>/dev/null) || _lan_ip=""
+        fi
+        if [ -z "$_lan_ip" ] && command -v ipconfig >/dev/null 2>&1; then
+            _lan_ip=$(ipconfig getifaddr en0 2>/dev/null || true)
+        fi
+    fi
+    # Probe readonly status before assigning. `readonly -p` lists
+    # every readonly variable; if HOST_LAN_IP is in that list we
+    # cannot reassign it (bash aborts under `set -o errexit` and the
+    # error is NOT catchable via `|| true` because the readonly trap
+    # fires before the OR can evaluate). Skipping the assignment in
+    # that case respects the operator's `readonly HOST_LAN_IP=<value>`
+    # (preserve their value) AND survives the exotic `declare -r
+    # HOST_LAN_IP` (unset) form without aborting the bootstrap.
+    #
+    # Capture-then-process (AGENTS.md "Recent traps to avoid":
+    # `readonly -p | grep -q …` under pipefail is unsafe — grep-q
+    # exits on first match, SIGPIPEs the readonly-p writer, pipefail
+    # picks up 141, and `! 141` evaluates as 0 → branch SKIPPED in
+    # exactly the wrong direction). Capture into `_readonly_p_out` first, then
+    # match the captured string via bash's built-in `[[ =~ ]]` so no
+    # pipe is involved.
+    # Anchor on bash's `readonly -p` line-prefix `declare -…r…
+    # HOST_LAN_IP` to avoid false-positives where another readonly
+    # variable's VALUE contains the substring ` HOST_LAN_IP=` (e.g.
+    # `readonly OTHER=' HOST_LAN_IP=foo'`). bash emits all declare
+    # attribute flags ASCII-alphabetical in any order; the regex
+    # tolerates any cluster of letters that contains `r` so it
+    # survives combined forms like `declare -rl`, `declare -ru`,
+    # `declare -rt`, `declare -airx`, plus any future attribute
+    # letter bash adds (only `r` is the semantic predicate, the
+    # rest are decorative for our purposes).
+    _readonly_p_out=$(readonly -p 2>/dev/null) || _readonly_p_out=""
+    if [[ ! "$_readonly_p_out" =~ (^|$'\n')declare\ -[a-zA-Z]*r[a-zA-Z]*\ HOST_LAN_IP(=|$|$'\n') ]]; then
+        HOST_LAN_IP=${_lan_ip:-}
+    fi
+fi
+# `export` of an already-readonly variable is a no-op; safe regardless
+# of which branch above ran.
+export HOST_LAN_IP
+
 # Inject host UID/name before user args so --mode dev gets the real values.
 # (Inside the container os.geteuid() returns 0; the wizard cannot see them.
 # Standalone mode ignores both flags. User-supplied values still override.)
@@ -81,6 +249,7 @@ installer_args=(
 exec docker run --rm --pull=always "${tty_flags[@]}" \
     -e WORK_DIR="$PWD" \
     -e COMPOSE_PROJECT_NAME \
+    -e HOST_LAN_IP \
     -v "$PWD:/work" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     "$INSTALLER_IMAGE" "${installer_args[@]}"

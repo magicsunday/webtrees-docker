@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import IO
 
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
-from webtrees_installer._banner import print_standalone_enforce_https_warning
+from webtrees_installer._banner import (
+    print_standalone_enforce_https_warning,
+    print_standalone_http_url_lines,
+)
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._db_probe import probe_external_db
 from webtrees_installer._docker import run_docker
@@ -1116,6 +1119,19 @@ def _print_banner(
     print(f"{term.success('✓')} Wrote: {work_dir / '.env'}", file=stdout)
 
     if proxy_mode == "standalone":
+        # _resolve_port (called from run_standalone before this banner)
+        # guarantees app_port is non-None in standalone mode. Use an
+        # explicit raise rather than `assert` because the latter is
+        # stripped under `python -O` / PYTHONOPTIMIZE — the contract
+        # check has to survive optimisation to actually catch a future
+        # call site that bypasses _resolve_port. RuntimeError because
+        # this is an internal-invariant break, not an operator-input
+        # error worth wrapping in PrereqError.
+        if app_port is None:
+            raise RuntimeError(
+                "standalone proxy mode requires a resolved app_port; "
+                "check _resolve_port"
+            )
         if enforce_https:
             # See _banner.print_standalone_enforce_https_warning for
             # the full rationale (SSL_ERROR_RX_RECORD_TOO_LONG trap).
@@ -1128,7 +1144,15 @@ def _print_banner(
                 rerun_verb="installer",
             )
         else:
-            print(f"{term.info('•')} Webtrees URL: http://localhost:{app_port}/", file=stdout)
+            # See _banner.print_standalone_http_url_lines for the
+            # HOST_LAN_IP-detection rationale (operator browsing from
+            # a different machine — WSL→NAS, SSH session, etc.).
+            print_standalone_http_url_lines(
+                stdout=stdout,
+                term=term,
+                app_port=app_port,
+                host_lan_ip=os.environ.get("HOST_LAN_IP", "").strip() or None,
+            )
     else:
         print(f"{term.info('•')} Webtrees URL: https://{domain}/", file=stdout)
 

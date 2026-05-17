@@ -14,7 +14,12 @@ from __future__ import annotations
 
 from io import StringIO
 
-from webtrees_installer._banner import print_standalone_enforce_https_warning
+import pytest
+
+from webtrees_installer._banner import (
+    print_standalone_enforce_https_warning,
+    print_standalone_http_url_lines,
+)
 from webtrees_installer._term import Term
 
 
@@ -95,3 +100,166 @@ def test_print_standalone_enforce_https_warning_interpolates_rerun_verb() -> Non
         rerun_verb="dev wizard",
     )
     assert "re-run the dev wizard with --no-https" in out.getvalue()
+
+
+def test_print_standalone_http_url_lines_localhost_only_when_no_lan_ip() -> None:
+    """When HOST_LAN_IP detection fails (host_lan_ip=None), the
+    helper falls back to printing only the localhost URL — matching
+    the wizard's pre-#117 behaviour so detection-failure is a clean
+    no-op, not a regression."""
+    out = StringIO()
+    print_standalone_http_url_lines(
+        stdout=out,
+        term=Term.for_stream(out),
+        app_port=50024,
+        host_lan_ip=None,
+    )
+    text = out.getvalue()
+    assert "http://localhost:50024/" in text
+    assert text.count("Webtrees URL:") == 1, (
+        "must print exactly one URL line when LAN IP is unavailable"
+    )
+
+
+def test_print_standalone_http_url_lines_empty_lan_ip_treated_as_none() -> None:
+    """An empty-string host_lan_ip (detection ran but yielded
+    nothing) behaves identically to None — no LAN line emitted."""
+    out = StringIO()
+    print_standalone_http_url_lines(
+        stdout=out,
+        term=Term.for_stream(out),
+        app_port=50024,
+        host_lan_ip="",
+    )
+    text = out.getvalue()
+    assert "http://localhost:50024/" in text
+    assert text.count("Webtrees URL:") == 1
+
+
+def test_print_standalone_http_url_lines_emits_both_when_lan_ip_present() -> None:
+    """With a detected LAN IP, the banner prints BOTH localhost AND
+    the LAN IP so the operator sees the right URL whether they
+    browse from the docker host or from a different machine. Pins
+    issue #117's contract."""
+    out = StringIO()
+    print_standalone_http_url_lines(
+        stdout=out,
+        term=Term.for_stream(out),
+        app_port=50024,
+        host_lan_ip="192.168.178.25",
+    )
+    text = out.getvalue()
+    assert "http://localhost:50024/" in text
+    assert "http://192.168.178.25:50024/" in text
+    assert text.count("Webtrees URL:") == 2, (
+        "must print exactly two URL lines (localhost + LAN) when LAN IP is known"
+    )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "evil.example.com",
+        "2001:db8::1",
+        "192.168.0.1 10.0.0.1",
+        "\033[31m192.168.0.1",
+        "999.999.999.999",
+        "not-an-ip",
+        " 192.168.0.1 ",
+        "192.168.0.1\n",
+        "192.168.0.1:8080",
+    ],
+    ids=[
+        "hostname",
+        "ipv6",
+        "two-ips-one-string",
+        "ansi-escape-prefix",
+        "octet-overflow",
+        "garbage",
+        "whitespace-padded",
+        "trailing-newline",
+        "ip-with-port",
+    ],
+)
+def test_print_standalone_http_url_lines_rejects_non_ipv4_host_lan_ip(bad: str) -> None:
+    """Malformed host_lan_ip values fall back silently to the
+    localhost-only line. Pins the Python-boundary shape re-validation
+    so a future change that drops the bootstrap's awk regex (or a new
+    detector path) cannot pollute the operator banner with junk.
+
+    The helper does NOT strip whitespace — the documented call site
+    in ``flow.py`` strips at the env-read boundary, so a future direct
+    caller that forgets to strip lands cleanly in the fallback rather
+    than emitting `http:// 192.168.0.1 :50024/`."""
+    out = StringIO()
+    print_standalone_http_url_lines(
+        stdout=out,
+        term=Term.for_stream(out),
+        app_port=50024,
+        host_lan_ip=bad,
+    )
+    text = out.getvalue()
+    assert "http://localhost:50024/" in text
+    assert text.count("Webtrees URL:") == 1
+
+
+@pytest.mark.parametrize(
+    "unreachable",
+    [
+        "127.0.0.1",        # loopback (operator-override-typo)
+        "0.0.0.0",          # unspecified — Chrome ≥128 refuses, others ambiguous
+        "169.254.1.1",      # link-local APIPA — requires same-subnet zeroconf
+        "224.0.0.1",        # multicast
+        "255.255.255.255",  # directed broadcast / reserved (240/4)
+        "172.17.0.1",       # docker default-bridge gateway
+        "100.64.5.1",       # CGNAT — provider NAT, not LAN-reachable
+    ],
+    ids=[
+        "loopback",
+        "unspecified",
+        "link-local",
+        "multicast",
+        "broadcast",
+        "docker-bridge",
+        "cgnat",
+    ],
+)
+def test_print_standalone_http_url_lines_rejects_unreachable_lan_ip_semantics(
+    unreachable: str,
+) -> None:
+    """Syntactically-valid IPv4 addresses that can never reach a
+    browser on another LAN machine fall back to the localhost-only
+    line. The bash awk filter rejects these from auto-detected output,
+    but the operator-override path (``HOST_LAN_IP=… ./install``)
+    bypasses the whole detection branch — this re-validation is the
+    only defence against an override like ``HOST_LAN_IP=127.0.0.1``."""
+    out = StringIO()
+    print_standalone_http_url_lines(
+        stdout=out,
+        term=Term.for_stream(out),
+        app_port=50024,
+        host_lan_ip=unreachable,
+    )
+    text = out.getvalue()
+    assert "http://localhost:50024/" in text
+    assert text.count("Webtrees URL:") == 1, (
+        f"unreachable host_lan_ip {unreachable!r} should NOT emit a LAN URL line"
+    )
+
+
+def test_print_standalone_http_url_lines_labels_distinguish_localhost_vs_lan() -> None:
+    """Each line carries a parenthetical disambiguator ('local to
+    this host' vs 'LAN — browse from another machine') so the
+    operator knows which URL to use depending on where their
+    browser is. Pins the operator-facing copy."""
+    out = StringIO()
+    print_standalone_http_url_lines(
+        stdout=out,
+        term=Term.for_stream(out),
+        app_port=8080,
+        host_lan_ip="10.0.0.1",
+    )
+    text = out.getvalue()
+    assert "(local to this host)" in text
+    assert "(LAN" in text
+    assert "another machine" in text
