@@ -41,12 +41,13 @@ set -euo pipefail
 repo_root=${1:-$(pwd)}
 cd "$repo_root"
 
-jq_image="ghcr.io/jqlang/jq:latest"
+# shellcheck source=scripts/lib/images.env
+source "$(dirname "$0")/lib/images.env"
 
 docker run --rm \
     -v "$repo_root/dev:/d:ro" \
     -w /d \
-    "$jq_image" \
+    "$CI_IMAGE_JQ" \
     empty versions.json >/dev/null 2>&1 || {
     echo "::error::dev/versions.json is not parseable JSON" >&2
     exit 1
@@ -55,7 +56,7 @@ docker run --rm \
 docker run --rm \
     -v "$repo_root/dev:/d:ro" \
     -w /d \
-    "$jq_image" \
+    "$CI_IMAGE_JQ" \
     empty php-versions.json >/dev/null 2>&1 || {
     echo "::error::dev/php-versions.json is not parseable JSON" >&2
     exit 1
@@ -66,19 +67,19 @@ docker run --rm \
 # row carrying that minor. Compare per-bucket; first drift fails loud
 # with a `::error::` annotation naming the offending webtrees minor +
 # the symmetric-difference set.
-supported_raw=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$jq_image" \
+supported_raw=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
     -r '(.supported // []) | length' php-versions.json) || {
     echo "::error::docker run for supported-php length-probe failed" >&2
     exit 1
 }
 
-supported_clean=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$jq_image" \
+supported_clean=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
     -r '[(.supported // [])[] | select(type == "string" and (. | test("^[1-9][0-9]*\\.[0-9]+$")))] | unique' php-versions.json) || {
     echo "::error::docker run for supported-php clean-extract failed" >&2
     exit 1
 }
 
-supported_clean_count=$(printf '%s' "$supported_clean" | docker run --rm -i "$jq_image" -r length) || {
+supported_clean_count=$(printf '%s' "$supported_clean" | docker run --rm -i "$CI_IMAGE_JQ" -r length) || {
     echo "::error::docker run for supported-php length-count failed" >&2
     exit 1
 }
@@ -88,7 +89,7 @@ if [ "$supported_raw" != "$supported_clean_count" ]; then
     exit 1
 fi
 
-supported=$(printf '%s' "$supported_clean" | docker run --rm -i "$jq_image" -r 'sort | join(",")') || {
+supported=$(printf '%s' "$supported_clean" | docker run --rm -i "$CI_IMAGE_JQ" -r 'sort | join(",")') || {
     echo "::error::docker run for supported-php sort/join failed" >&2
     exit 1
 }
@@ -100,14 +101,14 @@ supported=$(printf '%s' "$supported_clean" | docker run --rm -i "$jq_image" -r '
 
 echo "  supported PHP minors: $supported"
 
-webtrees_minors=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$jq_image" \
+webtrees_minors=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
     -r '[.[].webtrees] | unique | .[]' versions.json) || {
     echo "::error::docker run for webtrees-minor extraction failed" >&2
     exit 1
 }
 
 for wt in $webtrees_minors; do
-    actual=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$jq_image" \
+    actual=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
         -r --arg wt "$wt" '[.[] | select(.webtrees == $wt) | .php] | sort | join(",")' versions.json) || {
         echo "::error::docker run for per-webtrees PHP extraction failed (wt=$wt)" >&2
         exit 1

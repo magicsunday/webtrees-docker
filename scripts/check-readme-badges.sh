@@ -40,12 +40,13 @@ cd "$repo_root"
     exit 1
 }
 
-jq_image="ghcr.io/jqlang/jq:latest"
+# shellcheck source=scripts/lib/images.env
+source "$(dirname "$0")/lib/images.env"
 
 docker run --rm \
     -v "$repo_root/dev:/d:ro" \
     -w /d \
-    "$jq_image" \
+    "$CI_IMAGE_JQ" \
     empty versions.json >/dev/null 2>&1 || {
     echo "::error::dev/versions.json is not parseable JSON" >&2
     exit 1
@@ -58,12 +59,12 @@ docker run --rm \
 # already drops whitespace-only values; the `gsub` then strips the
 # surviving values so the SET comparison sees the same canonical form
 # the rewriter wrote to README.
-expected_wt=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$jq_image" \
+expected_wt=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
     -r '[.[].webtrees | select(type == "string" and (. | test("\\S"))) | gsub("^\\s+|\\s+$"; "")] | unique | .[]' versions.json) || {
     echo "::error::docker run for webtrees pin extraction failed" >&2
     exit 1
 }
-expected_php=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$jq_image" \
+expected_php=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
     -r '[.[].php | select(type == "string" and (. | test("\\S"))) | gsub("^\\s+|\\s+$"; "")] | unique | .[]' versions.json) || {
     echo "::error::docker run for php pin extraction failed" >&2
     exit 1

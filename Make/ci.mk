@@ -17,13 +17,13 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-shared-scripts-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-shared-scripts-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -43,7 +43,7 @@ ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make hel
 			exit 1; \
 		fi
 
-ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
+ci-pytest: .logo ## Runs the installer Python test suite via $(CI_IMAGE_PYTHON).
 	echo -e "${FBLUE}▶ pytest (installer)${FRESET}"
 	# `apt-get install make` brings GNU make into the throwaway
 	# container so the Makefile-render tests
@@ -64,7 +64,7 @@ ci-pytest: .logo ## Runs the installer Python test suite via python:3.13-slim.
 		-w /app \
 		-e WT_REPO_ROOT=/repo \
 		--entrypoint sh \
-		python:3.13-slim \
+		$(CI_IMAGE_PYTHON) \
 		-c "apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends make >/dev/null && pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
 
 # All four ci-{ruff,mypy,vulture,cpd} targets share the same install
@@ -79,7 +79,7 @@ ci-ruff: .logo ## Lints the installer Python package with ruff.
 		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
-		python:3.13-slim \
+		$(CI_IMAGE_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && ruff check webtrees_installer"
 
 ci-mypy: .logo ## Type-checks the installer Python package with mypy --strict.
@@ -89,7 +89,7 @@ ci-mypy: .logo ## Type-checks the installer Python package with mypy --strict.
 		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
-		python:3.13-slim \
+		$(CI_IMAGE_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && mypy webtrees_installer"
 
 ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
@@ -102,7 +102,7 @@ ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
 		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
-		python:3.13-slim \
+		$(CI_IMAGE_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && vulture webtrees_installer --min-confidence 80"
 
 ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint duplicate-code).
@@ -116,13 +116,13 @@ ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint d
 		-v webtrees-ci-pip-cache:/root/.cache/pip \
 		-w /app \
 		--entrypoint sh \
-		python:3.13-slim \
+		$(CI_IMAGE_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && pylint webtrees_installer"
 
 # Resolve the rolling-`latest` image tag (e.g. `2.2.6-php8.5`) from the
 # version manifest. Containerised so the aggregate honours the "docker only"
 # contract of this file — no jq / python / yq host install required.
-LATEST_PHP_TAG = $$(docker run --rm -v "$(PWD)/dev:/d:ro" -w /d ghcr.io/jqlang/jq:latest \
+LATEST_PHP_TAG = $$(docker run --rm -v "$(PWD)/dev:/d:ro" -w /d $(CI_IMAGE_JQ) \
 	-r '.[] | select(.tags | index("latest")) | "\(.webtrees)-php\(.php)"' versions.json)
 
 # Runs on the host: the script spawns ephemeral docker containers and
@@ -168,13 +168,17 @@ ci-yamllint: .logo ## Lints workflow + compose YAML files.
 	docker run --rm \
 		-v "$(PWD):/work" \
 		-w /work \
-		cytopia/yamllint:latest \
+		$(CI_IMAGE_YAMLLINT) \
 		-d "{extends: default, rules: {line-length: {max: 200, level: warning}, document-start: disable, truthy: {check-keys: false}, comments: {min-spaces-from-content: 1}}}" \
 		.github/workflows/ compose.yaml compose.pma.yaml compose.traefik.yaml compose.publish.yaml compose.development.yaml
 
 ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the central pin.
 	echo -e "${FBLUE}▶ alpine lockstep${FRESET}"
 	./scripts/check-alpine-pin.sh "$(CURDIR)"
+
+ci-images-lockstep: .logo ## Asserts Make/images.mk and scripts/lib/images.env carry the same CI_IMAGE_* pin set (issue #120).
+	echo -e "${FBLUE}▶ ci-image-pin lockstep${FRESET}"
+	./scripts/check-ci-images.sh "$(CURDIR)"
 
 ci-shellcheck: .logo ## Lints every tracked shell script.
 	echo -e "${FBLUE}▶ shellcheck${FRESET}"
@@ -195,7 +199,7 @@ ci-shellcheck: .logo ## Lints every tracked shell script.
 		printf '%s\n' "$$files" | xargs -d '\n' docker run --rm \
 			-v "$(PWD):/work" \
 			-w /work \
-			koalaman/shellcheck:stable \
+			$(CI_IMAGE_SHELLCHK) \
 			-x
 
 ci-readme-badge-lockstep: .logo ## Asserts README webtrees/PHP badge values cover every unique entry in dev/versions.json.
@@ -242,6 +246,6 @@ ci-hadolint: .logo ## Lints the Dockerfiles.
 	# Failure threshold: warning. Any new DL/SC finding above info level
 	# fails CI. Existing exemptions live as inline `# hadolint ignore=…`
 	# directives with a rationale comment above each one.
-	docker run --rm -i hadolint/hadolint:latest hadolint --failure-threshold warning - < Dockerfile
+	docker run --rm -i $(CI_IMAGE_HADOLINT) hadolint --failure-threshold warning - < Dockerfile
 	echo -e "${FBLUE}▶ hadolint (installer/Dockerfile)${FRESET}"
-	docker run --rm -i hadolint/hadolint:latest hadolint --failure-threshold warning - < installer/Dockerfile
+	docker run --rm -i $(CI_IMAGE_HADOLINT) hadolint --failure-threshold warning - < installer/Dockerfile
