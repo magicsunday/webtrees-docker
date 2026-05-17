@@ -5,50 +5,96 @@
 # Every target is a thin docker compose wrapper. Run `make` without
 # arguments (or `make help`) for a one-screen overview.
 
-.PHONY: help up down restart logs pull shell cli backup restore switch-https switch-http
+SHELL = /bin/bash
+
+.SILENT:
+
+# Do not print "Entering directory ..."
+MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
 
-help: ## Show this help.
-	@echo "Webtrees end-user shortcuts"
-	@echo
-	@echo "  make up                    Start the stack in the background"
-	@echo "  make down                  Stop the stack (volumes survive)"
-	@echo "  make restart               Restart all services"
-	@echo "  make logs                  Tail all service logs (Ctrl-C to detach)"
-	@echo "  make pull                  Refresh images to the pinned tags"
-	@echo "  make shell                 Drop into the phpfpm container as www-data"
-	@echo "  make cli ARGS='<args>'     Run webtrees' php CLI inside phpfpm"
-	@echo "  make backup > backup.sql.gz"
-	@echo "                             Dump the database to stdout (gzipped)"
-	@echo "  make restore FILE=<path>   Restore a database dump produced by 'make backup'"
-	@echo "  make switch-https          Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm"
-	@echo "  make switch-http           Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm"
+# Standard terminal colors. `ifneq ($(TERM),)` keeps non-TTY callers
+# (CI logs, piped scripts) clean by leaving the FBOLD/FRESET vars empty
+# instead of leaking literal escape sequences. Mirrors the dev
+# Makefile's `Make/helper/colors.mk` convention so operator-facing
+# output looks the same in the install dir and the dev checkout.
+ifneq ($(TERM),)
+	FBOLD   := $(shell tput bold)
+	FRESET  := $(shell tput sgr0)
+	FRED    := $(shell tput setaf 1)
+	FGREEN  := $(shell tput setaf 2)
+	FYELLOW := $(shell tput setaf 3)
+	FBLUE   := $(shell tput setaf 4)
+endif
 
-up: ## Start the stack detached.
-	docker compose up -d
+# Auto-detect docker compose. `docker compose` (v2 plugin) is the
+# documented requirement — the install bootstrap rejects v1 via the
+# Compose-version prereq check — but the auto-detect block survives a
+# manual `docker-compose` symlink for power users who keep v1 around
+# for unrelated stacks.
+COMPOSE_BIN := $(shell \
+	if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then \
+		echo "docker compose"; \
+	elif command -v docker-compose >/dev/null 2>&1; then \
+		echo "docker-compose"; \
+	else \
+		echo "echo 'Error: Docker Compose v2 not available' && exit 1"; \
+	fi)
 
-down: ## Stop the stack (named volumes survive).
-	docker compose down
+.PHONY: .logo help up down restart logs pull shell cli backup restore switch-https switch-http
 
-restart: ## Restart all services.
-	docker compose restart
+# Match the dev Makefile's ASCII logo. The heredoc-style printf keeps
+# the file self-contained — the install dir has no `Make/helper/`
+# layout, so embedding the banner here removes that dependency.
+.logo:
+	@printf '%s\n' \
+		' .____                         .__                                .___               ____.' \
+		' |   _|   _____ _____     ____ |__| ____   ________ __  ____    __| _/____  ___.__. |_   |' \
+		' |  |    /     \\__  \   / ___\|  |/ ___\ /  ___/  |  \/    \  / __ |\__  \<   |  |   |  |' \
+		' |  |   |  Y Y  \/ __ \_/ /_/  >  \  \___ \___ \|  |  /   |  \/ /_/ | / __ \\___  |   |  |' \
+		' |  |_  |__|_|  (____  /\___  /|__|\___  >____  >____/|___|  /\____ |(____  / ____|  _|  |' \
+		' |____|       \/     \//_____/         \/     \/           \/      \/     \/\/      |____|'
 
-logs: ## Tail all service logs.
-	docker compose logs -f
+help: .logo  ## Show this help.
+	@echo -e "\n${FYELLOW}Webtrees end-user shortcuts${FRESET}\n"
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / { \
+		gsub(/ \.logo/, "", $$1); \
+		printf "  ${FGREEN}%-22s${FRESET} %s\n", $$1, $$2 \
+	}' $(MAKEFILE_LIST)
+	@echo ""
 
-pull: ## Refresh images to the pinned tags.
-	docker compose pull
+up: .logo  ## Start the stack detached.
+	@echo -e "${FBLUE}▶ start stack${FRESET}"
+	$(COMPOSE_BIN) up -d
 
-shell: ## Drop into the phpfpm container as www-data.
-	docker compose exec --user www-data phpfpm /bin/sh
+down: .logo  ## Stop the stack (named volumes survive).
+	@echo -e "${FBLUE}▶ stop stack${FRESET}"
+	$(COMPOSE_BIN) down
 
-cli: ## Run webtrees' php CLI inside phpfpm. Usage: make cli ARGS='admin list'
+restart: .logo  ## Restart all services.
+	@echo -e "${FBLUE}▶ restart stack${FRESET}"
+	$(COMPOSE_BIN) restart
+
+logs: .logo  ## Tail all service logs (Ctrl-C to detach).
+	@echo -e "${FBLUE}▶ follow logs${FRESET}"
+	$(COMPOSE_BIN) logs -f
+
+pull: .logo  ## Refresh images to the pinned tags.
+	@echo -e "${FBLUE}▶ refresh images${FRESET}"
+	$(COMPOSE_BIN) pull
+
+shell: .logo  ## Drop into the phpfpm container as www-data.
+	@echo -e "${FBLUE}▶ phpfpm shell${FRESET}"
+	$(COMPOSE_BIN) exec --user www-data phpfpm /bin/sh
+
+cli: .logo  ## Run webtrees' php CLI inside phpfpm. Usage: make cli ARGS='<args>'
 	@if [ -z "$$ARGS" ]; then \
-		echo "usage: make cli ARGS='<webtrees-cli-args>'" >&2; \
+		echo "${FRED}usage:${FRESET} make cli ARGS='<webtrees-cli-args>'" >&2; \
 		exit 1; \
 	fi
-	docker compose exec --user www-data phpfpm php /var/www/html/index.php $$ARGS
+	@echo -e "${FBLUE}▶ webtrees-cli $$ARGS${FRESET}"
+	$(COMPOSE_BIN) exec --user www-data phpfpm php /var/www/html/index.php $$ARGS
 
 # backup writes a gzipped mariadb-dump to stdout so the operator can pipe
 # anywhere (file, ssh, s3 cli, …) without the Makefile dictating layout.
@@ -60,8 +106,8 @@ cli: ## Run webtrees' php CLI inside phpfpm. Usage: make cli ARGS='admin list'
 # missing, …) through the gzip stage — otherwise gzip's exit-0 masks the
 # upstream failure and `make backup > out.sql.gz` writes a zero-row
 # archive with rc=0, which is the worst kind of silent data loss.
-backup: ## Dump the database to stdout (gzipped). Usage: make backup > backup-$(date -u +%Y%m%d).sql.gz
-	@set -o pipefail; docker compose exec -T db sh -c \
+backup: ## Dump the database to stdout (gzipped). Usage: make backup > backup-$$(date -u +%Y%m%d).sql.gz
+	@set -o pipefail; $(COMPOSE_BIN) exec -T db sh -c \
 		'mariadb-dump --user="$$MARIADB_USER" --password="$$(cat "$$MARIADB_PASSWORD_FILE")" "$$MARIADB_DATABASE"' \
 		| gzip
 
@@ -69,16 +115,17 @@ backup: ## Dump the database to stdout (gzipped). Usage: make backup > backup-$(
 # pipes it into the db container. Existing rows are overwritten by the
 # dump's INSERTs; truncate/drop happens only if the dump itself emits
 # those statements. Stack must be running.
-restore: ## Restore a database dump produced by 'make backup'. Usage: make restore FILE=backup.sql.gz
+restore: .logo  ## Restore a database dump produced by 'make backup'. Usage: make restore FILE=backup.sql.gz
 	@if [ -z "$$FILE" ]; then \
-		echo "usage: make restore FILE=<path/to/backup.sql.gz>" >&2; \
+		echo "${FRED}usage:${FRESET} make restore FILE=<path/to/backup.sql.gz>" >&2; \
 		exit 1; \
 	fi
 	@if [ ! -f "$$FILE" ]; then \
-		echo "restore: file not found: $$FILE" >&2; \
+		echo "${FRED}restore:${FRESET} file not found: $$FILE" >&2; \
 		exit 1; \
 	fi
-	@gunzip -c "$$FILE" | docker compose exec -T db sh -c \
+	@echo -e "${FBLUE}▶ restore from $$FILE${FRESET}"
+	@gunzip -c "$$FILE" | $(COMPOSE_BIN) exec -T db sh -c \
 		'mariadb --user="$$MARIADB_USER" --password="$$(cat "$$MARIADB_PASSWORD_FILE")" "$$MARIADB_DATABASE"'
 
 # switch-https / switch-http flip ENFORCE_HTTPS in .env, then restart
@@ -92,9 +139,9 @@ restore: ## Restore a database dump produced by 'make backup'. Usage: make resto
 # from the file). On the missing-from-file path we append rather than
 # fail — the entrypoint already defaults to disabled when the var is
 # absent, so appending makes the new value durable across restarts.
-switch-https: ## Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm.
+switch-https: .logo  ## Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm.
 	@if [ ! -f .env ]; then \
-		echo "switch-https: .env not found; run from your install directory" >&2; \
+		echo "${FRED}switch-https:${FRESET} .env not found; run from your install directory" >&2; \
 		exit 1; \
 	fi
 	@if grep -qE '^ENFORCE_HTTPS=' .env; then \
@@ -102,12 +149,12 @@ switch-https: ## Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm.
 	else \
 		echo "ENFORCE_HTTPS=TRUE" >> .env; \
 	fi
-	@echo "ENFORCE_HTTPS=TRUE; restarting nginx + phpfpm…"
-	docker compose up -d --force-recreate --no-deps nginx phpfpm
+	@echo -e "${FBLUE}▶ ENFORCE_HTTPS=TRUE; restarting nginx + phpfpm${FRESET}"
+	$(COMPOSE_BIN) up -d --force-recreate --no-deps nginx phpfpm
 
-switch-http: ## Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm.
+switch-http: .logo  ## Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm.
 	@if [ ! -f .env ]; then \
-		echo "switch-http: .env not found; run from your install directory" >&2; \
+		echo "${FRED}switch-http:${FRESET} .env not found; run from your install directory" >&2; \
 		exit 1; \
 	fi
 	@if grep -qE '^ENFORCE_HTTPS=' .env; then \
@@ -115,5 +162,5 @@ switch-http: ## Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm.
 	else \
 		echo "ENFORCE_HTTPS=FALSE" >> .env; \
 	fi
-	@echo "ENFORCE_HTTPS=FALSE; restarting nginx + phpfpm…"
-	docker compose up -d --force-recreate --no-deps nginx phpfpm
+	@echo -e "${FBLUE}▶ ENFORCE_HTTPS=FALSE; restarting nginx + phpfpm${FRESET}"
+	$(COMPOSE_BIN) up -d --force-recreate --no-deps nginx phpfpm
