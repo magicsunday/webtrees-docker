@@ -83,7 +83,7 @@ to also seed the demo tree.
 | Mode | Flag | When to use |
 |---|---|---|
 | Standalone | `--proxy standalone --port <N>` | Single host, no reverse proxy. nginx publishes the chosen port. |
-| Traefik | `--proxy traefik --domain <fqdn>` | nginx joins the `traefik` external network and answers under your Traefik router. |
+| Traefik | `--proxy traefik --domain <fqdn>` | nginx joins the `traefik` external network and answers under your Traefik router. Requires a running Traefik instance already attached to that network — see [`docs/proxy-traefik.md`](docs/proxy-traefik.md). |
 
 ## Glossary
 

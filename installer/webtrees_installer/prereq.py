@@ -9,10 +9,51 @@ from typing import IO
 
 
 COMPOSE_VERSION_TIMEOUT_S = 10
+NETWORK_INSPECT_TIMEOUT_S = 10
 
 
 class PrereqError(RuntimeError):
     """Raised when a runtime prerequisite is not satisfied."""
+
+
+def check_traefik_network(*, network: str) -> None:
+    """Verify the Traefik docker network exists on this host.
+
+    Renders compose.yaml with `networks: <name>: external: true`, so
+    `docker compose up` only succeeds when the network already exists.
+    Without this check, the wizard's `Stack ready ✓` banner lies: the
+    rendered Traefik labels are inert without a router on that network,
+    and the operator's browser sees a generic 404 (issue #131).
+
+    Raises PrereqError when the network is missing or the daemon
+    can't be reached. Container-existence is NOT verified here — the
+    installer can't know whether the operator runs Traefik via compose,
+    raw `docker run`, k3s, or systemd-managed binary; the warning
+    surface is the post-install banner cross-reference.
+    """
+    try:
+        subprocess.run(
+            ["docker", "network", "inspect", network],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=NETWORK_INSPECT_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PrereqError(
+            f"Docker daemon did not respond within {NETWORK_INSPECT_TIMEOUT_S}s "
+            f"while inspecting network '{network}'."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise PrereqError(
+            f"Traefik network '{network}' does not exist on this host. "
+            f"Either pass --traefik-network <real-name> for the network "
+            f"your Traefik instance is on, or create it first: "
+            f"`docker network create {network}` "
+            f"(then start your Traefik container attached to it). "
+            f"docker stderr: {stderr or '<empty>'}"
+        ) from exc
 
 
 def check_prerequisites(

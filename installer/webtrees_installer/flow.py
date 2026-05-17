@@ -29,6 +29,7 @@ from webtrees_installer.ports import PortStatus, probe_port
 from webtrees_installer.prereq import (
     PrereqError,
     check_prerequisites,
+    check_traefik_network,
     confirm_overwrite,
 )
 from webtrees_installer.prompts import (
@@ -342,6 +343,16 @@ def run_standalone(
             print(f"{term.success('✓')} Demo GEDCOM written to {demo_gedcom}", file=stdout)
 
     if not args.no_up:
+        # Validate Traefik prerequisites before `compose up` so the
+        # banner doesn't claim success while the operator's browser
+        # hits a 404 (issue #131). The compose file renders the
+        # Traefik network as `external: true`; `compose up` would
+        # otherwise fail with an opaque "network not found" error,
+        # or — worse — succeed silently if a stale empty network
+        # exists but no Traefik instance is bound to it.
+        if proxy_mode == "traefik":
+            check_traefik_network(network=args.traefik_network)
+
         # bring_up may raise StackError; the context manager emits ✘ Xs
         # on the failure path, then the exception bubbles to the CLI
         # layer (exit code 3, same channel as PrereqError / PromptError).
@@ -1156,6 +1167,18 @@ def _print_banner(
             )
     else:
         print(f"{term.info('•')} Webtrees URL: https://{domain}/", file=stdout)
+        # Issue #131 reminder: the stack only routes via this URL when
+        # a Traefik instance is already running on the docker network
+        # rendered into compose.yaml (TRAEFIK_NETWORK in .env, default
+        # 'traefik'). The prereq check in run_standalone catches the
+        # missing-network case; this line tells the operator what the
+        # stack depends on so a 404 doesn't surprise them.
+        print(
+            "  Requires Traefik already running on the configured "
+            "docker network (TRAEFIK_NETWORK in .env) with a router "
+            "for this host.",
+            file=stdout,
+        )
 
     if admin_user is not None:
         # GitHub Actions log redaction: emit ::add-mask:: so the password is

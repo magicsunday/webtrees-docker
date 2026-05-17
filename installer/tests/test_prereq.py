@@ -13,6 +13,7 @@ from webtrees_installer.prereq import (
     COMPOSE_VERSION_TIMEOUT_S,
     PrereqError,
     check_prerequisites,
+    check_traefik_network,
     confirm_overwrite,
 )
 
@@ -157,3 +158,19 @@ def test_confirm_overwrite_interactive_eof_preserves_files(tmp_path: Path) -> No
         stdout=StringIO(),
     )
     assert answer is False
+
+
+def test_check_traefik_network_raises_when_network_missing() -> None:
+    """`docker network inspect <missing>` exits non-zero — the prereq
+    helper must surface that as a PrereqError so `compose up` is never
+    attempted for a network that doesn't exist (issue #131). The error
+    text must include the missing network name and the operator-facing
+    `docker network create` remediation hint."""
+    with patch("webtrees_installer.prereq.subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["docker", "network", "inspect", "missing-net"],
+            stderr="Error: No such network: missing-net\n",
+        )
+        with pytest.raises(PrereqError, match="missing-net"):
+            check_traefik_network(network="missing-net")
