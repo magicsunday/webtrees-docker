@@ -198,8 +198,21 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
                 }
             }' 2>/dev/null) || _lan_ip=""
         fi
+        # macOS fallback. `en0` is Wi-Fi on modern MacBooks but Ethernet
+        # on Mac Pro / Mini / iMac (where Wi-Fi is en1+) — and operators
+        # with Wi-Fi disabled + Thunderbolt/USB-C Ethernet often end up
+        # on en6+. Iterate en0..en9 and take the first one that returns
+        # an address. `ifconfig -l` would enumerate dynamically but
+        # adds a dependency; the en0..en9 range covers every realistic
+        # interface index Apple ships.
         if [ -z "$_lan_ip" ] && command -v ipconfig >/dev/null 2>&1; then
-            _lan_ip=$(ipconfig getifaddr en0 2>/dev/null || true)
+            for _iface in en0 en1 en2 en3 en4 en5 en6 en7 en8 en9; do
+                _candidate=$(ipconfig getifaddr "$_iface" 2>/dev/null || true)
+                if [ -n "$_candidate" ]; then
+                    _lan_ip="$_candidate"
+                    break
+                fi
+            done
         fi
     fi
     # Probe readonly status before assigning. `readonly -p` lists
