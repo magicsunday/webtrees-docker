@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Operator entry point for the nginx pin bump. Routes argv straight
+# Operator entry point for the MariaDB pin bump. Routes argv straight
 # to the Python implementation inside a python:3.13-slim container —
 # no Make involvement, no $(shell …)/:=/!=/CURDIR= command-line
 # overrides to dodge.
 #
 # Usage:
-#   ./scripts/bump-nginx.sh [--config-revision N] <new-minor>
-#   e.g. ./scripts/bump-nginx.sh 1.32
-#        ./scripts/bump-nginx.sh --config-revision 2 1.30
-#   Flags must precede the positional new-minor argument.
+#   ./scripts/bump/bump-mariadb.sh <new-minor>
+#   e.g. ./scripts/bump/bump-mariadb.sh 11.9
 #
-# Make's bump-nginx target delegates here too, so operators may use
+# Make's bump-mariadb target delegates here too, so operators may use
 # either entry point; this script form is recommended whenever the
 # invocation came from an untrusted source (chat, README, gist) since
 # Make 4.4+ evaluates command-line `$(shell …)` / `:=` / `!=` /
@@ -18,9 +16,10 @@
 # defeat them.
 #
 # `--user $(id -u):$(id -g)` makes container-side mutations inherit
-# the operator's UID/GID. Without it, dev/nginx-version.json + every
-# sed'd mirror site would land owned by root:root on the NAS host,
-# blocking `git add` without sudo.
+# the operator's UID/GID. Without it, the four sed'd compose sites
+# (standalone + traefik templates, dev compose, Portainer compose)
+# would land owned by root:root on the NAS host, blocking `git add`
+# without sudo.
 
 set -euo pipefail
 
@@ -31,4 +30,4 @@ exec docker run --rm \
     -v "$repo_root:/app" \
     -w /app \
     python:3.13-slim \
-    python3 scripts/bump-nginx.py "$@"
+    python3 scripts/bump/bump-mariadb.py "$@"

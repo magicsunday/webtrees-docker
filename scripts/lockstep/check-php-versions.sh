@@ -26,7 +26,7 @@
 #     whitespace (including invisible characters like zero-width
 #     space U+200B), leading dots (`.3`), trailing dots (`8.`),
 #     dot-only (`...`), patch-pinned (`8.3.1`), and any non-digit
-#     character. Mirrors scripts/bump-nginx.py's `_MINOR_RE`
+#     character. Mirrors scripts/bump/bump-nginx.py's `_MINOR_RE`
 #     precedent; a hand-edited `.supported` that slips a malformed
 #     value past this filter would propagate via the auto-bump cron
 #     into every new versions.json row without any downstream layer
@@ -42,7 +42,7 @@ repo_root=${1:-$(pwd)}
 cd "$repo_root"
 
 # shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/lib/images.env"
+source "$(dirname "$0")/../lib/images.env"
 
 docker run --rm \
     -v "$repo_root/dev:/d:ro" \

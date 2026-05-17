@@ -12,7 +12,7 @@
 # fails loudly instead of silently emitting empty values downstream.
 #
 # Usage:
-#   scripts/parse-port-defaults.sh [path-to-flow.py]
+#   scripts/lockstep/parse-port-defaults.sh [path-to-flow.py]
 #   default path: installer/webtrees_installer/flow.py
 
 set -o errexit -o nounset -o pipefail

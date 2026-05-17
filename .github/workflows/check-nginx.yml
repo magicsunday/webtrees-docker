@@ -40,7 +40,7 @@ jobs:
                   echo "Pinned nginx minor: ${pinned_minor}"
 
                   # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
                   # the alpine/mariadb/php cron workflows. nginx-specific
                   # variants:
                   #   STRIP_SUFFIX=-alpine     drops the `-alpine` tag
@@ -60,7 +60,7 @@ jobs:
                       STRIP_SUFFIX='-alpine$' \
                       EVEN_MINORS_ONLY=1 \
                       PINNED_MINOR="$pinned_minor" \
-                      ./scripts/check-docker-hub-minor.sh)
+                      ./scripts/workflow/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
@@ -72,11 +72,11 @@ jobs:
                               "**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:" \
                               "" \
                               "  1. Review release notes for nginx ${ver} (config-format / module-set changes)." \
-                              "  2. Run \`./scripts/bump-nginx.sh ${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test. (\`make bump-nginx VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
+                              "  2. Run \`./scripts/bump/bump-nginx.sh ${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test. (\`make bump-nginx VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
                               "  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally." \
                               "  4. Open a PR; \`build.yml\` rebuilds the nginx image stage." \
                               "  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`.")
-                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
+                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
                       fi
                   done
 

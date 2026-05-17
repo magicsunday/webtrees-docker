@@ -19,7 +19,7 @@ upstream publishes a tag newer than the current pin:
   * `check-nginx.yml` — Docker Hub library/nginx, daily 13:00 UTC.
 
 The workflows never mutate the repo. Each issue body links here, and
-each section below carries the corresponding `./scripts/bump-*.sh`
+each section below carries the corresponding `./scripts/bump/bump-*.sh`
 invocation (and equivalent `make bump-*` form) plus the post-bump
 review and verification steps.
 
@@ -34,8 +34,8 @@ itself for the exact loop semantics.
 
 Two entry points exist for every bump:
 
-  * **`./scripts/bump-nginx.sh <new-minor>`** /
-    **`./scripts/bump-mariadb.sh <new-minor>`** — the recommended
+  * **`./scripts/bump/bump-nginx.sh <new-minor>`** /
+    **`./scripts/bump/bump-mariadb.sh <new-minor>`** — the recommended
     form. Argv lands on the Python implementation directly, never
     passing through Make's command-line parser. Robust against
     `$(shell …)` / `:=` / `::=` / `!=` / `CURDIR=` injection.
@@ -90,13 +90,13 @@ it could not survive the even-only filter.
 ### 2. Run the bumper
 
 ```bash
-./scripts/bump-nginx.sh <new-minor>
+./scripts/bump/bump-nginx.sh <new-minor>
 ```
 
 (`make bump-nginx VERSION=<new-minor>` is equivalent but exposes the
 Make-injection surface described in the trust model above.)
 
-The script invokes `scripts/bump-nginx.py` inside a python:3.13-slim
+The script invokes `scripts/bump/bump-nginx.py` inside a python:3.13-slim
 container, which:
 
   * Updates `dev/nginx-version.json` — `nginx_base`, `config_revision`
@@ -111,7 +111,7 @@ container, which:
 For a config-only revision (nginx.conf change without a minor bump):
 
 ```bash
-./scripts/bump-nginx.sh --config-revision 2 <current-minor>
+./scripts/bump/bump-nginx.sh --config-revision 2 <current-minor>
 ```
 
 ### 3. Verify locally
@@ -145,13 +145,13 @@ Triggered by a `MariaDB X.Y available` issue from `check-mariadb.yml`.
 ### 2. Run the bumper
 
 ```bash
-./scripts/bump-mariadb.sh <new-minor>
+./scripts/bump/bump-mariadb.sh <new-minor>
 ```
 
 (`make bump-mariadb VERSION=<new-minor>` is equivalent but exposes
 the Make-injection surface described in the trust model above.)
 
-The script invokes `scripts/bump-mariadb.py` inside a python:3.13-slim
+The script invokes `scripts/bump/bump-mariadb.py` inside a python:3.13-slim
 container, which sed-replaces every
 `image: mariadb:X.Y` line in the four shipped compose sites enforced
 by `installer/tests/test_mariadb_pin_lockstep`: the standalone +

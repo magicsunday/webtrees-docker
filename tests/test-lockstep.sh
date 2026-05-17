@@ -125,7 +125,7 @@ restore_worktree() {
     # erase any tracked-modified overlay (e.g. an edited Make/ci.mk);
     # the re-overlay step puts it back. We deliberately do NOT
     # `git clean -fd` here: it would sweep the untracked overlay files
-    # (e.g. a not-yet-committed scripts/parse-alpine-pin.sh).
+    # (e.g. a not-yet-committed scripts/lockstep/parse-alpine-pin.sh).
     #
     # New tests creating untracked artefacts inside $worktree need their
     # own bespoke cleanup — this restore intentionally only handles the
@@ -134,7 +134,7 @@ restore_worktree() {
     apply_overlay
 }
 
-# Run scripts/parse-alpine-pin.sh against an _alpine.py written from
+# Run scripts/lockstep/parse-alpine-pin.sh against an _alpine.py written from
 # `fixture_content`, assert it prints `expected_pin` and exits 0.
 assert_parser_outputs() {
     local name=$1 fixture_content=$2 expected_pin=$3
@@ -144,7 +144,7 @@ assert_parser_outputs() {
     printf '%s\n' "$fixture_content" > "$fixture_file"
 
     set +e
-    actual=$(cd "$worktree" && ./scripts/parse-alpine-pin.sh 2>/dev/null)
+    actual=$(cd "$worktree" && ./scripts/lockstep/parse-alpine-pin.sh 2>/dev/null)
     exit_code=$?
     set -e
 
@@ -163,7 +163,7 @@ assert_parser_outputs() {
     fi
 }
 
-# Run scripts/parse-alpine-pin.sh against an _alpine.py written from
+# Run scripts/lockstep/parse-alpine-pin.sh against an _alpine.py written from
 # `fixture_content`, assert it exits non-zero with `expect_in_stderr`
 # present in its stderr (mirrors assert_lockstep_fails' contract so a
 # regression in the *specific* failure message surfaces, not just any
@@ -176,7 +176,7 @@ assert_parser_fails() {
     printf '%s\n' "$fixture_content" > "$fixture_file"
 
     set +e
-    stderr_out=$(cd "$worktree" && ./scripts/parse-alpine-pin.sh 2>&1 >/dev/null)
+    stderr_out=$(cd "$worktree" && ./scripts/lockstep/parse-alpine-pin.sh 2>&1 >/dev/null)
     exit_code=$?
     set -e
 
@@ -716,7 +716,7 @@ restore_worktree
 # ──────────────────────────────────────────────────────────────────────
 echo "Setting up: flow.py _FALLBACK_PORT line stripped"
 # Parity with the _DEFAULT_PORT case — both error branches in
-# scripts/parse-port-defaults.sh must trip on a missing constant.
+# scripts/lockstep/parse-port-defaults.sh must trip on a missing constant.
 sed -i 's|^_FALLBACK_PORT = 28081$|# _FALLBACK_PORT removed for test|' \
     "$worktree/installer/webtrees_installer/flow.py"
 assert_lockstep_fails \
@@ -756,7 +756,7 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# scripts/parse-alpine-pin.sh — happy-path variants
+# scripts/lockstep/parse-alpine-pin.sh — happy-path variants
 # ──────────────────────────────────────────────────────────────────────
 echo "Setting up: parser fixture (canonical assignment)"
 assert_parser_outputs \
@@ -790,7 +790,7 @@ assert_parser_outputs \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# scripts/parse-alpine-pin.sh — parse-failure path
+# scripts/lockstep/parse-alpine-pin.sh — parse-failure path
 # ──────────────────────────────────────────────────────────────────────
 echo "Setting up: parser fixture (no ALPINE_BASE_IMAGE assignment)"
 assert_parser_fails \

@@ -466,7 +466,7 @@ def run_dev(
 
     install = _compose(
         ["compose", "run", "--rm", "-e", "COMPOSER_AUTH", "buildbox",
-         "./scripts/install-application.sh"],
+         "./scripts/build/install-application.sh"],
         cwd=work_dir,
     )
     if install.returncode != 0:

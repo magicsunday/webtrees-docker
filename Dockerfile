@@ -84,7 +84,7 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # which strips resources/lang/<locale>/messages.po via .gitattributes
  # export-ignore. Without those files webtrees' SetupWizard fatals on the
  # very first non-English request (file(.../messages.po): No such file). The
- # dev workflow handles this via scripts/update-languages.sh as a
+ # dev workflow handles this via scripts/build/update-languages.sh as a
  # post-autoload-dump composer script, but the build runs `composer install
  # --no-scripts` (composer:2 image lacks the PHP extensions some webtrees
  # scripts could need) so the lang dir stays empty unless we fetch it
@@ -178,7 +178,7 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # which strips resources/lang/<locale>/messages.po via .gitattributes
  # export-ignore. Without those files webtrees' SetupWizard fatals on the
  # very first non-English request (file(.../messages.po): No such file). The
- # dev workflow handles this via scripts/update-languages.sh as a
+ # dev workflow handles this via scripts/build/update-languages.sh as a
  # post-autoload-dump composer script, but the build runs `composer install
  # --no-scripts` (composer:2 image lacks the PHP extensions some webtrees
  # scripts could need) so the lang dir stays empty unless we fetch it

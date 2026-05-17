@@ -104,7 +104,7 @@ jobs:
                   NEW_VERSIONS: ${{ steps.find.outputs.new }}
               run: |
                   set -euo pipefail
-                  ./scripts/batch-bump-webtrees-versions.sh
+                  ./scripts/workflow/batch-bump-webtrees-versions.sh
 
     notify-on-failure:
         name: Notify on workflow failure

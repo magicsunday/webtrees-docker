@@ -174,11 +174,11 @@ ci-yamllint: .logo ## Lints workflow + compose YAML files.
 
 ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the central pin.
 	echo -e "${FBLUE}▶ alpine lockstep${FRESET}"
-	./scripts/check-alpine-pin.sh "$(CURDIR)"
+	./scripts/lockstep/check-alpine-pin.sh "$(CURDIR)"
 
 ci-images-lockstep: .logo ## Asserts Make/images.mk and scripts/lib/images.env carry the same CI_IMAGE_* pin set (issue #120).
 	echo -e "${FBLUE}▶ ci-image-pin lockstep${FRESET}"
-	./scripts/check-ci-images.sh "$(CURDIR)"
+	./scripts/lockstep/check-ci-images.sh "$(CURDIR)"
 
 ci-shellcheck: .logo ## Lints every tracked shell script.
 	echo -e "${FBLUE}▶ shellcheck${FRESET}"
@@ -204,19 +204,19 @@ ci-shellcheck: .logo ## Lints every tracked shell script.
 
 ci-readme-badge-lockstep: .logo ## Asserts README webtrees/PHP badge values cover every unique entry in dev/versions.json.
 	echo -e "${FBLUE}▶ README badge lockstep${FRESET}"
-	./scripts/check-readme-badges.sh "$(CURDIR)"
+	./scripts/lockstep/check-readme-badges.sh "$(CURDIR)"
 
 ci-php-versions-lockstep: .logo ## Asserts dev/versions.json has exactly one row per supported PHP minor per webtrees minor.
 	echo -e "${FBLUE}▶ PHP versions lockstep${FRESET}"
-	./scripts/check-php-versions.sh "$(CURDIR)"
+	./scripts/lockstep/check-php-versions.sh "$(CURDIR)"
 
 ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirrors agree across every documented site.
 	echo -e "${FBLUE}▶ port-default lockstep${FRESET}"
-	./scripts/check-port-defaults.sh "$(CURDIR)"
+	./scripts/lockstep/check-port-defaults.sh "$(CURDIR)"
 
 ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period mirrors the installer templates.
 	echo -e "${FBLUE}▶ healthcheck lockstep${FRESET}"
-	./scripts/check-healthcheck-start-period.sh "$(CURDIR)"
+	./scripts/lockstep/check-healthcheck-start-period.sh "$(CURDIR)"
 
 ci-lockstep-tests: .logo ## Failure-path tests for the ci-*-lockstep drift checks.
 	echo -e "${FBLUE}▶ lockstep failure-path tests${FRESET}"

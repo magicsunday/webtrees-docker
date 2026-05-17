@@ -14,8 +14,8 @@
 # untrusted source (chat, README, gist) should invoke the underlying
 # script directly:
 #
-#   ./scripts/bump-nginx.sh 1.32
-#   ./scripts/bump-mariadb.sh 11.9
+#   ./scripts/bump/bump-nginx.sh 1.32
+#   ./scripts/bump/bump-mariadb.sh 11.9
 #
 # The script-form does not go through Make's command-line parser at
 # all and is robust against the hostile-paste class. The Make targets
@@ -83,7 +83,7 @@ bump-nginx: .logo ## Bump dev/nginx-version.json + sync 5 mirror sites. Args: VE
 		echo "::error::VERSION must be X.Y digits (got: $(VERSION))" >&2; exit 2;; esac
 	@case "$(CONFIG_REVISION)" in *[!0-9]* ) \
 		echo "::error::CONFIG_REVISION must be a non-negative integer (got: $(CONFIG_REVISION))" >&2; exit 2;; esac
-	./scripts/bump-nginx.sh \
+	./scripts/bump/bump-nginx.sh \
 		$(if $(CONFIG_REVISION),--config-revision $(CONFIG_REVISION)) \
 		"$(VERSION)"
 
@@ -94,4 +94,4 @@ bump-mariadb: .logo ## Bump mariadb pin across all 4 shipped compose sites. Args
 	fi
 	@case "$(VERSION)" in *[!0-9.]* | *..* ) \
 		echo "::error::VERSION must be X.Y digits (got: $(VERSION))" >&2; exit 2;; esac
-	./scripts/bump-mariadb.sh "$(VERSION)"
+	./scripts/bump/bump-mariadb.sh "$(VERSION)"

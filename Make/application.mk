@@ -13,25 +13,25 @@ COMPOSE_BUILD_COMPOSER := $(COMPOSE_BIN) run --rm -e COMPOSER_AUTH -e COMPOSER_M
 .PHONY: install composer-install composer-update update-languages apply-config cache-clear info
 
 install: .logo ## Installs the application initially.
-	@$(COMPOSE_BUILD_ROOT) ./scripts/set-permissions.sh
-	@${COMPOSE_BUILD} ./scripts/install-application.sh
+	@$(COMPOSE_BUILD_ROOT) ./scripts/build/set-permissions.sh
+	@${COMPOSE_BUILD} ./scripts/build/install-application.sh
 
 composer-install: .logo ## Installs the packages with the locked versions and references.
-	@$(COMPOSE_BUILD_ROOT) ./scripts/set-permissions.sh
-	@${COMPOSE_BUILD_COMPOSER} ./scripts/composer-install.sh
+	@$(COMPOSE_BUILD_ROOT) ./scripts/build/set-permissions.sh
+	@${COMPOSE_BUILD_COMPOSER} ./scripts/build/composer-install.sh
 
 composer-update: .logo ## Triggers an update of the composer packages.
-	@$(COMPOSE_BUILD_ROOT) ./scripts/set-permissions.sh
-	@${COMPOSE_BUILD_COMPOSER} ./scripts/composer-update.sh
+	@$(COMPOSE_BUILD_ROOT) ./scripts/build/set-permissions.sh
+	@${COMPOSE_BUILD_COMPOSER} ./scripts/build/composer-update.sh
 
 update-languages: .logo ## Updates the language files of webtrees.
-	@$(COMPOSE_BUILD) ./scripts/update-languages.sh
+	@$(COMPOSE_BUILD) ./scripts/build/update-languages.sh
 
 apply-config: .logo ## Re-applies the webtrees configuration to an already installed application.
-	@${COMPOSE_BUILD} ./scripts/apply-config.sh
+	@${COMPOSE_BUILD} ./scripts/build/apply-config.sh
 
 cache-clear: .logo ## Clears the webtrees cache directory.
-	@${COMPOSE_BUILD_ROOT} ./scripts/cache-clear.sh
+	@${COMPOSE_BUILD_ROOT} ./scripts/build/cache-clear.sh
 
 info: .logo ## Prints out project information
 	@echo -e "\n${FBOLD}:: Project information${FRESET}\n"

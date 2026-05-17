@@ -11,7 +11,7 @@ check-compose: .logo ## Checks if docker and compose are available.
 	@echo -e "${FGREEN}Docker and Compose detected.${FRESET}"
 
 fix-permissions: .logo ## Fixes the permissions for the application.
-	@$(COMPOSE_BUILD_ROOT) ./scripts/set-permissions.sh
+	@$(COMPOSE_BUILD_ROOT) ./scripts/build/set-permissions.sh
 
 os-detect: .logo ## Prints basic OS/shell info for troubleshooting.
 	@echo -e "Shell: $(SHELL)"

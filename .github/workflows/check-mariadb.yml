@@ -71,7 +71,7 @@ jobs:
                   echo "Pinned MariaDB minor: ${pinned_minor}"
 
                   # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
                   # the alpine/nginx/php cron workflows. The `11.X` regex
                   # restricts to rolling-minor tags (drops `11.X.Y` patch
                   # variants and channel tags like `11-jammy`/`lts`).
@@ -79,7 +79,7 @@ jobs:
                       NAME_FILTER=11. \
                       REGEX='^11\.[0-9]+$' \
                       PINNED_MINOR="$pinned_minor" \
-                      ./scripts/check-docker-hub-minor.sh)
+                      ./scripts/workflow/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
@@ -91,11 +91,11 @@ jobs:
                               "**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:" \
                               "" \
                               "  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes)." \
-                              "  2. Run \`./scripts/bump-mariadb.sh ${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (\`make bump-mariadb VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
+                              "  2. Run \`./scripts/bump/bump-mariadb.sh ${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (\`make bump-mariadb VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
                               "  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes." \
                               "  4. Run \`make ci-pytest ci-lockstep-tests\` locally." \
                               "  5. Open a PR; CI re-runs the smoke matrix against the new pin.")
-                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
+                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
                       fi
                   done
 

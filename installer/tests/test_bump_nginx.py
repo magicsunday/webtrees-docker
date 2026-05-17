@@ -1,4 +1,4 @@
-"""Tests for `scripts/bump-nginx.py`.
+"""Tests for `scripts/bump/bump-nginx.py`.
 
 The bump tool is one-shot maintenance tooling invoked by an operator
 to action a `check-nginx.yml` tracking issue. The lockstep test
@@ -44,7 +44,7 @@ def _resolve_repo_root() -> Path | None:
 
 
 def _load_bumper() -> ModuleType:
-    """Load `scripts/bump-nginx.py` by file path.
+    """Load `scripts/bump/bump-nginx.py` by file path.
 
     Hyphen-in-name forces `importlib.util` over the standard import
     machinery. Fail-loud-in-CI discipline matches the rewriter test:
@@ -53,12 +53,12 @@ def _load_bumper() -> ModuleType:
     root = _resolve_repo_root()
     if root is None:
         pytest.skip("repo root not reachable")
-    script = root / "scripts" / "bump-nginx.py"
+    script = root / "scripts" / "bump" / "bump-nginx.py"
     if not script.is_file():
         if os.environ.get("WT_REPO_ROOT"):
             pytest.fail(
                 f"WT_REPO_ROOT={os.environ['WT_REPO_ROOT']!r} does not "
-                f"contain scripts/bump-nginx.py. Fix the bind-mount in "
+                f"contain scripts/bump/bump-nginx.py. Fix the bind-mount in "
                 f"Make/ci.mk's ci-pytest target."
             )
         pytest.skip(f"bumper script missing: {script}")
@@ -517,7 +517,7 @@ def test_script_is_executable_under_python3() -> None:
     root = _resolve_repo_root()
     if root is None:
         pytest.skip("repo root not reachable")
-    script = root / "scripts" / "bump-nginx.py"
+    script = root / "scripts" / "bump" / "bump-nginx.py"
     if not script.is_file():
         pytest.skip(f"bumper script missing: {script}")
     result = subprocess.run(

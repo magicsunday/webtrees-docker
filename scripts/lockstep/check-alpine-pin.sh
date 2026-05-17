@@ -29,7 +29,7 @@ set -euo pipefail
 repo_root=${1:-$(pwd)}
 cd "$repo_root"
 
-pinned=$(./scripts/parse-alpine-pin.sh)
+pinned=$(./scripts/lockstep/parse-alpine-pin.sh)
 echo "  canonical pin: $pinned"
 
 echo "$pinned" | grep -qE '^alpine:[0-9]+\.[0-9]+$' || {

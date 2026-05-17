@@ -1,4 +1,4 @@
-"""Tests for `scripts/bump-mariadb.py`.
+"""Tests for `scripts/bump/bump-mariadb.py`.
 
 Mirrors the test layout of `test_bump_nginx.py` — the bump tool is
 one-shot operator tooling; `test_mariadb_pin_lockstep` is the safety
@@ -30,16 +30,16 @@ def _resolve_repo_root() -> Path | None:
 
 
 def _load_bumper() -> ModuleType:
-    """Load `scripts/bump-mariadb.py` by file path with fail-loud guard."""
+    """Load `scripts/bump/bump-mariadb.py` by file path with fail-loud guard."""
     root = _resolve_repo_root()
     if root is None:
         pytest.skip("repo root not reachable")
-    script = root / "scripts" / "bump-mariadb.py"
+    script = root / "scripts" / "bump" / "bump-mariadb.py"
     if not script.is_file():
         if os.environ.get("WT_REPO_ROOT"):
             pytest.fail(
                 f"WT_REPO_ROOT={os.environ['WT_REPO_ROOT']!r} does not "
-                f"contain scripts/bump-mariadb.py."
+                f"contain scripts/bump/bump-mariadb.py."
             )
         pytest.skip(f"bumper script missing: {script}")
     spec = importlib.util.spec_from_file_location("bump_mariadb", script)
@@ -180,7 +180,7 @@ def test_script_is_executable_under_python3() -> None:
     root = _resolve_repo_root()
     if root is None:
         pytest.skip("repo root not reachable")
-    script = root / "scripts" / "bump-mariadb.py"
+    script = root / "scripts" / "bump" / "bump-mariadb.py"
     if not script.is_file():
         pytest.skip(f"bumper script missing: {script}")
     result = subprocess.run(

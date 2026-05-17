@@ -34,7 +34,7 @@ jobs:
               id: digests
               run: |
                   set -euo pipefail
-                  ./scripts/probe-php-digests.sh
+                  ./scripts/workflow/probe-php-digests.sh
 
             - name: Update lockfile + dispatch rebuild
               if: steps.digests.outputs.lockfile_dirty == 'true'
@@ -75,7 +75,7 @@ jobs:
                   max_known=$(jq -r '.[].php' dev/versions.json | sort -V | tail -1)
 
                   # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
                   # the alpine/mariadb/nginx cron workflows. PHP-specific
                   # variants:
                   #   STRIP_SUFFIX=-fpm-alpine$ drops the suffix so the
@@ -103,14 +103,14 @@ jobs:
                       ORDERING=name \
                       PINNED_MINOR="$max_known" \
                       ALLOW_MISSING_PIN=1 \
-                      ./scripts/check-docker-hub-minor.sh)
+                      ./scripts/workflow/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$max_known" "$ver" | sort -V | head -1)" = "$max_known" ] \
                           && [ "$ver" != "$max_known" ]; then
                           title="PHP ${ver} available — consider adding to dev/versions.json"
                           body="Docker Hub ships a \`php:${ver}-fpm-alpine\` tag that is newer than the highest version currently tracked (\`${max_known}\`). Adding it to dev/versions.json bumps the build matrix to cover the new minor. Review for breaking changes before merging."
-                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
+                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
                       fi
                   done
 

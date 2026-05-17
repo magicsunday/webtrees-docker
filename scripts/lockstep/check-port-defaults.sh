@@ -17,7 +17,7 @@ set -euo pipefail
 repo_root=${1:-$(pwd)}
 cd "$repo_root"
 
-pair=$(./scripts/parse-port-defaults.sh)
+pair=$(./scripts/lockstep/parse-port-defaults.sh)
 default_port=${pair%:*}
 fallback_port=${pair#*:}
 echo "  canonical default: $default_port, fallback: $fallback_port"

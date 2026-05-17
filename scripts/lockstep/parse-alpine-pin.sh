@@ -10,7 +10,7 @@
 # fails loudly instead of silently emitting an empty pin downstream.
 #
 # Usage:
-#   scripts/parse-alpine-pin.sh [path-to-_alpine.py]
+#   scripts/lockstep/parse-alpine-pin.sh [path-to-_alpine.py]
 #   default path: installer/webtrees_installer/_alpine.py
 
 set -o errexit -o nounset -o pipefail

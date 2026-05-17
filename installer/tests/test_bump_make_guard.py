@@ -160,7 +160,7 @@ def test_make_guard_accepts_well_formed_version(repo_root: Path) -> None:
         f"stdout={result.stdout!r}, stderr={result.stderr!r}"
     )
     # Make's bump-nginx target must delegate to the script form.
-    assert "./scripts/bump-nginx.sh" in result.stdout
+    assert "./scripts/bump/bump-nginx.sh" in result.stdout
 
 
 def test_make_guard_accepts_well_formed_config_revision(repo_root: Path) -> None:
@@ -205,4 +205,4 @@ def test_make_guard_accepts_well_formed_mariadb_version(repo_root: Path) -> None
         f"stdout={result.stdout!r}, stderr={result.stderr!r}"
     )
     # Make's bump-mariadb target must delegate to the script form.
-    assert "./scripts/bump-mariadb.sh" in result.stdout
+    assert "./scripts/bump/bump-mariadb.sh" in result.stdout

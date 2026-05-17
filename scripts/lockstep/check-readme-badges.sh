@@ -41,7 +41,7 @@ cd "$repo_root"
 }
 
 # shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/lib/images.env"
+source "$(dirname "$0")/../lib/images.env"
 
 docker run --rm \
     -v "$repo_root/dev:/d:ro" \

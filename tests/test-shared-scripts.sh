@@ -74,7 +74,7 @@ run_test() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
-# scripts/check-docker-hub-minor.sh
+# scripts/workflow/check-docker-hub-minor.sh
 # ──────────────────────────────────────────────────────────────────────
 
 # Successful path with single tag matching the pin
@@ -82,7 +82,7 @@ reset_stubs
 stub curl 'echo "{\"results\":[{\"name\":\"3.23\"}],\"next\":null}"'
 run_test \
     "check-docker-hub-minor: happy path emits sorted available list" \
-    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/workflow/check-docker-hub-minor.sh" \
     0 "3.23"
 
 # Pin not in listing — strict mode hard-fails
@@ -90,7 +90,7 @@ reset_stubs
 stub curl 'echo "{\"results\":[{\"name\":\"3.20\"}],\"next\":null}"'
 run_test \
     "check-docker-hub-minor: pin missing from listing → ::error:: + exit 1" \
-    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/workflow/check-docker-hub-minor.sh" \
     1 "::error::Pinned alpine minor 3.23 not found"
 
 # Pin not in listing — ALLOW_MISSING_PIN downgrades to notice
@@ -98,7 +98,7 @@ reset_stubs
 stub curl 'echo "{\"results\":[{\"name\":\"8.4-fpm-alpine\"}],\"next\":null}"'
 run_test \
     "check-docker-hub-minor: ALLOW_MISSING_PIN=1 downgrades self-test to ::notice::" \
-    "REPO_NAME=php NAME_FILTER=-fpm-alpine REGEX='^[0-9]+\\.[0-9]+-fpm-alpine\$' STRIP_SUFFIX='-fpm-alpine\$' ALLOW_MISSING_PIN=1 PINNED_MINOR=8.6 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=php NAME_FILTER=-fpm-alpine REGEX='^[0-9]+\\.[0-9]+-fpm-alpine\$' STRIP_SUFFIX='-fpm-alpine\$' ALLOW_MISSING_PIN=1 PINNED_MINOR=8.6 ./scripts/workflow/check-docker-hub-minor.sh" \
     0 "::notice::Pinned php minor 8.6 not yet"
 
 # curl transient failure → ::warning:: + exit 0 (cron self-heals)
@@ -106,7 +106,7 @@ reset_stubs
 stub curl 'exit 22'
 run_test \
     "check-docker-hub-minor: curl failure → ::warning:: + exit 0" \
-    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/workflow/check-docker-hub-minor.sh" \
     0 "::warning::Docker Hub tag fetch failed"
 
 # EVEN_MINORS_ONLY drops odd-minor pin → self-test fails
@@ -114,14 +114,14 @@ reset_stubs
 stub curl 'echo "{\"results\":[{\"name\":\"1.27-alpine\"},{\"name\":\"1.30-alpine\"}],\"next\":null}"'
 run_test \
     "check-docker-hub-minor: EVEN_MINORS_ONLY drops odd pin → self-test fails" \
-    "REPO_NAME=nginx NAME_FILTER=alpine REGEX='^1\\.[0-9]+-alpine\$' STRIP_SUFFIX='-alpine\$' EVEN_MINORS_ONLY=1 PINNED_MINOR=1.27 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=nginx NAME_FILTER=alpine REGEX='^1\\.[0-9]+-alpine\$' STRIP_SUFFIX='-alpine\$' EVEN_MINORS_ONLY=1 PINNED_MINOR=1.27 ./scripts/workflow/check-docker-hub-minor.sh" \
     1 "::error::Pinned nginx minor 1.27 not found"
 
 # Missing required env var bails out via `:?` guard
 reset_stubs
 run_test \
     "check-docker-hub-minor: missing REPO_NAME → bail with :? guard" \
-    "unset REPO_NAME; NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/check-docker-hub-minor.sh" \
+    "unset REPO_NAME; NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/workflow/check-docker-hub-minor.sh" \
     1 "REPO_NAME"
 
 # Jq tolerance: results-null doesn't crash mid-loop
@@ -129,7 +129,7 @@ reset_stubs
 stub curl 'echo "{\"results\":null,\"next\":null}"'
 run_test \
     'check-docker-hub-minor: .results=null tolerated by jq // empty guard' \
-    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/workflow/check-docker-hub-minor.sh" \
     1 "::error::Pinned alpine minor 3.23 not found"
 
 # ALLOW_MISSING_PIN with EMPTY listing (filter regression) MUST still
@@ -139,7 +139,7 @@ reset_stubs
 stub curl 'echo "{\"results\":[],\"next\":null}"'
 run_test \
     "check-docker-hub-minor: ALLOW_MISSING_PIN does NOT mask empty-listing filter regression" \
-    "REPO_NAME=php NAME_FILTER=-fpm-alpine REGEX='^[0-9]+\\.[0-9]+-fpm-alpine\$' STRIP_SUFFIX='-fpm-alpine\$' ALLOW_MISSING_PIN=1 PINNED_MINOR=8.6 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=php NAME_FILTER=-fpm-alpine REGEX='^[0-9]+\\.[0-9]+-fpm-alpine\$' STRIP_SUFFIX='-fpm-alpine\$' ALLOW_MISSING_PIN=1 PINNED_MINOR=8.6 ./scripts/workflow/check-docker-hub-minor.sh" \
     1 "::error::Pinned php minor 8.6 not found"
 
 # Pagination: curl returns page1 with `next` URL, page2 closes. A
@@ -159,12 +159,12 @@ fi
 "
 run_test \
     "check-docker-hub-minor: pagination follows .next URL until null" \
-    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/check-docker-hub-minor.sh" \
+    "REPO_NAME=alpine NAME_FILTER=3. REGEX='^[0-9]+\\.[0-9]+\$' PINNED_MINOR=3.23 ./scripts/workflow/check-docker-hub-minor.sh" \
     0 "3.22"
 rm -f "$counter_file"
 
 # ──────────────────────────────────────────────────────────────────────
-# scripts/file-bump-issue.sh
+# scripts/workflow/file-bump-issue.sh
 # ──────────────────────────────────────────────────────────────────────
 
 # Issue already exists → no-op (no `gh issue create` call)
@@ -176,7 +176,7 @@ stub gh 'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo 1; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "create" ]; then echo "ERROR: should not create"; exit 99; fi'
 run_test \
     "file-bump-issue: existing issue → no-op (no create call)" \
-    "TITLE='Test issue' BODY='body' ./scripts/file-bump-issue.sh" \
+    "TITLE='Test issue' BODY='body' ./scripts/workflow/file-bump-issue.sh" \
     0 ""
 
 # Issue does not exist → gh issue create invoked
@@ -186,7 +186,7 @@ stub gh 'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo 0; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "create" ]; then echo "https://github.com/test/issue/1"; exit 0; fi'
 run_test \
     "file-bump-issue: new issue → gh issue create called" \
-    "TITLE='Test issue' BODY='body' ./scripts/file-bump-issue.sh" \
+    "TITLE='Test issue' BODY='body' ./scripts/workflow/file-bump-issue.sh" \
     0 "https://github.com/test/issue/1"
 
 # gh issue list failure → ::error:: + exit 1
@@ -195,18 +195,18 @@ reset_stubs
 stub gh 'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then exit 1; fi'
 run_test \
     "file-bump-issue: gh issue list failure → ::error:: + exit 1" \
-    "TITLE='Test issue' BODY='body' ./scripts/file-bump-issue.sh" \
+    "TITLE='Test issue' BODY='body' ./scripts/workflow/file-bump-issue.sh" \
     1 "::error::gh issue list failed"
 
 # Missing required env var bails out
 reset_stubs
 run_test \
     "file-bump-issue: missing TITLE → bail with :? guard" \
-    "unset TITLE; BODY='body' ./scripts/file-bump-issue.sh" \
+    "unset TITLE; BODY='body' ./scripts/workflow/file-bump-issue.sh" \
     1 "TITLE"
 
 # ──────────────────────────────────────────────────────────────────────
-# scripts/probe-php-digests.sh
+# scripts/workflow/probe-php-digests.sh
 #
 # Tests run in a tmp_dir holding a synthetic dev/versions.json +
 # dev/php_digests.lock so the script's relative-path I/O lands on
@@ -216,8 +216,8 @@ run_test \
 
 probe_dir=$(mktemp -d /tmp/wt-probe-php.XXXXXX)
 trap 'rm -rf "$stub_dir" "$probe_dir"' EXIT
-mkdir -p "$probe_dir/dev" "$probe_dir/scripts"
-cp "$repo_root/scripts/probe-php-digests.sh" "$probe_dir/scripts/"
+mkdir -p "$probe_dir/dev" "$probe_dir/scripts/workflow"
+cp "$repo_root/scripts/workflow/probe-php-digests.sh" "$probe_dir/scripts/workflow/"
 
 probe_setup() {
     local versions_json=$1 digests_lock=$2
@@ -233,7 +233,7 @@ probe_setup '[{"php":"8.5"}]' '8.5=sha256:aaa
 '
 run_test \
     "probe-php-digests: digest unchanged → no lockfile_dirty, no changes" \
-    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/probe-php-digests.sh && ! grep -qF 'lockfile_dirty' $probe_dir/gh_output" \
+    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/workflow/probe-php-digests.sh && ! grep -qF 'lockfile_dirty' $probe_dir/gh_output" \
     0 ""
 
 # Digest changed → lockfile_dirty=true + changes block
@@ -243,7 +243,7 @@ probe_setup '[{"php":"8.5"}]' '8.5=sha256:aaa
 '
 run_test \
     "probe-php-digests: digest changed → lockfile_dirty=true + changes emitted" \
-    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/probe-php-digests.sh && grep -qF 'lockfile_dirty=true' $probe_dir/gh_output && grep -qF '8.5 (sha256:aaa → sha256:bbb)' $probe_dir/gh_output" \
+    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/workflow/probe-php-digests.sh && grep -qF 'lockfile_dirty=true' $probe_dir/gh_output && grep -qF '8.5 (sha256:aaa → sha256:bbb)' $probe_dir/gh_output" \
     0 ""
 
 # New version with no baseline → silent seed, no changes, lockfile_dirty=true
@@ -252,7 +252,7 @@ stub docker 'echo "sha256:ccc"'
 probe_setup '[{"php":"8.5"}]' ''
 run_test \
     "probe-php-digests: missing baseline → seed silently (no changes block)" \
-    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/probe-php-digests.sh && grep -qF 'lockfile_dirty=true' $probe_dir/gh_output && ! grep -qF 'changes<<EOF' $probe_dir/gh_output" \
+    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/workflow/probe-php-digests.sh && grep -qF 'lockfile_dirty=true' $probe_dir/gh_output && ! grep -qF 'changes<<EOF' $probe_dir/gh_output" \
     0 "Seeding new digest for 8.5"
 
 # Empty digest from docker buildx inspect → ::error:: + exit 1
@@ -261,7 +261,7 @@ stub docker ''
 probe_setup '[{"php":"8.5"}]' ''
 run_test \
     "probe-php-digests: empty digest from docker inspect → ::error:: + exit 1" \
-    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/probe-php-digests.sh" \
+    "cd $probe_dir && GITHUB_OUTPUT=$probe_dir/gh_output ./scripts/workflow/probe-php-digests.sh" \
     1 "::error::failed to read digest for php:8.5"
 
 # Missing GITHUB_OUTPUT env bails via :? guard
@@ -270,11 +270,11 @@ probe_setup '[{"php":"8.5"}]' '8.5=sha256:aaa
 '
 run_test \
     "probe-php-digests: missing GITHUB_OUTPUT → bail with :? guard" \
-    "cd $probe_dir && unset GITHUB_OUTPUT; ./scripts/probe-php-digests.sh" \
+    "cd $probe_dir && unset GITHUB_OUTPUT; ./scripts/workflow/probe-php-digests.sh" \
     1 "GITHUB_OUTPUT"
 
 # ──────────────────────────────────────────────────────────────────────
-# scripts/batch-bump-webtrees-versions.sh
+# scripts/workflow/batch-bump-webtrees-versions.sh
 #
 # Only the trivial guard branches are covered here — the full
 # orphan-branch / dispatch-accumulator / auto-merge-gate paths
@@ -288,7 +288,7 @@ run_test \
 reset_stubs
 run_test \
     "batch-bump-webtrees-versions: missing NEW_VERSIONS → bail with :? guard" \
-    "unset NEW_VERSIONS; GH_TOKEN=stub ./scripts/batch-bump-webtrees-versions.sh" \
+    "unset NEW_VERSIONS; GH_TOKEN=stub ./scripts/workflow/batch-bump-webtrees-versions.sh" \
     1 "NEW_VERSIONS"
 
 # Missing GH_TOKEN bails out (NEW_VERSIONS must be set first or the
@@ -297,7 +297,7 @@ run_test \
 reset_stubs
 run_test \
     "batch-bump-webtrees-versions: missing GH_TOKEN → bail with :? guard" \
-    "(unset GH_TOKEN; NEW_VERSIONS=2.2.7 ./scripts/batch-bump-webtrees-versions.sh)" \
+    "(unset GH_TOKEN; NEW_VERSIONS=2.2.7 ./scripts/workflow/batch-bump-webtrees-versions.sh)" \
     1 "GH_TOKEN"
 
 # NEW_VERSIONS of pure whitespace falls through the array-builder
@@ -310,7 +310,7 @@ stub git ':'
 stub gh 'echo "[]"'
 run_test \
     "batch-bump-webtrees-versions: whitespace-only NEW_VERSIONS → exit 0 cleanly" \
-    "NEW_VERSIONS=$'\n\n' GH_TOKEN=stub ./scripts/batch-bump-webtrees-versions.sh" \
+    "NEW_VERSIONS=$'\n\n' GH_TOKEN=stub ./scripts/workflow/batch-bump-webtrees-versions.sh" \
     0 "No new versions to batch"
 
 # ──────────────────────────────────────────────────────────────────────

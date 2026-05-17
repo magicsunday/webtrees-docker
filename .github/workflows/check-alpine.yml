@@ -39,19 +39,19 @@ jobs:
                   # enforces `alpine:X.Y` shape on every PR, so by the
                   # time this cron runs the pin is guaranteed to be
                   # `alpine:X.Y` (no patch).
-                  pinned=$(./scripts/parse-alpine-pin.sh)
+                  pinned=$(./scripts/lockstep/parse-alpine-pin.sh)
                   pinned_minor=${pinned#alpine:}
                   echo "Pinned Alpine minor: ${pinned_minor}"
 
                   # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/check-docker-hub-minor.sh`, shared with
+                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
                   # the mariadb/nginx/php cron workflows. See its header
                   # for the env-var contract and failure-mode semantics.
                   available=$(REPO_NAME=alpine \
                       NAME_FILTER=3. \
                       REGEX='^[0-9]+\.[0-9]+$' \
                       PINNED_MINOR="$pinned_minor" \
-                      ./scripts/check-docker-hub-minor.sh)
+                      ./scripts/workflow/check-docker-hub-minor.sh)
 
                   for ver in $available; do
                       if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
@@ -67,7 +67,7 @@ jobs:
                               "  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced." \
                               "  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint)." \
                               "  5. Open a PR; CI rebuilds every Alpine-derived image stage.")
-                          TITLE="$title" BODY="$body" ./scripts/file-bump-issue.sh
+                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
                       fi
                   done
 

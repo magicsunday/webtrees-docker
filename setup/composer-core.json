@@ -34,7 +34,7 @@
     },
     "scripts": {
         "post-autoload-dump": [
-            "../scripts/update-languages.sh"
+            "../scripts/build/update-languages.sh"
         ]
     }
 }
