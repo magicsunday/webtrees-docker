@@ -157,6 +157,17 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
         _skip_detection=1
     fi
 
+    # Skip detection inside cloud dev environments (GitHub Codespaces,
+    # Gitpod, VS Code Dev Containers). These platforms expose ports
+    # via TLS-terminating tunnels (`<codespace>-<port>.app.github.dev`,
+    # `<port>-<workspace>.<region>.gitpod.io`) — the container's
+    # overlay IPv4 from `hostname -I` is not routable from anywhere.
+    # The platform's own UI surfaces the correct forwarded URL.
+    if [ "$_skip_detection" -eq 0 ] \
+        && [ -n "${CODESPACES:-}${GITHUB_CODESPACES:-}${GITPOD_WORKSPACE_ID:-}${REMOTE_CONTAINERS:-}${DEVCONTAINER:-}" ]; then
+        _skip_detection=1
+    fi
+
     if [ "$_skip_detection" -eq 0 ]; then
         # Capture-then-process (AGENTS.md "Recent traps to avoid":
         # never `hostname … | awk` under pipefail because the awk
