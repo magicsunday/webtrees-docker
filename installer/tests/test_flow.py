@@ -1081,3 +1081,28 @@ def test_print_banner_includes_what_next_section() -> None:
     assert "/install | bash" in text
     assert "/upgrade | bash" in text
     assert "/switch | bash" in text
+
+
+def test_wait_for_phpfpm_seed_raises_actionable_error_on_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When /var/www/html/index.php never appears within the poll
+    window, the wait raises a StackError that names BOTH the slow-seed
+    AND the reused-incomplete-volume diagnoses + the docker-volume-rm
+    recovery command. Pins issue #124's actionable-error contract:
+    a regression that surfaces the opaque PHP "Could not open input
+    file" without prefixing the seed-poll context breaks this test."""
+    from webtrees_installer.flow import _wait_for_phpfpm_seed
+    from webtrees_installer.stack import StackError
+
+    # Shrink the deadline so the test doesn't wait 60 real seconds.
+    monkeypatch.setattr("webtrees_installer.flow._PHPFPM_SEED_TIMEOUT_S", 0)
+    monkeypatch.setattr("webtrees_installer.flow._PHPFPM_SEED_POLL_INTERVAL_S", 0)
+
+    import subprocess as _sp
+    with patch(
+        "webtrees_installer.flow.run_docker",
+        return_value=_sp.CompletedProcess(args=[], returncode=1, stdout="", stderr=""),
+    ):
+        with pytest.raises(StackError, match=r"docker volume rm.*<project>_app"):
+            _wait_for_phpfpm_seed(work_dir=tmp_path)

@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1049,7 +1050,11 @@ def _handle_surviving_volumes(
             f"{term.warning('WARNING:')} existing docker volumes from a previous install at "
             f"this project name were detected: {volume_list}. They will be "
             "re-mounted on the next `compose up`, so the install banner's "
-            "admin password may not match the running stack.",
+            "admin password may not match the running stack. Reused volumes "
+            "from a CRASHED previous install can also carry incomplete state "
+            "(e.g. partial webtrees source under `<project>_app`) — that "
+            "surfaces later as `Could not open input file: index.php` from "
+            "demo-tree import or first browser request (issue #124).",
             file=stdout,
         )
         print(
@@ -1227,6 +1232,46 @@ def _write_demo_gedcom(*, work_dir: Path, seed: int) -> Path:
     return out
 
 
+_PHPFPM_SEED_TIMEOUT_S = 60
+_PHPFPM_SEED_POLL_INTERVAL_S = 2
+
+
+def _wait_for_phpfpm_seed(*, work_dir: Path) -> None:
+    """Poll until `/var/www/html/index.php` exists inside the phpfpm
+    container, or raise StackError on deadline.
+
+    `bring_up` blocks on nginx health but nginx's healthcheck is
+    independent of phpfpm's first-run seed of /var/www/html (the
+    upstream phpfpm image's entrypoint untars the bundled webtrees
+    source onto the empty app volume). On a fresh install the seed
+    usually races to completion before the demo-tree import; on a
+    reused-but-incomplete app volume (from a crashed prior install,
+    a kill-9 during seed, etc.) or a slow disk it has not (issue
+    #124). Without this poll, the next step reports the opaque
+    `Could not open input file: /var/www/html/index.php` and the
+    operator has no signal where the chain broke.
+    """
+    deadline = time.monotonic() + _PHPFPM_SEED_TIMEOUT_S
+    probe = ["compose", "exec", "-T", "phpfpm",
+             "test", "-f", "/var/www/html/index.php"]
+    while True:
+        result = run_docker(probe, cwd=work_dir)
+        if result.returncode == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise StackError(
+                f"phpfpm did not finish seeding /var/www/html within "
+                f"{_PHPFPM_SEED_TIMEOUT_S}s. Two plausible causes:\n"
+                f"  (a) First-run seed in progress on a slow disk — "
+                f"check `docker compose logs phpfpm` for entrypoint errors.\n"
+                f"  (b) The `<project>_app` volume from a previous install "
+                f"is missing /var/www/html/index.php (crashed install, "
+                f"interrupted seed). To recover: stop the stack, "
+                f"`docker volume rm <project>_app`, re-run the wizard."
+            )
+        time.sleep(_PHPFPM_SEED_POLL_INTERVAL_S)
+
+
 def _import_demo_tree(*, work_dir: Path, gedcom_path: Path) -> None:
     """Copy the GEDCOM into the phpfpm container and run tree-import.
 
@@ -1234,7 +1279,13 @@ def _import_demo_tree(*, work_dir: Path, gedcom_path: Path) -> None:
         docker compose cp demo.ged phpfpm:/tmp/demo.ged
         docker compose exec phpfpm sh -c "php /var/www/html/index.php tree --create demo"
         docker compose exec phpfpm sh -c "... tree-import demo /tmp/demo.ged"
+
+    Polls for the phpfpm app-volume seed first (issue #124) so a slow
+    seed or a reused-but-incomplete volume produces an actionable
+    error instead of an opaque PHP "Could not open input file".
     """
+    _wait_for_phpfpm_seed(work_dir=work_dir)
+
     import_steps = [
         ["compose", "cp", str(gedcom_path), "phpfpm:/tmp/demo.ged"],
         ["compose", "exec", "-T", "phpfpm", "su", "www-data", "-s", "/bin/sh", "-c",
