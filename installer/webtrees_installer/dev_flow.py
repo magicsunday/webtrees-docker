@@ -19,6 +19,7 @@ from typing import IO
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from webtrees_installer._banner import print_standalone_enforce_https_warning
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._io import atomic_write
 from webtrees_installer._term import Term
@@ -508,23 +509,25 @@ def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
     print(term.bold("Webtrees dev environment ready."), file=stdout)
     print(term.bold(bar), file=stdout)
     if args.proxy_mode == "standalone":
-        scheme = "https" if args.enforce_https else "http"
-        print(f"{term.info('•')} Webtrees URL: {scheme}://{args.dev_domain}/", file=stdout)
+        if args.enforce_https:
+            # See _banner.print_standalone_enforce_https_warning for
+            # the full rationale (SSL_ERROR_RX_RECORD_TOO_LONG trap).
+            # Both flow.py + dev_flow.py share this snippet so the
+            # operator-facing text stays consistent.
+            print_standalone_enforce_https_warning(
+                stdout=stdout,
+                term=term,
+                redirect_target=args.dev_domain,
+                rerun_verb="dev wizard",
+            )
+        else:
+            print(f"{term.info('•')} Webtrees URL: http://{args.dev_domain}/", file=stdout)
         print(
             f"{term.info('•')} phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
             file=stdout,
         )
     else:
         print(f"{term.info('•')} Webtrees URL: https://{args.dev_domain}/", file=stdout)
-
-    if args.enforce_https and args.proxy_mode == "standalone":
-        print(file=stdout)
-        print(
-            f"{term.info('NOTE:')} ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
-            "HTTPS — point a TLS-terminating reverse proxy at the published "
-            "port, or re-run with --no-https for a plaintext local install.",
-            file=stdout,
-        )
 
     print(file=stdout)
     print(f"{term.info('•')} Next: make up", file=stdout)

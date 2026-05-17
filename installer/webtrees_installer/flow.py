@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import IO
 
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+from webtrees_installer._banner import print_standalone_enforce_https_warning
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._db_probe import probe_external_db
 from webtrees_installer._docker import run_docker
@@ -1115,20 +1116,21 @@ def _print_banner(
     print(f"{term.success('✓')} Wrote: {work_dir / '.env'}", file=stdout)
 
     if proxy_mode == "standalone":
-        scheme = "https" if enforce_https else "http"
-        print(f"{term.info('•')} Webtrees URL: {scheme}://localhost:{app_port}/", file=stdout)
+        if enforce_https:
+            # See _banner.print_standalone_enforce_https_warning for
+            # the full rationale (SSL_ERROR_RX_RECORD_TOO_LONG trap).
+            # Both flow.py + dev_flow.py share this snippet so the
+            # operator-facing text stays consistent.
+            print_standalone_enforce_https_warning(
+                stdout=stdout,
+                term=term,
+                redirect_target=f"this-host:{app_port}",
+                rerun_verb="installer",
+            )
+        else:
+            print(f"{term.info('•')} Webtrees URL: http://localhost:{app_port}/", file=stdout)
     else:
         print(f"{term.info('•')} Webtrees URL: https://{domain}/", file=stdout)
-
-    if enforce_https and proxy_mode == "standalone":
-        print(file=stdout)
-        print(
-            f"{term.info('NOTE:')} ENFORCE_HTTPS=TRUE. nginx will redirect plain HTTP to "
-            "HTTPS — point a TLS-terminating reverse proxy (Caddy, "
-            "nginx-on-host, Cloudflare tunnel, …) at the published port, "
-            "or re-run with --no-https for a plaintext local install.",
-            file=stdout,
-        )
 
     if admin_user is not None:
         # GitHub Actions log redaction: emit ::add-mask:: so the password is

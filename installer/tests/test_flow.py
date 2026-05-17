@@ -899,3 +899,82 @@ def test_compute_stage_total_bringing_up_without_demo() -> None:
 def test_compute_stage_total_full_with_demo() -> None:
     from webtrees_installer.flow import _compute_stage_total
     assert _compute_stage_total(no_up=False, demo=True) == 3
+
+
+def test_print_banner_standalone_enforce_https_shows_warning_no_url() -> None:
+    """standalone + ENFORCE_HTTPS=TRUE has no working browser URL: nginx
+    has no `listen 443 ssl` block, plain HTTP gets 301-redirected to
+    HTTPS, the redirected HTTPS hits a non-TLS socket and fails with
+    SSL_ERROR_RX_RECORD_TOO_LONG. The banner MUST NOT print a
+    `https://localhost:<port>/` URL the operator would copy into a
+    browser; it must surface the reverse-proxy requirement explicitly
+    AND the `--no-https` escape hatch. Pins issue #118's contract so
+    a future refactor cannot silently restore the misleading URL."""
+    from pathlib import Path
+    from webtrees_installer.flow import _print_banner
+    out = StringIO()
+    _print_banner(
+        stdout=out,
+        work_dir=Path("/tmp/wt"),
+        proxy_mode="standalone",
+        app_port=50024,
+        domain=None,
+        admin_user=None,
+        admin_password=None,
+        enforce_https=True,
+        no_up=False,
+    )
+    text = out.getvalue()
+    assert "https://localhost:50024" not in text, (
+        "must not advertise an https:// URL that hits a plain-HTTP socket"
+    )
+    assert "Direct browser access not possible" in text
+    assert "TLS-terminating reverse proxy" in text
+    assert "--no-https" in text
+
+
+def test_print_banner_standalone_no_https_shows_http_url() -> None:
+    """standalone + ENFORCE_HTTPS=FALSE: nginx serves plain HTTP on the
+    published port, directly browser-reachable. Banner must show
+    `http://` (not `https://`) so an operator pasting the URL into a
+    browser actually lands on the app."""
+    from pathlib import Path
+    from webtrees_installer.flow import _print_banner
+    out = StringIO()
+    _print_banner(
+        stdout=out,
+        work_dir=Path("/tmp/wt"),
+        proxy_mode="standalone",
+        app_port=8080,
+        domain=None,
+        admin_user=None,
+        admin_password=None,
+        enforce_https=False,
+        no_up=False,
+    )
+    text = out.getvalue()
+    assert "http://localhost:8080/" in text
+    assert "https://localhost" not in text
+
+
+def test_print_banner_traefik_shows_https_domain_url() -> None:
+    """Non-standalone proxy mode (traefik) terminates TLS at the
+    fronting proxy. Banner shows the public-facing https://<domain>/
+    URL regardless of ENFORCE_HTTPS (which only governs nginx's own
+    redirect, irrelevant when traefik is in front)."""
+    from pathlib import Path
+    from webtrees_installer.flow import _print_banner
+    out = StringIO()
+    _print_banner(
+        stdout=out,
+        work_dir=Path("/tmp/wt"),
+        proxy_mode="traefik",
+        app_port=None,
+        domain="wt.example.com",
+        admin_user=None,
+        admin_password=None,
+        enforce_https=True,
+        no_up=False,
+    )
+    text = out.getvalue()
+    assert "https://wt.example.com/" in text

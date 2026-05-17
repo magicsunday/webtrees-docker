@@ -581,3 +581,50 @@ def test_run_dev_fills_host_work_dir_from_env(tmp_path: Path, monkeypatch,
     assert exit_code == 0
     env = (tmp_path / ".env").read_text()
     assert 'WORK_DIR="/host/workspace"' in env
+
+
+def test_print_dev_banner_standalone_enforce_https_shows_warning_no_url() -> None:
+    """Dev wizard mirror of test_print_banner_standalone_enforce_https_shows_warning_no_url
+    in test_flow.py. Standalone proxy + ENFORCE_HTTPS=TRUE has no
+    working browser URL in dev_flow either (same nginx no-`listen 443
+    ssl` situation, same redirect loop, same SSL_ERROR_RX_RECORD_TOO_LONG).
+    Banner MUST suppress the https://… URL and surface the
+    reverse-proxy requirement + --no-https escape hatch. Pins #118
+    contract on the dev wizard's banner so a future refactor cannot
+    silently restore the misleading URL on either flow."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    _print_dev_banner(stdout=out, args=_args(enforce_https=True, proxy_mode="standalone"))
+    text = out.getvalue()
+    assert "https://webtrees.localhost:50010" not in text, (
+        "must not advertise an https:// URL that hits a plain-HTTP socket"
+    )
+    assert "Direct browser access not possible" in text
+    assert "TLS-terminating reverse proxy" in text
+    assert "--no-https" in text
+
+
+def test_print_dev_banner_standalone_no_https_shows_http_url() -> None:
+    """Dev wizard: standalone + ENFORCE_HTTPS=FALSE renders plain HTTP
+    on the published port; banner shows `http://` so the dev URL works
+    when pasted into a browser."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    _print_dev_banner(stdout=out, args=_args(enforce_https=False, proxy_mode="standalone"))
+    text = out.getvalue()
+    assert "http://webtrees.localhost:50010/" in text
+    assert "https://webtrees.localhost" not in text
+
+
+def test_print_dev_banner_traefik_shows_https_domain() -> None:
+    """Dev wizard: non-standalone proxy (traefik) terminates TLS at
+    the fronting proxy; banner shows https://<dev_domain>/ regardless
+    of ENFORCE_HTTPS."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    _print_dev_banner(
+        stdout=out,
+        args=_args(enforce_https=True, proxy_mode="traefik", dev_domain="wt.dev.example.com"),
+    )
+    text = out.getvalue()
+    assert "https://wt.dev.example.com/" in text
