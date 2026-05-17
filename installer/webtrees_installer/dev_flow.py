@@ -21,6 +21,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
+    print_standalone_http_url_lan_only,
     print_what_next_section,
 )
 from webtrees_installer._cli_resolve import resolve_enforce_https
@@ -525,6 +526,20 @@ def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
             )
         else:
             print(f"{term.info('•')} Webtrees URL: http://{args.dev_domain}/", file=stdout)
+            # Issue #138 parity with production banner: surface the LAN
+            # URL when HOST_LAN_IP was detected so a developer SSHing
+            # into a remote dev VM (or browsing from another machine on
+            # the same network) gets a URL that resolves without an
+            # /etc/hosts edit. Only renders when standalone+no-HTTPS
+            # because dev_domain is operator-chosen and frequently a
+            # /etc/hosts-only hostname.
+            if args.app_port is not None:
+                print_standalone_http_url_lan_only(
+                    stdout=stdout,
+                    term=term,
+                    app_port=args.app_port,
+                    host_lan_ip=os.environ.get("HOST_LAN_IP", "").strip() or None,
+                )
         print(
             f"{term.info('•')} phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
             file=stdout,

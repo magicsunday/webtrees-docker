@@ -641,3 +641,25 @@ def test_print_dev_banner_includes_what_next_section() -> None:
     assert "/install | bash" in text
     assert "/upgrade | bash" in text
     assert "/switch | bash" in text
+
+
+def test_print_dev_banner_emits_lan_url_when_host_lan_ip_set() -> None:
+    """Dev banner parity with production banner (#138): when HOST_LAN_IP
+    is set, the dev wizard emits an additional `Webtrees URL: http://
+    <LAN-IP>:<port>/` line so a developer SSHing into a remote dev VM
+    gets a cross-machine-reachable URL alongside the operator-chosen
+    dev_domain URL. Skips localhost line because dev_domain already
+    covers the host-local path."""
+    import os
+    from unittest.mock import patch
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    with patch.dict(os.environ, {"HOST_LAN_IP": "192.168.178.25"}, clear=False):
+        _print_dev_banner(
+            stdout=out,
+            args=_args(enforce_https=False, proxy_mode="standalone"),
+        )
+    text = out.getvalue()
+    assert "http://192.168.178.25:" in text
+    # dev_domain URL still present
+    assert "http://webtrees.localhost:50010/" in text
