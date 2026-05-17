@@ -93,6 +93,28 @@ run_test "awk: IPv6-only string yields empty (only-IPv4 by shape)" "" \
     "$(filter_lan_ip 'fe80::1')"
 
 # ──────────────────────────────────────────────────────────────────────
+# Default-route interface extraction — issue #135 (preferred path
+# before the `hostname -I` heuristic).
+# ──────────────────────────────────────────────────────────────────────
+
+# Parses `ip -4 -o route show default` output and returns the iface
+# after the literal `dev` token. Reproduces the awk in install:182-184.
+extract_default_iface() {
+    local route_show_default_output=$1
+    printf '%s\n' "$route_show_default_output" \
+        | awk '{ for (i=1; i<NF; i++) if ($i == "dev") { print $(i+1); exit } }'
+}
+
+run_test "default-iface: 'default via 192.168.1.1 dev eth0' → eth0" "eth0" \
+    "$(extract_default_iface 'default via 192.168.1.1 dev eth0')"
+run_test "default-iface: 'default via 10.0.0.1 dev wg0'    → wg0"  "wg0" \
+    "$(extract_default_iface 'default via 10.0.0.1 dev wg0')"
+run_test "default-iface: missing 'dev' token              → empty" "" \
+    "$(extract_default_iface 'default via 192.168.1.1 weird')"
+run_test "default-iface: empty input                       → empty" "" \
+    "$(extract_default_iface '')"
+
+# ──────────────────────────────────────────────────────────────────────
 # DOCKER_HOST scheme classification — case statement from install:151-153
 # (after the printf|sed|tr|tr normalisation pipeline).
 # ──────────────────────────────────────────────────────────────────────

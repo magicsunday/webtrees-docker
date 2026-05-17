@@ -169,12 +169,50 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
     fi
 
     if [ "$_skip_detection" -eq 0 ]; then
+        # Issue #135: prefer the interface that carries the kernel's
+        # default IPv4 route over `hostname -I`'s first-hit heuristic.
+        # `hostname -I` lists interfaces in init/up order, which on
+        # WireGuard / libvirt / kubeadm hosts often surfaces a
+        # tunnel / virbr0 / cni0 IP BEFORE the real LAN. The default
+        # route is the kernel's authoritative answer to "which iface
+        # do peers reach me on" and defends against the bulk of
+        # multi-NIC false positives without needing per-tool stubs.
+        #
+        # Falls through to the `hostname -I` block if `ip` is absent
+        # (Alpine without iproute2, some recovery shells) or yields
+        # nothing usable.
+        if [ -z "$_lan_ip" ] && command -v ip >/dev/null 2>&1; then
+            _default_iface=$(ip -4 -o route show default 2>/dev/null \
+                | awk '{ for (i=1; i<NF; i++) if ($i == "dev") { print $(i+1); exit } }')
+            if [ -n "$_default_iface" ]; then
+                _default_addr=$(ip -4 -o addr show dev "$_default_iface" 2>/dev/null \
+                    | awk '{ split($4, a, "/"); print a[1]; exit }')
+                # Filter through the same awk block-list as hostname -I
+                # so a default-route iface that happens to carry a
+                # docker-bridge / CGNAT / link-local address (very rare,
+                # but defends against pathological setups) still falls
+                # back to the next probe instead of being advertised.
+                _lan_ip=$(awk -v ips="$_default_addr" 'BEGIN {
+                    n = split(ips, a, " ")
+                    for (i = 1; i <= n; i++) {
+                        if (a[i] !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) continue
+                        if (a[i] ~ /^127\./) continue
+                        if (a[i] ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) continue
+                        if (a[i] ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./) continue
+                        if (a[i] ~ /^169\.254\./) continue
+                        print a[i]
+                        exit
+                    }
+                }' 2>/dev/null) || _lan_ip=""
+            fi
+        fi
+
         # Capture-then-process (AGENTS.md "Recent traps to avoid":
         # never `hostname … | awk` under pipefail because the awk
         # early-exit SIGPIPEs the upstream, then pipefail swallows
         # the upstream exit code — fragile). Capture into a
         # variable first, then operate on it.
-        if command -v hostname >/dev/null 2>&1; then
+        if [ -z "$_lan_ip" ] && command -v hostname >/dev/null 2>&1; then
             _hostname_out=$(hostname -I 2>/dev/null) || _hostname_out=""
             # First non-loopback IPv4 that is NOT docker bridge
             # (172.16/12), CGNAT/tailscale (100.64/10), or VPN-style
