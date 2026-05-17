@@ -1053,3 +1053,31 @@ def test_print_banner_standalone_raises_when_app_port_unresolved() -> None:
             enforce_https=False,
             no_up=False,
         )
+
+
+def test_print_banner_includes_what_next_section() -> None:
+    """The post-install banner must end with the re-entry guide so an
+    operator who lost the launcher (curl-pipe-bash leaves no script
+    behind) can still find install / upgrade / switch commands.
+    Pins issue #119's integration contract — a refactor that drops
+    the helper call from _print_banner breaks this test.
+
+    The exact command syntax + URL set are pinned at the helper level
+    in test__banner.py; this test only proves the helper is invoked."""
+    out = StringIO()
+    with patch.dict(os.environ, {"HOST_LAN_IP": ""}, clear=False):
+        _print_banner(
+            stdout=out,
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="standalone",
+            app_port=8080,
+            domain=None,
+            admin_user=None,
+            admin_password=None,
+            enforce_https=False,
+            no_up=False,
+        )
+    text = out.getvalue()
+    assert "/install | bash" in text
+    assert "/upgrade | bash" in text
+    assert "/switch | bash" in text

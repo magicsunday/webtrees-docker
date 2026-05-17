@@ -628,3 +628,16 @@ def test_print_dev_banner_traefik_shows_https_domain() -> None:
     )
     text = out.getvalue()
     assert "https://wt.dev.example.com/" in text
+
+
+def test_print_dev_banner_includes_what_next_section() -> None:
+    """Dev banner must also surface the re-entry guide so the helper
+    call doesn't regress in only one of the two flows. Pins the
+    dev_flow.py integration of #119."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    _print_dev_banner(stdout=out, args=_args(enforce_https=False, proxy_mode="standalone"))
+    text = out.getvalue()
+    assert "/install | bash" in text
+    assert "/upgrade | bash" in text
+    assert "/switch | bash" in text

@@ -145,3 +145,51 @@ def print_standalone_enforce_https_warning(
         f"re-run the {rerun_verb} with --no-https.",
         file=stdout,
     )
+
+
+# Canonical upstream URLs the curl-pipe-bash launchers live behind.
+# Centralised so a future repo rename (or branch flip) is one edit.
+_REPO_RAW = "https://raw.githubusercontent.com/magicsunday/webtrees-docker/main"
+_INSTALL_URL = f"{_REPO_RAW}/install"
+_UPGRADE_URL = f"{_REPO_RAW}/upgrade"
+_SWITCH_URL = f"{_REPO_RAW}/switch"
+
+
+def print_what_next_section(
+    *,
+    stdout: IO[str],
+    term: Term,
+) -> None:
+    """Emit the operator re-entry guide at the end of the banner.
+
+    A `curl … | bash` install leaves no launcher script behind in the
+    install dir — the bootstrap is piped from stdin and discarded.
+    Three days later, an operator who wants to add an admin user, bump
+    the webtrees image, or switch between core and full edition has no
+    in-terminal signal for where the entry points live. This section
+    prints the three canonical curl-pipe-bash commands so the banner
+    is self-sufficient even after the operator closes their shell.
+
+    Args:
+        stdout: open writable text stream.
+        term: the caller-resolved Term (color/no-color decided once
+            at the call site).
+    """
+    print(file=stdout)
+    print(
+        f"{term.info('•')} To re-run the wizard "
+        f"(preserves data; rewrites compose.yaml + .env):",
+        file=stdout,
+    )
+    print(f"    curl -fsSL {_INSTALL_URL} | bash -s -- <flags>", file=stdout)
+    print(
+        f"{term.info('•')} To upgrade to a newer webtrees image "
+        f"(drops the app volume, re-seeds source):",
+        file=stdout,
+    )
+    print(f"    curl -fsSL {_UPGRADE_URL} | bash", file=stdout)
+    print(
+        f"{term.info('•')} To switch edition or proxy mode in-place:",
+        file=stdout,
+    )
+    print(f"    curl -fsSL {_SWITCH_URL} | bash -s -- --edition core", file=stdout)

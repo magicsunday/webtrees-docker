@@ -19,7 +19,10 @@ from typing import IO
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
-from webtrees_installer._banner import print_standalone_enforce_https_warning
+from webtrees_installer._banner import (
+    print_standalone_enforce_https_warning,
+    print_what_next_section,
+)
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._io import atomic_write
 from webtrees_installer._term import Term
@@ -531,4 +534,11 @@ def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
 
     print(file=stdout)
     print(f"{term.info('•')} Next: make up", file=stdout)
+
+    # Re-entry guide — same operator-friendliness rationale as the
+    # production banner (issue #119): the dev wizard can also be
+    # re-run / switched via the curl-pipe-bash launchers even though
+    # dev-mode users normally have the repo checkout at hand.
+    print_what_next_section(stdout=stdout, term=term)
+
     print(term.bold(bar), file=stdout)

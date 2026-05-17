@@ -16,6 +16,7 @@ from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
     print_standalone_http_url_lines,
+    print_what_next_section,
 )
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._db_probe import probe_external_db
@@ -1186,6 +1187,12 @@ def _print_banner(
         print(f"{term.info('•')} Next: docker compose up -d", file=stdout)
     else:
         print(f"{term.info('•')} Starting the stack now (docker compose up -d).", file=stdout)
+
+    # Re-entry guide so an operator who closes the terminal can still
+    # find the curl-pipe-bash commands for re-running the wizard,
+    # upgrading the image, or switching edition / proxy mode (issue #119).
+    print_what_next_section(stdout=stdout, term=term)
+
     print(term.bold(bar), file=stdout)
 
 

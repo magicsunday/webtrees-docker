@@ -19,6 +19,7 @@ import pytest
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
     print_standalone_http_url_lines,
+    print_what_next_section,
 )
 from webtrees_installer._term import Term
 
@@ -263,3 +264,18 @@ def test_print_standalone_http_url_lines_labels_distinguish_localhost_vs_lan() -
     assert "(local to this host)" in text
     assert "(LAN" in text
     assert "another machine" in text
+
+
+def test_print_what_next_section_emits_all_three_launcher_urls() -> None:
+    """The re-entry guide (#119) must surface install / upgrade / switch
+    so an operator who closed the terminal after a curl-pipe-bash
+    install can find every re-entry point without going back to the
+    README. A regression that renames the upstream repo, flips the
+    main branch, or drops one of the three commands surfaces here."""
+    out = StringIO()
+    print_what_next_section(stdout=out, term=Term.for_stream(out))
+    text = out.getvalue()
+    base = "https://raw.githubusercontent.com/magicsunday/webtrees-docker/main"
+    assert f"curl -fsSL {base}/install" in text
+    assert f"curl -fsSL {base}/upgrade" in text
+    assert f"curl -fsSL {base}/switch" in text
