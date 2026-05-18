@@ -144,7 +144,8 @@ Stack lifecycle:
 | Target | Action |
 |---|---|
 | `make up` | Bring the compose chain up (`docker compose up -d`). |
-| `make down` | Stop and remove containers + the local dev volumes. |
+| `make down` | Stop and remove containers; named volumes (database, media, app) survive. |
+| `make down-volumes` | Stop containers AND remove named volumes — wipes the database. Irreversible. |
 | `make restart` | Restart all services. |
 | `make status` | `docker compose ps`. |
 | `make logs` | Tail container logs. |

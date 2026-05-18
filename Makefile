@@ -27,11 +27,17 @@ COMPOSE_BIN := $(shell \
 # Auto-detect GitHub token for Composer API authentication (avoids rate limiting)
 GITHUB_TOKEN ?= $(shell command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null)
 
-ifdef GITHUB_TOKEN
+ifneq ($(strip $(GITHUB_TOKEN)),)
     export COMPOSER_AUTH := {"github-oauth":{"github.com":"$(GITHUB_TOKEN)"}}
 endif
 
-COMPOSE_BUILD_BASE := $(COMPOSE_BIN) run --rm -e COMPOSER_AUTH
+# COMPOSE_BUILD_BASE forwards no secrets — bash, set-permissions,
+# cache-clear, apply-config, update-languages all use this and have
+# no reason to see the GitHub token. COMPOSE_BUILD_COMPOSER (defined
+# in Make/application.mk) explicitly opts in to `-e COMPOSER_AUTH`
+# for the install/composer-install/composer-update path that actually
+# needs API auth.
+COMPOSE_BUILD_BASE := $(COMPOSE_BIN) run --rm
 COMPOSE_BUILD      := $(COMPOSE_BUILD_BASE) buildbox
 COMPOSE_BUILD_ROOT := $(COMPOSE_BUILD_BASE) buildbox-root
 

@@ -26,6 +26,8 @@
 # review focus, smoke-matrix steps, post-merge image pull) and the
 # trust-model section.
 
+#### Maintenance
+
 .PHONY: bump-nginx bump-mariadb
 
 # Pure-shell metacharacters in VERSION / CONFIG_REVISION are caught at

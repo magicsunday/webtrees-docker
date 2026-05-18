@@ -5,12 +5,7 @@
 # Source of truth: installer/webtrees_installer/flow.py:_DEFAULT_PORT
 # and _FALLBACK_PORT. The mirror block at flow.py:74-82 documents
 # every file that must carry the same literal; this target enforces
-# the discipline programmatically (mirrors ci-alpine-lockstep).
-#
-# Drift has happened before — docs/env-vars.md briefly fell back to
-# `80` during the 28k-band introduction and stayed there until a
-# retrospective audit caught it. With this check on every commit, the
-# next bump moves all sites or trips the failure-path test.
+# the discipline programmatically.
 
 set -euo pipefail
 

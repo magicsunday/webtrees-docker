@@ -15,7 +15,7 @@ endif
 
 #### Docker & Environment
 
-.PHONY: up down restart status config logs bash bash-root
+.PHONY: up down down-volumes restart status config logs bash bash-root
 
 up: .logo ## Starts all defined docker containers.
 	${COMPOSE_BIN} up -d
@@ -23,10 +23,15 @@ up: .logo ## Starts all defined docker containers.
 	@echo -e "\033[0;32m ✔\033[0m Docker containers for ${COMPOSE_PROJECT_NAME} ... successfully STARTED"
 	@echo -e "\033[0;32m ✔\033[0m Project can be reached at ${FYELLOW}${PROJECT_URL}${FRESET}"
 
-down: .logo ## Stops and removes all docker containers started with `make up`.
-	${COMPOSE_BIN} down -v
+down: .logo ## Stops and removes containers. Named volumes (database, media, app) survive — use `make down-volumes` to wipe them.
+	${COMPOSE_BIN} down
 	@echo ""
 	@echo -e "\033[0;32m ✔\033[0m Docker containers for ${COMPOSE_PROJECT_NAME} ... successfully STOPPED"
+
+down-volumes: .logo ## Stops containers AND removes named volumes — wipes the database. Irreversible.
+	${COMPOSE_BIN} down -v
+	@echo ""
+	@echo -e "\033[0;33m ⚠\033[0m Docker containers AND named volumes for ${COMPOSE_PROJECT_NAME} removed."
 
 restart: .logo ## Restarts the application.
 	${COMPOSE_BIN} restart

@@ -2,8 +2,7 @@
 # CI test aggregate
 #
 # `make ci-test` bundles every static-analysis + unit-test check that should
-# pass before a commit lands. Mirrors the `composer ci:test` discipline of the
-# chart-module repos: one local command, green here means green in CI.
+# pass before a commit lands. One local command, green here means green in CI.
 #
 # Sub-targets stay individually invocable for fast iteration. New checks land
 # here (not as separate workflows) so the aggregate stays the single source of
@@ -17,12 +16,18 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
+#### CI & Lint
+
+# ci-test runs serially: the python sub-targets (ci-pytest / ci-ruff /
+# ci-mypy / ci-vulture / ci-cpd) share the `webtrees-ci-pip-cache`
+# volume and race on `pip install -e .` writes under `make -jN`.
+.NOTPARALLEL: ci-test
+
 .PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
 
 # Naming note: documentation and tracking issues call this aggregate
-# `ci:test` (mirrors composer-script convention). Makefile targets cannot
-# contain `:` in their names, so the recipe is `ci-test`; both are
-# interchangeable in conversation.
+# `ci:test`. Makefile targets cannot contain `:` in their names, so the
+# recipe is `ci-test`; both are interchangeable in conversation.
 ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
@@ -41,9 +46,13 @@ ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make hel
 			echo "::error::missing required host tools:$$missing" >&2; \
 			echo "::error::install via your distro package manager (Debian/Ubuntu: 'apt install coreutils bsdmainutils git'; macOS: 'brew install coreutils git')." >&2; \
 			exit 1; \
-		fi
+		fi; \
+		docker info >/dev/null 2>&1 || { \
+			echo "::error::docker CLI is on PATH but the daemon is unreachable. Start dockerd (or fix DOCKER_HOST)." >&2; \
+			exit 1; \
+		}
 
-ci-pytest: .logo ## Runs the installer Python test suite via $(CI_IMAGE_PYTHON).
+ci-pytest: .logo ## Runs the installer Python test suite in a throwaway Python container.
 	echo -e "${FBLUE}▶ pytest (installer)${FRESET}"
 	# `apt-get install make` brings GNU make into the throwaway
 	# container so the Makefile-render tests
@@ -112,10 +121,7 @@ ci-entrypoint: .logo ## Runs the docker-entrypoint.sh state-machine tests.
 	# Pre-pull so test-entrypoint.sh's "Image not found locally" guard does
 	# not trip on a fresh runner that has never built/pulled the image.
 	IMAGE="ghcr.io/magicsunday/webtrees-php:$(LATEST_PHP_TAG)"; \
-		docker pull "$$IMAGE" >/dev/null || { \
-			echo "::error::docker pull failed for $$IMAGE" >&2; \
-			exit 1; \
-		}; \
+		./scripts/lib/pull-or-fail.sh "$$IMAGE" && \
 		TEST_IMAGE="$$IMAGE" ./tests/test-entrypoint.sh
 
 ci-nginx-config: .logo ## Runs the nginx config syntax + trust-gate regression tests.
@@ -125,12 +131,9 @@ ci-nginx-config: .logo ## Runs the nginx config syntax + trust-gate regression t
 	# gate (default.conf reads $$xfp_https, trust-proxy-map.conf carries
 	# the expected CIDR set with LAN ranges out of default trust).
 	NGINX_IMAGE="ghcr.io/magicsunday/webtrees-nginx:1.30-r1"; \
-		docker pull "$$NGINX_IMAGE" >/dev/null || { \
-			echo "::error::docker pull failed for $$NGINX_IMAGE" >&2; \
-			exit 1; \
-		}; \
-		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-nginx-config.sh; \
-		echo -e "${FBLUE}▶ trust-proxy-extra entrypoint tests${FRESET}"; \
+		./scripts/lib/pull-or-fail.sh "$$NGINX_IMAGE" && \
+		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-nginx-config.sh && \
+		echo -e "${FBLUE}▶ trust-proxy-extra entrypoint tests${FRESET}" && \
 		TEST_NGINX_IMAGE="$$NGINX_IMAGE" ./tests/test-trust-proxy-extra.sh
 
 ci-yamllint: .logo ## Lints workflow + compose YAML files.
@@ -146,7 +149,7 @@ ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the centr
 	echo -e "${FBLUE}▶ alpine lockstep${FRESET}"
 	./scripts/lockstep/check-alpine-pin.sh "$(CURDIR)"
 
-ci-images-lockstep: .logo ## Asserts Make/images.mk and scripts/lib/images.env carry the same CI_IMAGE_* pin set (issue #120).
+ci-images-lockstep: .logo ## Asserts Make/images.mk and scripts/lib/images.env carry the same CI_IMAGE_* pin set.
 	echo -e "${FBLUE}▶ ci-image-pin lockstep${FRESET}"
 	./scripts/lockstep/check-ci-images.sh "$(CURDIR)"
 
@@ -184,15 +187,15 @@ ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period
 	echo -e "${FBLUE}▶ healthcheck lockstep${FRESET}"
 	./scripts/lockstep/check-healthcheck-start-period.sh "$(CURDIR)"
 
-ci-tls-verify-lockstep: .logo ## Asserts no TLS-verify bypass flags appear in executable repo files; deny-list and rationale in scripts/lockstep/check-tls-verify.sh (issue #128).
+ci-tls-verify-lockstep: .logo ## Asserts no TLS-verify bypass flags appear in executable repo files; deny-list and rationale in scripts/lockstep/check-tls-verify.sh.
 	echo -e "${FBLUE}▶ TLS-verify lockstep${FRESET}"
 	./scripts/lockstep/check-tls-verify.sh "$(CURDIR)"
 
-ci-diy-env-vars-lockstep: .logo ## Asserts every env var named in docs/diy.md also appears in docs/env-vars.md (issue #126).
+ci-diy-env-vars-lockstep: .logo ## Asserts every env var named in docs/diy.md also appears in docs/env-vars.md.
 	echo -e "${FBLUE}▶ DIY env-vars lockstep${FRESET}"
 	./scripts/lockstep/check-diy-env-vars.sh "$(CURDIR)"
 
-ci-host-lan-ip-detect-tests: .logo ## Regression tests for install's HOST_LAN_IP detection block (issue #134).
+ci-host-lan-ip-detect-tests: .logo ## Regression tests for install's HOST_LAN_IP detection block.
 	echo -e "${FBLUE}▶ host-lan-ip-detect tests${FRESET}"
 	./tests/test-host-lan-ip-detect.sh
 

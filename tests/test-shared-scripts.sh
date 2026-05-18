@@ -314,6 +314,87 @@ run_test \
     0 "No new versions to batch"
 
 # ──────────────────────────────────────────────────────────────────────
+# scripts/lib/pull-or-fail.sh: docker pull wrapper. Failure-path tests
+# pin every documented exit:
+#   * exit 2 — missing argument
+#   * exit 1 — bare-tag `repo:` (no tag)
+#   * exit 1 — docker pull fails
+#   * exit 0 — happy path
+# ──────────────────────────────────────────────────────────────────────
+
+reset_stubs
+run_test \
+    "pull-or-fail: no args → exit 2 + 'requires exactly one image reference'" \
+    "./scripts/lib/pull-or-fail.sh" \
+    2 "requires exactly one image reference"
+
+reset_stubs
+run_test \
+    "pull-or-fail: bare-tag 'repo:' → exit 1 + 'missing a tag'" \
+    "./scripts/lib/pull-or-fail.sh ghcr.io/example/foo:" \
+    1 "missing a tag"
+
+reset_stubs
+# shellcheck disable=SC2016
+# `$1` in the stub body is the stub's positional arg, expanded only
+# when the stub is invoked. Single-quoting keeps it symbolic through
+# the `stub` helper's heredoc.
+stub docker '[ "$1" = "pull" ] && exit 1'
+run_test \
+    "pull-or-fail: pull fails → exit 1 + 'docker pull failed'" \
+    "./scripts/lib/pull-or-fail.sh ghcr.io/example/foo:1.0" \
+    1 "docker pull failed"
+
+reset_stubs
+# shellcheck disable=SC2016
+stub docker '[ "$1" = "pull" ] && exit 0'
+run_test \
+    "pull-or-fail: happy path (pull succeeds) → exit 0" \
+    "./scripts/lib/pull-or-fail.sh ghcr.io/example/foo:1.0" \
+    0 ""
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/lib/render-make-help.sh: help renderer. `#` chars in
+# descriptions (issue refs, $(VAR) refs) must survive the column-split
+# unchanged.
+# ──────────────────────────────────────────────────────────────────────
+
+reset_stubs
+fixture=$(mktemp /tmp/wt-help-fixture.XXXXXX)
+cat > "$fixture" <<'FIXTURE'
+#### Section A
+
+target-one: ## Mentions $(SOME_VAR) which has a # char.
+	echo one
+
+target-two: ## Pure text description.
+	echo two
+
+#### Section B
+
+target-three: ## Another with (issue #123) ref.
+	echo three
+FIXTURE
+# shellcheck disable=SC2016
+# Expected substring is matched literally; `$(SOME_VAR)` must NOT be
+# bash-expanded — that's the regression we're guarding against.
+run_test \
+    "render-make-help: '#' in \$(VAR) survives column-split" \
+    "FYELLOW='' FGREEN='' FRESET='' ./scripts/lib/render-make-help.sh $fixture" \
+    0 'Mentions $(SOME_VAR) which has a # char'
+run_test \
+    "render-make-help: issue refs survive column-split" \
+    "FYELLOW='' FGREEN='' FRESET='' ./scripts/lib/render-make-help.sh $fixture" \
+    0 "Another with (issue #123) ref"
+rm -f "$fixture"
+
+reset_stubs
+run_test \
+    "render-make-help: no args → exit 1 + 'requires at least one Makefile'" \
+    "./scripts/lib/render-make-help.sh" \
+    1 "requires at least one Makefile"
+
+# ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
 

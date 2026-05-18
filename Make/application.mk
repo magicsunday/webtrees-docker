@@ -10,11 +10,11 @@ COMPOSE_BUILD_COMPOSER := $(COMPOSE_BIN) run --rm -e COMPOSER_AUTH -e COMPOSER_M
 
 #### Application Setup & Maintenance
 
-.PHONY: install composer-install composer-update update-languages apply-config cache-clear info
+.PHONY: install composer-install composer-update update-languages apply-config cache-clear info portainer-templates
 
 install: .logo ## Installs the application initially.
 	@$(COMPOSE_BUILD_ROOT) ./scripts/build/set-permissions.sh
-	@${COMPOSE_BUILD} ./scripts/build/install-application.sh
+	@${COMPOSE_BUILD_COMPOSER} ./scripts/build/install-application.sh
 
 composer-install: .logo ## Installs the packages with the locked versions and references.
 	@$(COMPOSE_BUILD_ROOT) ./scripts/build/set-permissions.sh
@@ -37,11 +37,14 @@ info: .logo ## Prints out project information
 	@echo -e "\n${FBOLD}:: Project information${FRESET}\n"
 	@echo -e "  ${FGREEN}Project name:${FRESET}\t\t${COMPOSE_PROJECT_NAME}"
 	@echo -e "  ${FGREEN}Developer domain:${FRESET}\thttps://${DEV_DOMAIN}"
-	@echo -e "  ${FGREEN}Repository origin:${FRESET}\t$$(git remote get-url origin)"
+	@# Strip embedded credentials (`https://token@host` form) before
+	@# printing — `make info` output regularly gets pasted into issues
+	@# / chat; a leaked PAT is forever.
+	@echo -e "  ${FGREEN}Repository origin:${FRESET}\t$$(git remote get-url origin | sed -E 's|://[^@/]+@|://|')"
 	@echo -e "  ${FGREEN}Current branch:${FRESET}\t$$(git branch --show-current)"
 	@latest=$$(git rev-list --tags --max-count=1 2>/dev/null); \
-[ -n "$$latest" ] && tag=$$(git describe --tags $$latest 2>/dev/null) || tag="-"; \
-echo -e "  ${FGREEN}Latest tag:${FRESET}\t\t$$tag"
+	[ -n "$$latest" ] && tag=$$(git describe --tags $$latest 2>/dev/null) || tag="-"; \
+	echo -e "  ${FGREEN}Latest tag:${FRESET}\t\t$$tag"
 
 	@echo -e "\n${FBOLD}:: Repository statistics${FRESET}\n"
 	@echo -e "  ${FGREEN}Last commit message:${FRESET}\t$$(git log -1 --pretty=format:"%B")"

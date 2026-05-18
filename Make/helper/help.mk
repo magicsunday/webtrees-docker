@@ -4,7 +4,12 @@
 
 .PHONY: help
 
+# `make help` extracts `## docstrings` from every loaded .mk file and
+# `#### ` section headers, then renders them as a colour-aligned
+# index. The actual rendering lives in scripts/lib/render-make-help.sh
+# — see that file's header for the column-split design (TAB delimiter
+# so `#` chars in descriptions survive, awk-based blank-line
+# re-injection between sections).
 help: .logo
-	@echo -e "${FYELLOW}Usage:${FRESET}\n  make [target] ..."
-	@cat $(filter-out %.env, $(MAKEFILE_LIST)) | grep -E '(^[a-zA-Z0-9._-]+:.*##|^#### )' | sed -e 's/\\$$//' | sed -e 's/ \.logo//g' | sed -E 's/#### (.+)/ \n${FYELLOW}\1${FRESET}/g' | sed -E '/^[^#].*##/ { s/^([^ ]+):[^#]*/  ${FGREEN}\1${FRESET}/ }' | column -t -s '##'
-	@echo ""
+	@FYELLOW='$(FYELLOW)' FGREEN='$(FGREEN)' FRESET='$(FRESET)' \
+		./scripts/lib/render-make-help.sh $(filter-out %.env, $(MAKEFILE_LIST))
