@@ -45,62 +45,56 @@ CI_IMAGE_SHELLCHK := koalaman/shellcheck:stable
 CI_IMAGE_YAMLLINT := cytopia/yamllint:latest
 
 # =============================================================================
-# CI run wrappers — full `docker run` invocations consumers can $(CI_RUN_*) verbatim.
+# CI run wrappers — full `docker run` invocations consumers expand verbatim.
 # =============================================================================
 #
-# Same single-source-of-truth rationale as the top-level Makefile's
-# `COMPOSE_BUILD := $(COMPOSE_BIN) run --rm -e COMPOSER_AUTH buildbox`
-# style: the volume mounts, the workdir, the --entrypoint, and the
-# image pin all live in one place. Recipes spell out the
-# tool-specific command line; everything before that is a single
-# variable expansion.
-#
-# Variants:
-#
-# - `CI_RUN_PYTHON`        — the four ci-{ruff,mypy,vulture,cpd}
-#   targets share this base: installer/ mounted at /app, pip-cache
-#   volume reused, --entrypoint sh ready to take a `-c "<cmd>"`.
-# - `CI_RUN_PYTHON_WITH_REPO` — ci-pytest adds the repo-root read-only
-#   mount + WT_REPO_ROOT env so the mariadb-pin / Makefile-render
-#   lockstep tests can walk the actual repo.
-# - `CI_RUN_JQ`            — jq queries against dev/versions.json.
-# - `CI_RUN_HADOLINT`      — `-i` for stdin Dockerfile.
-# - `CI_RUN_SHELLCHK`      — repo bind-mounted at /work; called via
-#   `xargs … $(CI_RUN_SHELLCHK) -x` because the file list is piped in.
-# - `CI_RUN_YAMLLINT`      — repo at /work for compose + workflow paths.
-#
-# A future ci-* target needing one of these shapes reuses the
-# variable instead of copy-pasting 6 docker-run flags (#120).
+# Mirrors the top-level Makefile's COMPOSE_BUILD_BASE pattern: one
+# private base, many public variants derive from it. Recipes spell
+# out the tool-specific command; everything before is a single
+# variable expansion. Adding a future wrapper for a new tool reuses
+# the same shape so a docker-run flag change (e.g. --user, --network)
+# is one edit (#120).
 
-CI_RUN_PYTHON := docker run --rm \
+_CI_RUN_BASE := docker run --rm
+
+# Shared Python skeleton: installer/ mounted at /app, pip-cache
+# volume, --entrypoint sh. The two public variants append extra
+# flags + the trailing image pin.
+_CI_RUN_PYTHON_BASE := $(_CI_RUN_BASE) \
 	-v "$(PWD)/installer:/app" \
 	-v webtrees-ci-pip-cache:/root/.cache/pip \
 	-w /app \
-	--entrypoint sh \
-	$(CI_IMAGE_PYTHON)
+	--entrypoint sh
 
-CI_RUN_PYTHON_WITH_REPO := docker run --rm \
+# ci-{ruff,mypy,vulture,cpd}: installer-only.
+CI_RUN_PYTHON := $(_CI_RUN_PYTHON_BASE) $(CI_IMAGE_PYTHON)
+
+# ci-pytest: adds repo-root :ro + WT_REPO_ROOT so lockstep tests can
+# walk the actual repo from /repo/ instead of pathlib jumps out of
+# installer/.
+CI_RUN_PYTHON_WITH_REPO := $(_CI_RUN_PYTHON_BASE) \
 	-v "$(PWD):/repo:ro" \
-	-v "$(PWD)/installer:/app" \
-	-v webtrees-ci-pip-cache:/root/.cache/pip \
-	-w /app \
 	-e WT_REPO_ROOT=/repo \
-	--entrypoint sh \
 	$(CI_IMAGE_PYTHON)
 
-CI_RUN_JQ := docker run --rm \
+# jq against dev/versions.json + dev/php-versions.json.
+CI_RUN_JQ := $(_CI_RUN_BASE) \
 	-v "$(PWD)/dev:/d:ro" \
 	-w /d \
 	$(CI_IMAGE_JQ)
 
-CI_RUN_HADOLINT := docker run --rm -i $(CI_IMAGE_HADOLINT)
+# Hadolint reads the Dockerfile from stdin (`-i`).
+CI_RUN_HADOLINT := $(_CI_RUN_BASE) -i $(CI_IMAGE_HADOLINT)
 
-CI_RUN_SHELLCHK := docker run --rm \
+# Shellcheck: invoked as `xargs … $(CI_RUN_SHELLCHK) -x` with the
+# file list piped in, so repo is bind-mounted at /work.
+CI_RUN_SHELLCHK := $(_CI_RUN_BASE) \
 	-v "$(PWD):/work" \
 	-w /work \
 	$(CI_IMAGE_SHELLCHK)
 
-CI_RUN_YAMLLINT := docker run --rm \
+# yamllint against compose + workflow paths.
+CI_RUN_YAMLLINT := $(_CI_RUN_BASE) \
 	-v "$(PWD):/work" \
 	-w /work \
 	$(CI_IMAGE_YAMLLINT)

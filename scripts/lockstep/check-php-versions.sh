@@ -44,20 +44,12 @@ cd "$repo_root"
 # shellcheck source=scripts/lib/images.env
 source "$(dirname "$0")/../lib/images.env"
 
-docker run --rm \
-    -v "$repo_root/dev:/d:ro" \
-    -w /d \
-    "$CI_IMAGE_JQ" \
-    empty versions.json >/dev/null 2>&1 || {
+ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
     echo "::error::dev/versions.json is not parseable JSON" >&2
     exit 1
 }
 
-docker run --rm \
-    -v "$repo_root/dev:/d:ro" \
-    -w /d \
-    "$CI_IMAGE_JQ" \
-    empty php-versions.json >/dev/null 2>&1 || {
+ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
     echo "::error::dev/php-versions.json is not parseable JSON" >&2
     exit 1
 }
@@ -67,19 +59,19 @@ docker run --rm \
 # row carrying that minor. Compare per-bucket; first drift fails loud
 # with a `::error::` annotation naming the offending webtrees minor +
 # the symmetric-difference set.
-supported_raw=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
+supported_raw=$(ci_run_jq "$repo_root" \
     -r '(.supported // []) | length' php-versions.json) || {
     echo "::error::docker run for supported-php length-probe failed" >&2
     exit 1
 }
 
-supported_clean=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
+supported_clean=$(ci_run_jq "$repo_root" \
     -r '[(.supported // [])[] | select(type == "string" and (. | test("^[1-9][0-9]*\\.[0-9]+$")))] | unique' php-versions.json) || {
     echo "::error::docker run for supported-php clean-extract failed" >&2
     exit 1
 }
 
-supported_clean_count=$(printf '%s' "$supported_clean" | docker run --rm -i "$CI_IMAGE_JQ" -r length) || {
+supported_clean_count=$(printf '%s' "$supported_clean" | ci_run_jq_stdin -r length) || {
     echo "::error::docker run for supported-php length-count failed" >&2
     exit 1
 }
@@ -89,7 +81,7 @@ if [ "$supported_raw" != "$supported_clean_count" ]; then
     exit 1
 fi
 
-supported=$(printf '%s' "$supported_clean" | docker run --rm -i "$CI_IMAGE_JQ" -r 'sort | join(",")') || {
+supported=$(printf '%s' "$supported_clean" | ci_run_jq_stdin -r 'sort | join(",")') || {
     echo "::error::docker run for supported-php sort/join failed" >&2
     exit 1
 }
@@ -101,14 +93,18 @@ supported=$(printf '%s' "$supported_clean" | docker run --rm -i "$CI_IMAGE_JQ" -
 
 echo "  supported PHP minors: $supported"
 
-webtrees_minors=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
+webtrees_minors=$(ci_run_jq "$repo_root" \
     -r '[.[].webtrees] | unique | .[]' versions.json) || {
     echo "::error::docker run for webtrees-minor extraction failed" >&2
     exit 1
 }
 
 for wt in $webtrees_minors; do
-    actual=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
+    # shellcheck disable=SC2016
+    # `$wt` inside the single-quoted jq filter is a jq variable bound via
+    # `--arg wt "$wt"` on the line above, not a bash expansion. The single
+    # quotes are intentional so jq sees the literal `$wt` token.
+    actual=$(ci_run_jq "$repo_root" \
         -r --arg wt "$wt" '[.[] | select(.webtrees == $wt) | .php] | sort | join(",")' versions.json) || {
         echo "::error::docker run for per-webtrees PHP extraction failed (wt=$wt)" >&2
         exit 1

@@ -43,11 +43,7 @@ cd "$repo_root"
 # shellcheck source=scripts/lib/images.env
 source "$(dirname "$0")/../lib/images.env"
 
-docker run --rm \
-    -v "$repo_root/dev:/d:ro" \
-    -w /d \
-    "$CI_IMAGE_JQ" \
-    empty versions.json >/dev/null 2>&1 || {
+ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
     echo "::error::dev/versions.json is not parseable JSON" >&2
     exit 1
 }
@@ -59,12 +55,12 @@ docker run --rm \
 # already drops whitespace-only values; the `gsub` then strips the
 # surviving values so the SET comparison sees the same canonical form
 # the rewriter wrote to README.
-expected_wt=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
+expected_wt=$(ci_run_jq "$repo_root" \
     -r '[.[].webtrees | select(type == "string" and (. | test("\\S"))) | gsub("^\\s+|\\s+$"; "")] | unique | .[]' versions.json) || {
     echo "::error::docker run for webtrees pin extraction failed" >&2
     exit 1
 }
-expected_php=$(docker run --rm -v "$repo_root/dev:/d:ro" -w /d "$CI_IMAGE_JQ" \
+expected_php=$(ci_run_jq "$repo_root" \
     -r '[.[].php | select(type == "string" and (. | test("\\S"))) | gsub("^\\s+|\\s+$"; "")] | unique | .[]' versions.json) || {
     echo "::error::docker run for php pin extraction failed" >&2
     exit 1
