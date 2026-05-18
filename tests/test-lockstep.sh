@@ -593,6 +593,11 @@ restore_worktree
 # the sed pattern would no-op silently and the failure-path test would
 # falsely succeed via assert_lockstep_fails seeing no drift. Fail loud
 # so the helper itself trips before the recipe is even invoked.
+#
+# Issue #141: the installer templates now consume a shared
+# `nginx_healthcheck()` macro from `_compose_macros.j2`. Drift fixtures
+# that previously mutated the template's inline `start_period:` now
+# target the macro file via mutate_nginx_macro_start_period.
 mutate_nginx_start_period() {
     local file=$1 new_value=$2
     local nginx_line
@@ -613,6 +618,27 @@ mutate_nginx_start_period() {
     fi
 }
 
+# Counterpart for the shared installer-side macro. Walks from the
+# `nginx_healthcheck` macro header to its `endmacro` terminator and
+# replaces the start_period literal — the macro file carries one
+# start_period that BOTH rendered templates inherit.
+mutate_nginx_macro_start_period() {
+    local file=$1 new_value=$2
+    local before_hash after_hash
+    before_hash=$(md5sum "$file" | awk '{print $1}')
+    # Same anchored sed range the production lockstep uses
+    # (`{%- macro nginx_healthcheck(` … `{%- endmacro -%}`) so a
+    # stray comment containing the substring `macro nginx_healthcheck`
+    # cannot shift either surface's range.
+    sed -i "/{%- macro nginx_healthcheck(/,/{%- endmacro -%}/{s|\\(start_period:\\) [0-9]*s|\\1 ${new_value}|;}" "$file"
+    after_hash=$(md5sum "$file" | awk '{print $1}')
+    if [ "$before_hash" = "$after_hash" ]; then
+        echo "FAIL: mutate_nginx_macro_start_period made no change to $file" \
+             "— nginx_healthcheck macro may have moved or the value left the [0-9]+s shape"
+        return 1
+    fi
+}
+
 echo "Setting up: compose.yaml nginx start_period mutated to 99s"
 mutate_nginx_start_period "$worktree/compose.yaml" "99s"
 assert_lockstep_fails \
@@ -622,15 +648,14 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# ci-healthcheck-lockstep — traefik-side drift
+# ci-healthcheck-lockstep — macro-side drift (both rendered templates
+# inherit the same start_period, so a single mutation covers both)
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: compose.traefik.j2 nginx start_period mutated to 99s"
-# Exercises the traefik leg of the 3-way OR — without this case a
-# regression that drops the traefik comparison would not be caught.
-mutate_nginx_start_period \
-    "$worktree/installer/webtrees_installer/templates/compose.traefik.j2" "99s"
+echo "Setting up: _compose_macros.j2 nginx start_period mutated to 99s"
+mutate_nginx_macro_start_period \
+    "$worktree/installer/webtrees_installer/templates/_compose_macros.j2" "99s"
 assert_lockstep_fails \
-    "ci-healthcheck-lockstep: traefik template drift surfaces a clear error" \
+    "ci-healthcheck-lockstep: installer macro drift surfaces a clear error" \
     ci-healthcheck-lockstep \
     "start_period drift"
 restore_worktree
@@ -638,29 +663,26 @@ restore_worktree
 # ──────────────────────────────────────────────────────────────────────
 # ci-healthcheck-lockstep — start_period missing entirely on one side
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: installer template nginx start_period blanked"
+echo "Setting up: installer macro nginx start_period blanked"
 # Blank the value (keep the key) so the file shape stays parseable and
-# the failure is "not found", not a Jinja syntax error. Same anchored
-# helper so db/phpfpm lines above nginx are never touched.
-mutate_nginx_start_period \
-    "$worktree/installer/webtrees_installer/templates/compose.standalone.j2" ""
+# the failure is "not found", not a Jinja syntax error.
+mutate_nginx_macro_start_period \
+    "$worktree/installer/webtrees_installer/templates/_compose_macros.j2" ""
 assert_lockstep_fails \
-    "ci-healthcheck-lockstep: blank start_period in template fails the lookup" \
+    "ci-healthcheck-lockstep: blank start_period in macro fails the lookup" \
     ci-healthcheck-lockstep \
     "start_period not found"
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
-# ci-healthcheck-lockstep — entire start_period line deleted from template
+# ci-healthcheck-lockstep — entire start_period line deleted from macro
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: installer template nginx start_period line deleted entirely"
+echo "Setting up: installer macro nginx start_period line deleted entirely"
 # A future refactor that drops the start_period: key altogether (vs the
 # blanked-value case above) must still surface as `::error::start_period
-# not found`, not a bash-pipefail abort with no annotation. The
-# `|| true` after the grep in check-healthcheck-start-period.sh
-# preserves the explicit empty-value diagnostic on this path.
-sed -i '/^    nginx:/,/^    [a-z]/{/start_period:/d;}' \
-    "$worktree/installer/webtrees_installer/templates/compose.standalone.j2"
+# not found`, not a bash-pipefail abort with no annotation.
+sed -i '/{%- macro nginx_healthcheck(/,/{%- endmacro -%}/{/start_period:/d;}' \
+    "$worktree/installer/webtrees_installer/templates/_compose_macros.j2"
 assert_lockstep_fails \
     "ci-healthcheck-lockstep: deleted start_period line in template fails the lookup" \
     ci-healthcheck-lockstep \

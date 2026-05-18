@@ -1,4 +1,5 @@
 {# Standalone (no reverse proxy) compose layout. -#}
+{% import "_compose_macros.j2" as m -%}
 volumes:
     secrets:
 {%- if reuse_volumes_project %}
@@ -104,53 +105,16 @@ services:
 {%- endif %}
         restart: unless-stopped
         environment:
-            ENVIRONMENT: production
-            ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
-            WEBTREES_VERSION: "{{ webtrees_version }}"
-            WEBTREES_AUTO_SEED: "true"
-{%- if db_type == "sqlite" %}
-            # #144 SQLite: webtrees DB::connect resolves --dbname to
-            # `data/<value>.sqlite` under its own ROOT_DIR (the
-            # vendor/fisharebest/webtrees/ tree, redirected to
-            # /var/www/html/data via a symlink at image-build time).
-            # SQLITE_DBNAME is therefore a basename (no slashes, no
-            # extension) — the resolved on-disk path is
-            # /var/www/html/data/<SQLITE_DBNAME>.sqlite which sits
-            # inside the `app` volume and survives container
-            # restarts. The entrypoint picks dbtype=sqlite when
-            # SQLITE_DBNAME is set.
-            SQLITE_DBNAME: webtrees
-{%- elif use_external_db %}
-            MARIADB_HOST: "${EXTERNAL_DB_HOST}"
-            MARIADB_PORT: "${EXTERNAL_DB_PORT:-3306}"
-            MARIADB_USER: "${EXTERNAL_DB_USER:-webtrees}"
-            MARIADB_PASSWORD_FILE: /secrets/external_db_password
-            MARIADB_DATABASE: "${EXTERNAL_DB_NAME:-webtrees}"
-{%- else %}
-            MARIADB_HOST: db
-            MARIADB_USER: webtrees
-            MARIADB_PASSWORD_FILE: /secrets/mariadb_password
-            MARIADB_DATABASE: webtrees
-{%- endif %}
-            WEBTREES_REWRITE_URLS: "{% if pretty_urls %}1{% else %}0{% endif %}"
-{%- if admin_bootstrap %}
-            WT_ADMIN_USER: "{{ admin_user }}"
-            WT_ADMIN_EMAIL: "{{ admin_email }}"
-            WT_ADMIN_PASSWORD_FILE: /secrets/wt_admin_password
-{%- endif %}
-        healthcheck:
-            test: ["CMD-SHELL", "pgrep php-fpm > /dev/null || exit 1"]
-            interval: 5s
-            timeout: 3s
-            retries: 3
-            # 45s rather than 5s: the entrypoint runs the seed step, the
-            # config-ini write, the schema migration, and (when enabled)
-            # the admin-bootstrap chain BEFORE php-fpm itself is exec'd.
-            # On a CI runner with a cold image cache that sequence can
-            # eat 20-30s; 5s left no headroom and compose-up `Waiting`
-            # tripped to `unhealthy` while php-fpm was still finishing
-            # the bootstrap. 45s + (3 × 5s) = 60s total grace.
-            start_period: 45s
+            {{ m.phpfpm_environment(
+                use_external_db=use_external_db,
+                db_type=db_type,
+                webtrees_version=webtrees_version,
+                pretty_urls=pretty_urls,
+                admin_bootstrap=admin_bootstrap,
+                admin_user=admin_user,
+                admin_email=admin_email,
+            ) | indent(12) }}
+        {{ m.phpfpm_healthcheck() | indent(8) }}
         volumes:
             - secrets:/secrets:ro
             - app:/var/www/html
@@ -173,24 +137,7 @@ services:
             ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
         ports:
             - "${APP_PORT:-{{ app_port }}}:80"
-        healthcheck:
-            # Probe the login page rather than `/` because `/` returns 404
-            # by design when no tree exists yet (operator imports the GEDCOM
-            # post-install). The login route resolves as soon as
-            # config.ini.php, the schema, and any admin user exist.
-            # X-Forwarded-Proto: https tells nginx the upstream already
-            # terminated TLS, bypassing the enforce-https redirect (see
-            # rootfs/etc/nginx/conf.d/default.conf $isHttps logic). Keeps
-            # the healthcheck honest regardless of ENFORCE_HTTPS value.
-            test: ["CMD-SHELL", "curl -sf -H 'X-Forwarded-Proto: https' 'http://localhost/index.php?route=/login' -o /dev/null || exit 1"]
-            interval: 10s
-            timeout: 5s
-            retries: 3
-            # The probe requires config.ini.php + DB schema + (optional)
-            # admin user — first-boot bootstrap on slow disks (NAS, cold
-            # composer cache) can exceed 30s. 60s covers WEBTREES_AUTO_SEED
-            # cleanly without dragging the docker-compose up wait time.
-            start_period: 60s
+        {{ m.nginx_healthcheck() | indent(8) }}
         volumes:
             - app:/var/www/html:ro
             - media:/var/www/html/data/media:ro
