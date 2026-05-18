@@ -17,13 +17,13 @@
 # a user-facing table. Edit both surfaces together when adding a new tool.
 # =============================================================================
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test` (mirrors composer-script convention). Makefile targets cannot
 # contain `:` in their names, so the recipe is `ci-test`; both are
 # interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -187,6 +187,10 @@ ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period
 ci-tls-verify-lockstep: .logo ## Asserts no TLS-verify bypass flags appear in executable repo files; deny-list and rationale in scripts/lockstep/check-tls-verify.sh (issue #128).
 	echo -e "${FBLUE}▶ TLS-verify lockstep${FRESET}"
 	./scripts/lockstep/check-tls-verify.sh "$(CURDIR)"
+
+ci-diy-env-vars-lockstep: .logo ## Asserts every env var named in docs/diy.md also appears in docs/env-vars.md (issue #126).
+	echo -e "${FBLUE}▶ DIY env-vars lockstep${FRESET}"
+	./scripts/lockstep/check-diy-env-vars.sh "$(CURDIR)"
 
 ci-host-lan-ip-detect-tests: .logo ## Regression tests for install's HOST_LAN_IP detection block (issue #134).
 	echo -e "${FBLUE}▶ host-lan-ip-detect tests${FRESET}"

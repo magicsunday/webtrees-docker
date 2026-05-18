@@ -269,6 +269,15 @@ Full procedure (DB dump, media tar, restore, scheduling): see
   `<project>_database` and `<project>_media` hold your trees and
   uploads and must be preserved. Restore from your latest backup.
 
+## Power-user paths
+
+- Operator with an existing curated compose stack who wants to add
+  webtrees without the wizard → [`docs/diy.md`](docs/diy.md). Lists
+  the env-var contract per service, mount points, healthchecks, and
+  a minimal hand-written `compose.yaml`.
+- Wizard-driven BYOD (external DB, host-path data, reused volumes)
+  → [`docs/byod.md`](docs/byod.md).
+
 ## Contributing
 
 Project standards — design-principle order, code conventions,

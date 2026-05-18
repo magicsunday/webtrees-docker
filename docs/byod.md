@@ -7,6 +7,11 @@ who already have webtrees data (an existing tree, media files, a
 production MariaDB hosting other apps), the BYOD flags let the
 rendered stack plug into that data without a dump-and-reimport cycle.
 
+All three BYOD patterns below still go through the wizard. Operators
+who want to consume the published images WITHOUT the wizard
+(GitOps repo, Kubernetes, custom compose stack) should read
+[`diy.md`](diy.md) instead — it documents the image contract directly.
+
 Three independent BYOD patterns are supported; pick exactly one per
 install (the wizard rejects combinations that would collide):
 

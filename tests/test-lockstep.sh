@@ -948,6 +948,34 @@ assert_lockstep_passes \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-diy-env-vars-lockstep (issue #126)
+# ──────────────────────────────────────────────────────────────────────
+
+# Inject a bogus env-var name into docs/diy.md and assert the
+# lockstep flags it as missing from docs/env-vars.md. Picks
+# `WEBTREES_BOGUS_VAR` because it follows the screaming-snake
+# convention the deny-regex matches and clearly does not exist in
+# the authoritative table.
+echo "Setting up: inject 'WEBTREES_BOGUS_VAR' into docs/diy.md"
+# Backticks inside the single-quoted printf are intentional markdown
+# inline-code delimiters that the lockstep regex matches on.
+# shellcheck disable=SC2016
+printf '\nA new optional knob: `WEBTREES_BOGUS_VAR` (not real).\n' \
+    >> "$worktree/docs/diy.md"
+assert_lockstep_fails \
+    "ci-diy-env-vars-lockstep: undocumented var flagged" \
+    "ci-diy-env-vars-lockstep" \
+    "WEBTREES_BOGUS_VAR"
+restore_worktree
+
+# Positive control: clean tree passes (catches a future regex
+# weakening that drops all matches).
+assert_lockstep_passes \
+    "ci-diy-env-vars-lockstep: clean tree passes" \
+    "ci-diy-env-vars-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
 echo
