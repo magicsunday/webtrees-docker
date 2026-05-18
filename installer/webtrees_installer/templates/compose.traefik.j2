@@ -1,7 +1,9 @@
 {# Traefik (reverse-proxy) compose layout. -#}
 volumes:
     secrets:
+{%- if db_type != "sqlite" %}
     database:
+{%- endif %}
     app:
     media:
 
@@ -22,12 +24,19 @@ services:
             - -ec
             - |
                 umask 077
-                for name in mariadb_root_password mariadb_password{% if admin_bootstrap %} wt_admin_password{% endif %}; do
+                for name in {% if db_type != "sqlite" %}mariadb_root_password mariadb_password{% endif %}{% if admin_bootstrap %}{% if db_type != "sqlite" %} {% endif %}wt_admin_password{% endif %}; do
                   if [ ! -s "/secrets/$$name" ]; then
                     head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/secrets/$$name"
                   fi
                 done
-                chmod 444 /secrets/*
+                # find-with-exec instead of `chmod /secrets/*` so an
+                # empty /secrets (db_type=sqlite + admin_bootstrap=False
+                # → zero secrets to generate) does not trigger glob-
+                # expansion failure under `sh -ec`. find returns 0 on
+                # empty input; the `/secrets/*` glob would leak the
+                # unexpanded literal to chmod and fail rc=1.
+                find /secrets -mindepth 1 -type f -exec chmod 444 {} +
+{%- if db_type != "sqlite" %}
 
     db:
         image: mariadb:11.8
@@ -49,22 +58,35 @@ services:
             timeout: 5s
             retries: 5
             start_period: 10s
+{%- endif %}
 
     phpfpm:
         image: ghcr.io/magicsunday/webtrees-php{% if edition == "full" %}-full{% endif %}:{{ webtrees_version }}-php{{ php_version }}
         depends_on:
+{%- if db_type == "sqlite" %}
+            init:
+                condition: service_completed_successfully
+{%- else %}
             db:
                 condition: service_healthy
+{%- endif %}
         restart: unless-stopped
         environment:
             ENVIRONMENT: production
             ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
             WEBTREES_VERSION: "{{ webtrees_version }}"
             WEBTREES_AUTO_SEED: "true"
+{%- if db_type == "sqlite" %}
+            # #144 SQLite: --dbname is a basename; webtrees resolves
+            # it to /var/www/html/data/<value>.sqlite at runtime.
+            # Entrypoint picks dbtype=sqlite when SQLITE_DBNAME is set.
+            SQLITE_DBNAME: webtrees
+{%- else %}
             MARIADB_HOST: db
             MARIADB_USER: webtrees
             MARIADB_PASSWORD_FILE: /secrets/mariadb_password
             MARIADB_DATABASE: webtrees
+{%- endif %}
             WEBTREES_REWRITE_URLS: "{% if pretty_urls %}1{% else %}0{% endif %}"
 {%- if admin_bootstrap %}
             WT_ADMIN_USER: "{{ admin_user }}"

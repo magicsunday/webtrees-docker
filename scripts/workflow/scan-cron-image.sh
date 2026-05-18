@@ -7,8 +7,9 @@
 # single source of human-readable documentation.
 #
 # Lives as a standalone .sh (not inline in the workflow) so
-# shellcheck and any future tests/ harness can exercise the
-# placeholder substitution + sort-V dedup paths in isolation.
+# static analysis (ci-shellcheck) and any future tests/ harness can
+# exercise the placeholder substitution + sort-V dedup paths in
+# isolation.
 #
 # Side effects: opens one tracking issue per discovered newer minor
 # via `scripts/workflow/file-bump-issue.sh`. Exits 0 even when zero
@@ -46,7 +47,9 @@ for ver in $available; do
         # via process substitution + envsubst avoids shell-injection
         # risk that an `eval` form would carry, and keeps the
         # placeholder grammar simple (only ${VER} is recognised).
+        # shellcheck disable=SC2016  # '${VER}' is an envsubst allowlist, not bash expansion
         title=$(VER="$ver" envsubst '${VER}' <<<"$TITLE_TEMPLATE")
+        # shellcheck disable=SC2016  # see comment above
         body=$(VER="$ver" envsubst '${VER}' <<<"$BODY_TEMPLATE")
         TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
     fi

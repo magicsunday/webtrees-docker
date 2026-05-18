@@ -116,6 +116,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the schema init step in dev mode.",
     )
     parser.add_argument(
+        "--db",
+        choices=["mariadb", "sqlite"],
+        default="mariadb",
+        dest="db_type",
+        help="Bundled database engine (default: mariadb). "
+             "`mariadb` ships a MariaDB container alongside phpfpm + nginx "
+             "and is the production default. `sqlite` is the lightest "
+             "install: webtrees writes to a single file inside the `app` "
+             "volume, the `db` service is dropped entirely, the stack "
+             "shrinks to phpfpm + nginx. Choose sqlite for single-tree "
+             "low-traffic installs, dev sandboxes, or NAS appliances where "
+             "the operational overhead of a separate DB process is unwanted. "
+             "Mutually exclusive with --use-external-db and --db-data-path "
+             "(both presuppose a network DB engine).",
+    )
+    parser.add_argument(
         "--use-external-db",
         action="store_true",
         help="Skip the bundled `db` service and connect phpfpm directly to an "
@@ -352,6 +368,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         pretty_urls=args.pretty_urls,
         force=args.force,
         no_up=args.no_up,
+        db_type=args.db_type,
         use_external_db=args.use_external_db,
         external_db_host=args.external_db_host,
         external_db_port=args.external_db_port,

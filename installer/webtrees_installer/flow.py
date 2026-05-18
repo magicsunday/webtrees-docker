@@ -76,6 +76,14 @@ class StandaloneArgs:
     force: bool
     no_up: bool
 
+    # #144 bundled database engine. `mariadb` is the default and keeps
+    # the historical shape (db service + MARIADB_* env vars). `sqlite`
+    # drops the db service entirely — webtrees writes to a single file
+    # inside the `app` volume, no separate DB process, no MARIADB_*
+    # env vars on phpfpm. Mutually exclusive with use_external_db /
+    # db_data_path (both presuppose a network DB engine).
+    db_type: str = "mariadb"
+
     # #41 BYOD external-db. When True the wizard skips the bundled `db:`
     # service and wires phpfpm at the operator-supplied host:port. The
     # password is bind-mounted in from external_db_password_file (host
@@ -256,6 +264,10 @@ def run_standalone(
     # every other PromptError, instead of a phpfpm crash loop 60 s
     # later. The probe is a TCP connect — credentials are validated
     # later, by phpfpm at first DB use.
+    # #144 SQLite: validate engine-vs-BYOD compatibility before any
+    # other validator runs.
+    _validate_db_type_compatibility(args)
+
     if args.use_external_db:
         _validate_external_db_inputs(args)
         # _validate_external_db_inputs has already rejected an empty
@@ -291,6 +303,7 @@ def run_standalone(
         generated_at=datetime.now(tz=timezone.utc),
         enforce_https=enforce_https,
         pretty_urls=args.pretty_urls,
+        db_type=args.db_type,
         use_external_db=args.use_external_db,
         # Empty strings are valid RenderInput defaults for the
         # use_external_db=False branch; the validator above guarantees
@@ -387,6 +400,32 @@ _EXTERNAL_DB_IDENTIFIER_RE = re.compile(r"\A[A-Za-z0-9_.\-]+\Z")
 # `$`, `=`, `;`, and other characters that would corrupt the .env line
 # or the compose YAML substitution.
 _EXTERNAL_DB_HOST_RE = re.compile(r"\A[A-Za-z0-9_.\-:\[\]%]+\Z")
+
+
+def _validate_db_type_compatibility(args: StandaloneArgs) -> None:
+    """Reject incompatible combinations of ``--db`` with the BYOD flags.
+
+    SQLite has no network listener (no host:port to point
+    ``--use-external-db`` at) and no ``/var/lib/mysql`` directory to
+    bind-mount via ``--db-data-path``. ``--reuse-volumes`` IS
+    compatible — the ``app`` volume carries the sqlite file the same
+    way the bundled MariaDB variant would, so a previous install's
+    ``<project>_app`` volume re-mounts cleanly.
+    """
+    if args.db_type != "sqlite":
+        return
+    if args.use_external_db:
+        raise PromptError(
+            "--db sqlite is incompatible with --use-external-db: "
+            "SQLite has no network listener to connect to. Use "
+            "--db mariadb if you need an external network DB."
+        )
+    if args.db_data_path is not None:
+        raise PromptError(
+            "--db sqlite is incompatible with --db-data-path: "
+            "SQLite stores its data inside the `app` volume rather "
+            "than a MariaDB /var/lib/mysql directory."
+        )
 
 
 def _validate_external_db_inputs(args: StandaloneArgs) -> None:

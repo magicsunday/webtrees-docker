@@ -1063,3 +1063,83 @@ def test_render_external_db_requires_password_file(
     )
     with pytest.raises(ValueError, match="external_db_password_file"):
         render_files(input_model=inp, target_dir=tmp_path)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# #144 SQLite bundled-engine support
+# ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("proxy_mode,app_port,domain", _PROXY_VARIANTS)
+def test_render_sqlite_drops_db_service(
+    tmp_path: Path, catalog: Catalog, proxy_mode: str, app_port: int | None, domain: str | None,
+) -> None:
+    """`db_type=sqlite` skips the `db:` service and the `database:` volume
+    in both proxy modes; phpfpm gets SQLITE_DBNAME instead of MARIADB_*."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode=proxy_mode,
+        app_port=app_port,
+        domain=domain,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        db_type="sqlite",
+    )
+    render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    # No db service, no database volume.
+    assert "db" not in compose["services"]
+    assert "database" not in (compose.get("volumes") or {})
+
+    # phpfpm env: SQLITE_DBNAME set (basename — webtrees resolves to
+    # data/<value>.sqlite at runtime), no MARIADB_* env vars.
+    phpfpm_env = compose["services"]["phpfpm"]["environment"]
+    assert phpfpm_env.get("SQLITE_DBNAME") == "webtrees"
+    assert "/" not in phpfpm_env["SQLITE_DBNAME"], \
+        "SQLITE_DBNAME must be a basename — webtrees double-prefixes absolute paths"
+    assert not any(k.startswith("MARIADB_") for k in phpfpm_env)
+
+    # phpfpm waits for init (not for an absent db service).
+    phpfpm_deps = compose["services"]["phpfpm"]["depends_on"]
+    assert "init" in phpfpm_deps
+    assert "db" not in phpfpm_deps
+
+
+def test_render_mariadb_keeps_db_service(
+    tmp_path: Path, standalone_core: RenderInput,
+) -> None:
+    """Positive control: the default db_type=mariadb still produces the
+    bundled `db:` service + MARIADB_* env vars."""
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert compose["services"]["db"]["image"].startswith("mariadb:")
+    assert "database" in compose["volumes"]
+    phpfpm_env = compose["services"]["phpfpm"]["environment"]
+    assert phpfpm_env["MARIADB_HOST"] == "db"
+    assert "SQLITE_DBNAME" not in phpfpm_env
+
+
+def test_render_invalid_db_type_rejected(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
+    """Unknown db_type must raise ValueError at render time, not silently
+    produce a half-rendered compose.yaml."""
+    inp = RenderInput(
+        edition="core",
+        proxy_mode="standalone",
+        app_port=8080,
+        domain=None,
+        admin_bootstrap=False,
+        admin_user=None,
+        admin_email=None,
+        catalog=catalog,
+        generated_at=datetime(2026, 5, 12, 12, 0, 0),
+        db_type="postgres",
+    )
+    with pytest.raises(ValueError, match="db_type"):
+        render_files(input_model=inp, target_dir=tmp_path)

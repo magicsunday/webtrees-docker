@@ -157,6 +157,7 @@ Dev-only flags:
 | `--pretty-urls` | Standalone proxy mode only. Render `WEBTREES_REWRITE_URLS=1` so tree pages serve as `/tree/.../individual/...` rather than `?route=...`. Dev mode honours the value in `.env` directly. |
 | `--demo` | Generate a 7-generation synthetic GEDCOM family tree and (if the stack is up) import it. |
 | `--demo-seed <N>` | RNG seed for the demo tree. Default 42 — same seed produces the same tree. |
+| `--db <engine>` | Bundled database engine: `mariadb` (default, ships a MariaDB container) or `sqlite` (drops the `db` service entirely, webtrees writes to a single file in the `app` volume). SQLite is the lightest setup for single-tree / low-traffic / NAS installs. Mutually exclusive with `--use-external-db` and `--db-data-path` (both presuppose a network DB). Compatible with `--reuse-volumes` — the sqlite file rides inside the reused `app` volume. |
 
 ## Exit codes
 

@@ -30,6 +30,15 @@ class RenderInput:
     enforce_https: bool = True
     pretty_urls: bool = False
 
+    # #144 bundled database engine. `mariadb` keeps the historical
+    # shape (db service + MARIADB_* env vars on phpfpm). `sqlite`
+    # drops the db service entirely — webtrees writes to a single
+    # file inside the `app` volume; phpfpm gets a SQLITE_DBNAME env
+    # (the basename webtrees resolves to data/<dbname>.sqlite)
+    # instead of MARIADB_*. The default keeps render_files()
+    # backward-compatible.
+    db_type: str = "mariadb"
+
     # #41 BYOD external-db: when True the rendered compose drops the
     # bundled `db:` service and points phpfpm at the operator-supplied
     # host. The four `external_db_*` strings carry the connection details
@@ -63,6 +72,7 @@ class RenderInput:
 
 _VALID_EDITIONS = {"core", "full"}
 _VALID_PROXY_MODES = {"standalone", "traefik"}
+_VALID_DB_TYPES = {"mariadb", "sqlite"}
 
 
 def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
@@ -101,6 +111,7 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
         "traefik_network": input_model.traefik_network,
         "enforce_https": input_model.enforce_https,
         "pretty_urls": input_model.pretty_urls,
+        "db_type": input_model.db_type,
         "use_external_db": input_model.use_external_db,
         "external_db_host": input_model.external_db_host,
         "external_db_port": input_model.external_db_port,
@@ -146,6 +157,11 @@ def _validate(input_model: RenderInput) -> None:
         raise ValueError(
             f"proxy_mode must be one of {_VALID_PROXY_MODES}, "
             f"got {input_model.proxy_mode!r}"
+        )
+    if input_model.db_type not in _VALID_DB_TYPES:
+        raise ValueError(
+            f"db_type must be one of {_VALID_DB_TYPES}, "
+            f"got {input_model.db_type!r}"
         )
     if input_model.proxy_mode == "standalone" and input_model.app_port is None:
         raise ValueError("standalone proxy_mode requires app_port")

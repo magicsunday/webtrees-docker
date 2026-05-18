@@ -259,6 +259,14 @@ setup_webtrees_bootstrap() {
         return 1
     fi
 
+    # #144 SQLite branch: SQLITE_DBNAME presence chooses dbtype=sqlite
+    # over the MariaDB default. MARIADB_PASSWORD is not required in
+    # the sqlite branch (no auth on a local file).
+    if [[ -z "${SQLITE_DBNAME:-}" ]] && [[ -z "${MARIADB_PASSWORD:-}" ]]; then
+        log_error "MARIADB_PASSWORD is empty (forgot MARIADB_PASSWORD_FILE? or --db sqlite?)"
+        return 1
+    fi
+
     local marker="/var/www/html/.webtrees-bootstrapped"
     local launcher="/var/www/html/public/index.php"
 
@@ -303,32 +311,64 @@ setup_webtrees_bootstrap() {
     # the inner shell expands them from its own argv. $rewrite_flag is
     # set inside the inner shell from the token $8 carries so empty
     # input drops the flag entirely.
-    # shellcheck disable=SC2016  # inner shell expands $1..$8 from positional args
-    if ! su www-data -s /bin/sh -c '
-        case "$8" in
-            rewrite)   rewrite_flag=--rewrite-urls ;;
-            norewrite) rewrite_flag=--no-rewrite-urls ;;
-            *)         rewrite_flag= ;;
-        esac
-        php "$1" config-ini \
-            --dbtype=mysql \
-            --dbhost="$2" \
-            --dbport="$3" \
-            --dbname="$4" \
-            --dbuser="$5" \
-            --dbpass="$6" \
-            --tblpfx="$7" \
-            $rewrite_flag
-    ' webtrees-cli \
-        "${launcher}" \
-        "${MARIADB_HOST:-db}" \
-        "${MARIADB_PORT:-3306}" \
-        "${MARIADB_DATABASE:-webtrees}" \
-        "${MARIADB_USER:-webtrees}" \
-        "${MARIADB_PASSWORD}" \
-        "${WEBTREES_TABLE_PREFIX:-wt_}" \
-        "${rewrite_urls_token}"; then
-        log_error "webtrees config-ini failed — marker not set, will retry on next start"
+    #
+    # #144 SQLite branch: SQLITE_DBNAME presence flips dbtype to sqlite.
+    # The dbname value is a basename (NOT a path); webtrees DB::connect
+    # resolves it to `data/<dbname>.sqlite` under its hardcoded
+    # ROOT_DIR (vendor/fisharebest/webtrees/, redirected to
+    # /var/www/html/data via the image-build-time symlink). Passing
+    # an absolute path would be double-prefixed and the resulting
+    # nested directory would not exist. Both branches share the same
+    # inner-shell shape (single-quoted -c body, positional args), so
+    # the shellcheck disable on SC2016 applies to both invocations.
+    local config_ini_rc=0
+    if [[ -n "${SQLITE_DBNAME:-}" ]]; then
+        # shellcheck disable=SC2016
+        su www-data -s /bin/sh -c '
+            case "$4" in
+                rewrite)   rewrite_flag=--rewrite-urls ;;
+                norewrite) rewrite_flag=--no-rewrite-urls ;;
+                *)         rewrite_flag= ;;
+            esac
+            php "$1" config-ini \
+                --dbtype=sqlite \
+                --dbname="$2" \
+                --tblpfx="$3" \
+                $rewrite_flag
+        ' webtrees-cli \
+            "${launcher}" \
+            "${SQLITE_DBNAME}" \
+            "${WEBTREES_TABLE_PREFIX:-wt_}" \
+            "${rewrite_urls_token}" || config_ini_rc=$?
+    else
+        # shellcheck disable=SC2016
+        su www-data -s /bin/sh -c '
+            case "$8" in
+                rewrite)   rewrite_flag=--rewrite-urls ;;
+                norewrite) rewrite_flag=--no-rewrite-urls ;;
+                *)         rewrite_flag= ;;
+            esac
+            php "$1" config-ini \
+                --dbtype=mysql \
+                --dbhost="$2" \
+                --dbport="$3" \
+                --dbname="$4" \
+                --dbuser="$5" \
+                --dbpass="$6" \
+                --tblpfx="$7" \
+                $rewrite_flag
+        ' webtrees-cli \
+            "${launcher}" \
+            "${MARIADB_HOST:-db}" \
+            "${MARIADB_PORT:-3306}" \
+            "${MARIADB_DATABASE:-webtrees}" \
+            "${MARIADB_USER:-webtrees}" \
+            "${MARIADB_PASSWORD}" \
+            "${WEBTREES_TABLE_PREFIX:-wt_}" \
+            "${rewrite_urls_token}" || config_ini_rc=$?
+    fi
+    if [[ $config_ini_rc -ne 0 ]]; then
+        log_error "webtrees config-ini failed (rc=$config_ini_rc) — marker not set, will retry on next start"
         return 1
     fi
 

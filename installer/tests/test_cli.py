@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from webtrees_installer import __version__
 from webtrees_installer.cli import build_parser, main
 from webtrees_installer.prereq import PrereqError
@@ -336,3 +338,31 @@ def test_main_external_db_defaults_carry_through_without_overrides():
     assert flow_args.external_db_port == 3306
     assert flow_args.external_db_name == "webtrees"
     assert flow_args.external_db_user == "webtrees"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# #144 --db engine selector
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_db_default_is_mariadb() -> None:
+    """No --db flag → db_type=mariadb (backwards compat)."""
+    parser = build_parser()
+    args = parser.parse_args(["--mode", "standalone"])
+    assert args.db_type == "mariadb"
+
+
+def test_db_sqlite_accepted() -> None:
+    """`--db sqlite` parses cleanly."""
+    parser = build_parser()
+    args = parser.parse_args(["--mode", "standalone", "--db", "sqlite"])
+    assert args.db_type == "sqlite"
+
+
+def test_db_invalid_rejected(capsys: pytest.CaptureFixture[str]) -> None:
+    """argparse rejects unsupported engine names with exit-code 2."""
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--mode", "standalone", "--db", "postgres"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err

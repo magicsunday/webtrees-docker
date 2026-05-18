@@ -86,6 +86,23 @@ corresponding rows into webtrees' `site_setting` table on first boot.
 | `ENFORCE_HTTPS` | no (default `FALSE`) | Matches the `phpfpm` setting; nginx redirects http → https when `TRUE` and the request did not arrive with `X-Forwarded-Proto: https`. |
 | `NGINX_TRUSTED_PROXIES` | conditional | CIDR list of upstream proxies whose `X-Forwarded-Proto` header may be trusted. Required if the stack sits behind a reverse proxy / load balancer; leave unset for direct-publish stacks. See [`https-certs.md`](https-certs.md) for the trust-gate behaviour. |
 
+### SQLite (no separate service)
+
+For the lightest install — single-tree, low traffic, NAS — webtrees
+writes to a single SQLite file inside the `app` volume. The wizard
+flag is `--db sqlite`; the rendered compose drops the `db` service
+entirely and the operator's stack reduces to phpfpm + nginx.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SQLITE_DBNAME` | yes (when no `MARIADB_*`) | Basename of the SQLite database (NOT a path). Webtrees resolves it to `data/<value>.sqlite` under its own `ROOT_DIR`, which the image redirects to `/var/www/html/data/` via a symlink. The wizard renders `SQLITE_DBNAME: webtrees`, producing the file at `/var/www/html/data/webtrees.sqlite` inside the `app` volume so it survives container restarts. The entrypoint switches `config.ini.php` to `dbtype = sqlite` when this variable is present. |
+
+DO NOT also set `MARIADB_*` envs alongside `SQLITE_DBNAME` — the
+entrypoint picks the sqlite branch the moment `SQLITE_DBNAME` is
+non-empty, so the MariaDB values would be silently ignored. The
+deny-set is enforced at the CLI layer (`--db sqlite` is mutually
+exclusive with `--use-external-db` and `--db-data-path`).
+
 ### MariaDB (image: `mariadb:11.8` or operator-chosen)
 
 The project does not publish a custom MariaDB image — any compatible

@@ -9,7 +9,7 @@ volumes:
         external: true
         name: {{ reuse_volumes_project }}_secrets
 {%- endif %}
-{%- if not use_external_db %}
+{%- if not use_external_db and db_type != "sqlite" %}
     database:
 {%- if reuse_volumes_project %}
         # #41 BYOD: --reuse-volumes pins this stack's `database:` reference
@@ -57,7 +57,7 @@ services:
             - -ec
             - |
                 umask 077
-                for name in {% if not use_external_db %}mariadb_root_password mariadb_password{% endif %}{% if admin_bootstrap %}{% if not use_external_db %} {% endif %}wt_admin_password{% endif %}; do
+                for name in {% if not use_external_db and db_type != "sqlite" %}mariadb_root_password mariadb_password{% endif %}{% if admin_bootstrap %}{% if not use_external_db and db_type != "sqlite" %} {% endif %}wt_admin_password{% endif %}; do
                   if [ ! -s "/secrets/$$name" ]; then
                     head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/secrets/$$name"
                   fi
@@ -68,7 +68,7 @@ services:
                 # /secrets directory (FS readonly, ownership conflict,
                 # SELinux denial).
                 find /secrets -mindepth 1 -type f -exec chmod 444 {} +
-{%- if not use_external_db %}
+{%- if not use_external_db and db_type != "sqlite" %}
 
     db:
         image: mariadb:11.8
@@ -95,7 +95,7 @@ services:
     phpfpm:
         image: ghcr.io/magicsunday/webtrees-php{% if edition == "full" %}-full{% endif %}:{{ webtrees_version }}-php{{ php_version }}
         depends_on:
-{%- if use_external_db %}
+{%- if use_external_db or db_type == "sqlite" %}
             init:
                 condition: service_completed_successfully
 {%- else %}
@@ -108,7 +108,19 @@ services:
             ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
             WEBTREES_VERSION: "{{ webtrees_version }}"
             WEBTREES_AUTO_SEED: "true"
-{%- if use_external_db %}
+{%- if db_type == "sqlite" %}
+            # #144 SQLite: webtrees DB::connect resolves --dbname to
+            # `data/<value>.sqlite` under its own ROOT_DIR (the
+            # vendor/fisharebest/webtrees/ tree, redirected to
+            # /var/www/html/data via a symlink at image-build time).
+            # SQLITE_DBNAME is therefore a basename (no slashes, no
+            # extension) — the resolved on-disk path is
+            # /var/www/html/data/<SQLITE_DBNAME>.sqlite which sits
+            # inside the `app` volume and survives container
+            # restarts. The entrypoint picks dbtype=sqlite when
+            # SQLITE_DBNAME is set.
+            SQLITE_DBNAME: webtrees
+{%- elif use_external_db %}
             MARIADB_HOST: "${EXTERNAL_DB_HOST}"
             MARIADB_PORT: "${EXTERNAL_DB_PORT:-3306}"
             MARIADB_USER: "${EXTERNAL_DB_USER:-webtrees}"
