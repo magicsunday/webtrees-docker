@@ -16,6 +16,10 @@
 #     plain Linux kernel string → run.
 #   - Cloud dev-env probe: CODESPACES / GITHUB_CODESPACES /
 #     GITPOD_WORKSPACE_ID / REMOTE_CONTAINERS / DEVCONTAINER set → skip.
+#   - WSL2 + Docker Desktop powershell.exe probe (#137):
+#     CRLF-strip + same awk block-list as `hostname -I`. The actual
+#     powershell.exe invocation isn't exercised (Linux CI has no
+#     interop layer); the input-parsing + filter chain is.
 #
 # Out of scope: macOS `ipconfig getifaddr` iteration (Linux CI can't
 # exercise it directly; #139 added the en0..en9 loop and verified by
@@ -39,9 +43,11 @@ run_test() {
     fi
 }
 
-# The awk filter from install:188-199 verbatim. Inlining keeps the
-# test self-contained and surfaces a drift between this file and
-# install via the asserted hostname-matrix outputs.
+# The awk filter from install's `_filter_lan_ipv4` helper verbatim.
+# Inlining keeps the test self-contained AND surfaces drift between
+# this file and install's helper via the asserted hostname-matrix
+# outputs — the test deliberately re-implements the regex so any
+# change in `_filter_lan_ipv4` that isn't mirrored here fails CI.
 filter_lan_ip() {
     local hostname_out=$1
     awk -v ips="$hostname_out" 'BEGIN {
@@ -209,6 +215,45 @@ run_test "DEVCONTAINER=true            → skip" "skip" \
     "$(devenv_probe 'DEVCONTAINER=true')"
 run_test "no dev-env var set           → run"  "run" \
     "$(devenv_probe ':')"
+
+# ──────────────────────────────────────────────────────────────────────
+# WSL2 + Docker Desktop powershell.exe probe — issue #137.
+# The probe pipes powershell.exe stdout through `tr -d '\r\n'` and
+# then through the same awk block-list as `hostname -I`. Tests
+# exercise the post-CRLF-strip + filter chain against representative
+# powershell.exe outputs; the actual powershell.exe invocation can't
+# run on Linux CI.
+# ──────────────────────────────────────────────────────────────────────
+
+# Reproduces install's powershell.exe probe under the WSL2 osrelease
+# branch: `tr -d '\r\n'` strips Windows CRLF, then `_filter_lan_ipv4`
+# applies the shared block-list. The CRLF strip is the only step the
+# WSL2 probe adds on top of filter_lan_ip, so compose rather than
+# re-implement the block-list a second time inside this test file.
+winhost_filter() {
+    local stripped
+    stripped=$(printf '%s' "$1" | tr -d '\r\n')
+    filter_lan_ip "$stripped"
+}
+
+run_test "winhost: '192.168.178.50\\r\\n' (Windows CRLF) → 192.168.178.50" "192.168.178.50" \
+    "$(winhost_filter $'192.168.178.50\r\n')"
+run_test "winhost: '10.0.0.5\\r' (bare CR)              → 10.0.0.5"        "10.0.0.5" \
+    "$(winhost_filter $'10.0.0.5\r')"
+run_test "winhost: '192.168.1.10' (no CR)                → 192.168.1.10"   "192.168.1.10" \
+    "$(winhost_filter '192.168.1.10')"
+run_test "winhost: empty (no DHCP adapter)               → empty"          "" \
+    "$(winhost_filter '')"
+run_test "winhost: '\\r\\n' (whitespace-only)            → empty"          "" \
+    "$(winhost_filter $'\r\n')"
+run_test "winhost: 'fe80::1\\r\\n' (IPv6, not IPv4)      → empty"          "" \
+    "$(winhost_filter $'fe80::1\r\n')"
+run_test "winhost: '127.0.0.1\\r\\n' (loopback)          → empty"          "" \
+    "$(winhost_filter $'127.0.0.1\r\n')"
+run_test "winhost: '172.17.0.1\\r\\n' (docker bridge)    → empty"          "" \
+    "$(winhost_filter $'172.17.0.1\r\n')"
+run_test "winhost: '169.254.1.1\\r\\n' (APIPA)           → empty"          "" \
+    "$(winhost_filter $'169.254.1.1\r\n')"
 
 # ──────────────────────────────────────────────────────────────────────
 

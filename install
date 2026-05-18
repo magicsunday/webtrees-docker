@@ -85,6 +85,33 @@ export COMPOSE_PROJECT_NAME
 # Linux host where hostname -I would otherwise succeed") — the
 # previous `-z` gate conflated unset and empty, so explicit-empty
 # overrides on plain Linux were silently overwritten by detection.
+# Take a space-separated candidate string, print the first IPv4 that
+# is not loopback (127/8), docker bridge (172.16/12), CGNAT/tailscale
+# (100.64/10), or link-local (169.254/16). Empty stdout on no match.
+#
+# Centralises the block-list so each probe source (powershell.exe
+# under WSL2, `ip route show default`, `hostname -I`) feeds the same
+# filter — a future RFC1918 / CGNAT / Tailscale-subnet refinement is
+# one edit.
+#
+# `|| true` on the awk so a missing/non-GNU awk (BusyBox-only, NixOS
+# without GNU awk, minimal recovery shells) degrades to empty rather
+# than aborting the bootstrap under `set -o errexit`.
+_filter_lan_ipv4() {
+    awk -v ips="$1" 'BEGIN {
+        n = split(ips, a, " ")
+        for (i = 1; i <= n; i++) {
+            if (a[i] !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) continue
+            if (a[i] ~ /^127\./) continue
+            if (a[i] ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) continue
+            if (a[i] ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./) continue
+            if (a[i] ~ /^169\.254\./) continue
+            print a[i]
+            exit
+        }
+    }' 2>/dev/null || true
+}
+
 if [ -z "${HOST_LAN_IP+x}" ]; then
     # Default empty — every skip path leaves this untouched, so the
     # installer falls back to the localhost-only banner whenever
@@ -105,8 +132,13 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
     # 2. WSL2 (osrelease contains 'microsoft' or 'wsl'): `hostname -I`
     #    inside WSL2 returns the distro's NAT'd vEthernet address
     #    (172.x or Windows-internal 10.x), not routable from the home
-    #    LAN. Operators on WSL2 who want a LAN URL should explicitly
-    #    `export HOST_LAN_IP=…` on the Windows host's IP.
+    #    LAN. Issue #137: when `powershell.exe` interop is available,
+    #    Docker Desktop publishes ports on the Windows host's network
+    #    stack, so the WSL2 branch probes Get-NetIPAddress for the
+    #    host's DHCP IPv4 and uses that instead. Without interop
+    #    (WSL1, distro without binfmt wrappers) the branch falls
+    #    through to the localhost-only fallback — an operator there
+    #    can still `export HOST_LAN_IP=…` to force a LAN URL.
     _skip_detection=0
     # RFC 3986 §3.1 makes URI schemes case-insensitive; Docker's own
     # client accepts `SSH://`, `TCP://`, etc. Lowercase before
@@ -154,6 +186,31 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
     if [ "$_skip_detection" -eq 0 ] \
         && [ -r /proc/sys/kernel/osrelease ] \
         && grep -qi -e microsoft -e wsl /proc/sys/kernel/osrelease 2>/dev/null; then
+        # Issue #137: Under WSL2 + Docker Desktop, published container
+        # ports bind on the Windows host's network stack, NOT the WSL
+        # distro. `hostname -I` inside the distro returns the NAT'd
+        # vEthernet IP that no LAN peer can reach. If powershell.exe
+        # interop is available, ask Windows for its first DHCP-assigned
+        # IPv4 on Ethernet*/Wi-Fi* — that IS routable from the LAN.
+        #
+        # Falls through to the skip when:
+        #   - powershell.exe is absent (WSL1, WSL2 without interop, a
+        #     systemd-enabled distro without binfmt wrappers);
+        #   - the query returns nothing (no Ethernet/Wi-Fi adapter, all
+        #     static IPs, only IPv6);
+        #   - the returned address fails the same block-list applied
+        #     to `hostname -I` (docker-bridge / CGNAT / link-local).
+        #
+        # The PowerShell command uses Get-NetIPAddress (PowerShell 5.1
+        # built-in since Windows 8.1; Docker Desktop requires Windows
+        # 10 21H2+ so the cmdlet is always present). `tr -d '\r\n'`
+        # strips the CRLF newline Windows tools emit.
+        if command -v powershell.exe >/dev/null 2>&1; then
+            _winhost_out=$(powershell.exe -NoProfile -Command \
+                "(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Ethernet*','Wi-Fi*' -ErrorAction SilentlyContinue | Where-Object {\$_.PrefixOrigin -eq 'Dhcp'} | Select-Object -First 1).IPAddress" \
+                2>/dev/null | tr -d '\r\n') || _winhost_out=""
+            _lan_ip=$(_filter_lan_ipv4 "$_winhost_out")
+        fi
         _skip_detection=1
     fi
 
@@ -187,23 +244,12 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
             if [ -n "$_default_iface" ]; then
                 _default_addr=$(ip -4 -o addr show dev "$_default_iface" 2>/dev/null \
                     | awk '{ split($4, a, "/"); print a[1]; exit }')
-                # Filter through the same awk block-list as hostname -I
+                # Filter through the same block-list as hostname -I
                 # so a default-route iface that happens to carry a
                 # docker-bridge / CGNAT / link-local address (very rare,
                 # but defends against pathological setups) still falls
                 # back to the next probe instead of being advertised.
-                _lan_ip=$(awk -v ips="$_default_addr" 'BEGIN {
-                    n = split(ips, a, " ")
-                    for (i = 1; i <= n; i++) {
-                        if (a[i] !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) continue
-                        if (a[i] ~ /^127\./) continue
-                        if (a[i] ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) continue
-                        if (a[i] ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./) continue
-                        if (a[i] ~ /^169\.254\./) continue
-                        print a[i]
-                        exit
-                    }
-                }' 2>/dev/null) || _lan_ip=""
+                _lan_ip=$(_filter_lan_ipv4 "$_default_addr")
             fi
         fi
 
@@ -219,22 +265,7 @@ if [ -z "${HOST_LAN_IP+x}" ]; then
             # link-local. Operators on multi-interface hosts where
             # this heuristic picks the wrong NIC export HOST_LAN_IP
             # before invoking the installer.
-            # `|| _lan_ip=""` so a missing awk (BusyBox-only / minimal
-            # recovery shells / NixOS without GNU awk) degrades to the
-            # documented localhost-only fallback instead of aborting
-            # the whole installer bootstrap under `set -o errexit`.
-            _lan_ip=$(awk -v ips="$_hostname_out" 'BEGIN {
-                n = split(ips, a, " ")
-                for (i = 1; i <= n; i++) {
-                    if (a[i] !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) continue
-                    if (a[i] ~ /^127\./) continue
-                    if (a[i] ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) continue
-                    if (a[i] ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./) continue
-                    if (a[i] ~ /^169\.254\./) continue
-                    print a[i]
-                    exit
-                }
-            }' 2>/dev/null) || _lan_ip=""
+            _lan_ip=$(_filter_lan_ipv4 "$_hostname_out")
         fi
         # macOS fallback. `en0` is Wi-Fi on modern MacBooks but Ethernet
         # on Mac Pro / Mini / iMac (where Wi-Fi is en1+) — and operators
