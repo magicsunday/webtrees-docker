@@ -814,6 +814,140 @@ assert_parser_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-tls-verify-lockstep (issue #128)
+# ──────────────────────────────────────────────────────────────────────
+
+# Inject a representative TLS bypass into a real executable file and
+# assert the lockstep flags it. scripts/build/install-application.sh is
+# chosen as the injection target because it already shells out — a
+# bypass landing there in a real refactor is the exact scenario the
+# lockstep guards against.
+echo "Setting up: inject 'curl --insecure' into scripts/build/install-application.sh"
+printf '\n# pretend bypass injected by ci-tls-verify-lockstep failure-path test\ncurl --insecure https://example.com\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: curl --insecure flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# verify=False (Python requests / urllib3 idiom).
+echo "Setting up: inject 'verify=False' into a Python module"
+printf '\n# pretend bypass\n_resp = requests.get("https://example.com", verify=False)\n' \
+    >> "$worktree/installer/webtrees_installer/_progress.py"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: verify=False flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# composer secure-http false.
+echo "Setting up: inject 'composer config secure-http false'"
+printf '\n# pretend bypass\ncomposer config secure-http false\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: composer secure-http false flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# curl short alias `-k` (and combined flags like -kfsSL). The short
+# form is what hand-typed troubleshooting most often produces.
+echo "Setting up: inject 'curl -kfsSL' combined-flags form"
+printf '\n# pretend bypass\ncurl -kfsSL https://example.com\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: curl -kfsSL combined-flags flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# git -c http.sslVerify=false (the form git docs treat as equivalent
+# to GIT_SSL_NO_VERIFY=1).
+echo "Setting up: inject 'git -c http.sslVerify=false'"
+printf '\n# pretend bypass\ngit -c http.sslVerify=false clone https://example.com\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: http.sslVerify=false flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# Node.js env-var bypass (workflows that publish to npm registries
+# under self-signed CAs occasionally reach for this).
+echo "Setting up: inject 'NODE_TLS_REJECT_UNAUTHORIZED=0'"
+printf '\nNODE_TLS_REJECT_UNAUTHORIZED=0\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: NODE_TLS_REJECT_UNAUTHORIZED=0 flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# YAML/JSON-quoted form: `args: ["--insecure"]`. The boundary set
+# must accept `"` adjacent to the flag.
+echo "Setting up: inject YAML-quoted '--insecure' in a workflow"
+printf '\n# pretend workflow step\nargs: ["--insecure"]\n' \
+    >> "$worktree/.github/workflows/build.yml"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: YAML-quoted --insecure flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# Shell statement-separator boundary: `curl -k;next` or
+# `curl --insecure|tee` must flag. A scripting habit of compressing
+# one-liners is the realistic regression vector.
+echo "Setting up: inject 'curl -k;next' shell-separator form"
+printf '\n# pretend bypass\ncurl -k;tee /tmp/x\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_fails \
+    "ci-tls-verify-lockstep: curl -k;next (semicolon boundary) flagged" \
+    "ci-tls-verify-lockstep" \
+    "TLS-verify bypass detected"
+restore_worktree
+
+# Negative control: near-miss strings (`--insecure-flag-help`,
+# `verify_email_address`, `fsSL` without `-k`) must NOT flag. Catches
+# a future regex broadening that drops the boundary anchor.
+echo "Setting up: inject near-miss strings that must NOT flag"
+printf '\n# Documentation: handles --insecure-related corner cases\nverify_email_address = True\ncurl -fsSL https://example.com\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_passes \
+    "ci-tls-verify-lockstep: near-miss strings pass cleanly" \
+    "ci-tls-verify-lockstep"
+restore_worktree
+
+# Negative control: word-boundary on `\bcurl`. `mycurl -k` /
+# `_curl -k` / `xcurl -k` must NOT flag — they are not invocations of
+# curl, only identifier substrings.
+echo "Setting up: inject 'mycurl -k' word-boundary near-miss"
+printf '\n# pretend a wrapper script is named mycurl\nmycurl -k https://example.com\nxcurl -kfsSL https://example.com\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_passes \
+    "ci-tls-verify-lockstep: mycurl/xcurl prefix-substring passes cleanly" \
+    "ci-tls-verify-lockstep"
+restore_worktree
+
+# Negative control: `curl -K config.txt` (curl's --config short alias,
+# uppercase K) must NOT flag — the deny-pattern requires lowercase k.
+echo "Setting up: inject 'curl -K' (curl --config uppercase alias)"
+printf '\ncurl -K /tmp/curl.config\ncurl -K config.txt https://example.com\n' \
+    >> "$worktree/scripts/build/install-application.sh"
+assert_lockstep_passes \
+    "ci-tls-verify-lockstep: curl -K (uppercase, --config alias) passes" \
+    "ci-tls-verify-lockstep"
+restore_worktree
+
+# Positive control: HEAD's lockstep state passes cleanly with no
+# injection. Catches a future deny-list overhaul that accidentally
+# matches the unchanged executable corpus.
+assert_lockstep_passes \
+    "ci-tls-verify-lockstep: clean tree passes" \
+    "ci-tls-verify-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
 echo

@@ -252,6 +252,13 @@ For self-signed setups, add `--cacert /path/to/ca.pem` to validate
 against your CA, or `--insecure` to confirm only that the listener
 answers.
 
+> Note: `--insecure` and the other TLS-verify-bypass flags
+> (`--no-check-certificate`, `verify=False`, `secure-http false`, …)
+> are blocked in executable repo files by the `ci-tls-verify-lockstep`
+> check (issue #128). The deny-list is scope-restricted to executable
+> code — this docs file may reference the flag as part of operator
+> debugging without tripping the lockstep.
+
 ## Failure modes that are NOT cert problems
 
 A surprising number of "HTTPS is broken" reports trace back to other
