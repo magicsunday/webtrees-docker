@@ -1,0 +1,106 @@
+name: Cron Docker Hub poll (reusable)
+
+# Reusable workflow (#140) called by check-alpine / check-mariadb /
+# check-nginx. Encapsulates the scan-poll-file-issue loop and the
+# notify-on-failure job. Each caller passes the image-specific
+# extraction logic via `pin_command` plus the per-image filter set
+# and issue templates.
+#
+# check-php and check-versions are NOT callers — they have different
+# scan shapes (digest probe / GitHub releases) and stay bespoke.
+
+on:
+    workflow_call:
+        inputs:
+            image_label:
+                description: 'Human-readable image name for log lines (e.g. MariaDB).'
+                type: string
+                required: true
+            pin_command:
+                description: 'Shell command whose stdout is the pinned X.Y minor. For anything beyond a one-liner (`jq` query, named script invocation), point at a `scripts/lockstep/parse-<image>-pin.sh` so the same extraction is shellcheck-covered AND reusable from lockstep tests. Runs via `eval`, so callers MUST be in-repo siblings — DO NOT mark this workflow as a cross-repo reusable target (no published tag) or untrusted input would reach the eval.'
+                type: string
+                required: true
+            repo_name:
+                description: 'Docker Hub repo (e.g. mariadb).'
+                type: string
+                required: true
+            name_filter:
+                description: 'Docker Hub `name=` query filter.'
+                type: string
+                required: true
+            regex:
+                description: 'Extended regex matching keeper tags.'
+                type: string
+                required: true
+            strip_suffix:
+                description: 'Optional sed -E suffix-strip applied before comparison.'
+                type: string
+                default: ''
+            even_minors_only:
+                description: 'Set to "1" to keep only even-numbered minors (nginx policy).'
+                type: string
+                default: '0'
+            title_template:
+                description: 'Issue title with ${VER} placeholder.'
+                type: string
+                required: true
+            body_template:
+                description: 'Multi-line issue body with ${VER} placeholder.'
+                type: string
+                required: true
+        secrets:
+            copilot_pat:
+                description: 'PAT used by the notify-on-failure issue creator.'
+                required: true
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        # Default job timeout is 6h; a Docker Hub / curl hang would burn
+        # the full window before the next cron iteration. 20m covers a
+        # normal scan with comfortable headroom for transient slowdowns.
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            issues: write
+            actions: write
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Scan
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  IMAGE_LABEL: ${{ inputs.image_label }}
+                  REPO_NAME: ${{ inputs.repo_name }}
+                  NAME_FILTER: ${{ inputs.name_filter }}
+                  REGEX: ${{ inputs.regex }}
+                  STRIP_SUFFIX: ${{ inputs.strip_suffix }}
+                  EVEN_MINORS_ONLY: ${{ inputs.even_minors_only }}
+                  TITLE_TEMPLATE: ${{ inputs.title_template }}
+                  BODY_TEMPLATE: ${{ inputs.body_template }}
+                  PIN_COMMAND: ${{ inputs.pin_command }}
+              run: |
+                  set -euo pipefail
+                  # eval-trusted because workflow_call here is only
+                  # invoked by sibling workflows in this same repo
+                  # (check-{alpine,mariadb,nginx}.yml). Cross-repo
+                  # reuse would require redesigning PIN_COMMAND as a
+                  # fixed-grammar selector — see the input's
+                  # description on this point.
+                  PINNED_MINOR=$(eval "$PIN_COMMAND")
+                  export PINNED_MINOR
+                  ./scripts/workflow/scan-cron-image.sh
+
+    notify-on-failure:
+        name: Notify on workflow failure
+        needs: [check]
+        if: failure() && github.event_name != 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        steps:
+            - uses: actions/checkout@v6
+            - uses: ./.github/actions/notify-on-failure
+              with:
+                  copilot-pat: ${{ secrets.copilot_pat }}

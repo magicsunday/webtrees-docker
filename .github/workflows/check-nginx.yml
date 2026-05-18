@@ -1,95 +1,47 @@
 name: Check for nginx updates
 
 # Polls Docker Hub once a day at 13:00 UTC for new nginx minor releases
-# beyond what `dev/nginx-version.json` currently pins. A new minor needs
-# a human review for breaking changes; the workflow only opens a
-# tracking issue rather than touching the version file.
-#
-# Mirrors check-alpine.yml's "scan for new minor" logic: poll Docker
-# Hub, compare against the currently-pinned minor, file an issue when
-# something newer is published. See check-alpine.yml for the rationale
-# behind each cross-cutting decision (curl --max-time, pagination,
-# self-test, `|| true` after grep).
+# beyond what `dev/nginx-version.json` currently pins. Thin caller of
+# `cron-docker-hub-poll.yml` (#140).
 
 on:
     schedule:
         - cron: '0 13 * * *'
     workflow_dispatch:
 
-permissions:
-    contents: read
-    issues: write
-    actions: write
-
 jobs:
     check:
-        runs-on: ubuntu-latest
-        timeout-minutes: 20
-        steps:
-            - uses: actions/checkout@v6
+        uses: ./.github/workflows/cron-docker-hub-poll.yml
+        secrets:
+            copilot_pat: ${{ secrets.COPILOT_PAT }}
+        with:
+            image_label: nginx
+            # Single source of truth: dev/nginx-version.json `.nginx_base`
+            # carries the X.Y minor; the rendered nginx-build stage in
+            # Dockerfile uses `nginx:<X.Y>-alpine`.
+            pin_command: "jq -r .nginx_base dev/nginx-version.json"
+            repo_name: nginx
+            name_filter: alpine
+            regex: '^1\.[0-9]+-alpine$'
+            # nginx-specific variants:
+            #   strip_suffix=-alpine     drops the suffix so the result
+            #                            compares directly against
+            #                            `.nginx_base`.
+            #   even_minors_only=1       project policy pins only even
+            #                            minors (1.26, 1.28, 1.30, …);
+            #                            odd minors are the mainline
+            #                            channel and not production-suited.
+            #                            Documented in docs/maintenance.md.
+            strip_suffix: '-alpine$'
+            even_minors_only: '1'
+            title_template: 'nginx ${VER}-alpine available — consider bumping dev/nginx-version.json'
+            body_template: |
+                Docker Hub publishes a `nginx:${VER}-alpine` tag newer than the current pin.
 
-            - name: Scan for new nginx minor
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  set -euo pipefail
-                  # Single source of truth: dev/nginx-version.json
-                  # `.nginx_base` carries the X.Y minor; the rendered
-                  # nginx-build stage in Dockerfile uses `nginx:<X.Y>-alpine`.
-                  pinned_minor=$(jq -r '.nginx_base' dev/nginx-version.json)
-                  echo "Pinned nginx minor: ${pinned_minor}"
+                **Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:
 
-                  # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
-                  # the alpine/mariadb/php cron workflows. nginx-specific
-                  # variants:
-                  #   STRIP_SUFFIX=-alpine     drops the `-alpine` tag
-                  #                            suffix so the result
-                  #                            compares directly against
-                  #                            `.nginx_base`.
-                  #   EVEN_MINORS_ONLY=1       project policy pins only
-                  #                            even minors (1.26, 1.28,
-                  #                            1.30, …); odd minors are
-                  #                            the mainline channel and
-                  #                            not production-suited.
-                  #                            Documented in
-                  #                            docs/maintenance.md.
-                  available=$(REPO_NAME=nginx \
-                      NAME_FILTER=alpine \
-                      REGEX='^1\.[0-9]+-alpine$' \
-                      STRIP_SUFFIX='-alpine$' \
-                      EVEN_MINORS_ONLY=1 \
-                      PINNED_MINOR="$pinned_minor" \
-                      ./scripts/workflow/check-docker-hub-minor.sh)
-
-                  for ver in $available; do
-                      if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
-                          && [ "$ver" != "$pinned_minor" ]; then
-                          title="nginx ${ver}-alpine available — consider bumping dev/nginx-version.json"
-                          body=$(printf '%s\n' \
-                              "Docker Hub publishes a \`nginx:${ver}-alpine\` tag newer than the current pin (\`nginx:${pinned_minor}-alpine\`)." \
-                              "" \
-                              "**Action checklist** — see [docs/maintenance.md → Bumping the nginx pin](../blob/main/docs/maintenance.md#bumping-the-nginx-pin) for the full procedure:" \
-                              "" \
-                              "  1. Review release notes for nginx ${ver} (config-format / module-set changes)." \
-                              "  2. Run \`./scripts/bump/bump-nginx.sh ${ver}\` — updates \`dev/nginx-version.json\` and syncs the 5 mirror sites enforced by the lockstep test. (\`make bump-nginx VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
-                              "  3. Run \`make ci-pytest ci-lockstep-tests ci-nginx-config\` locally." \
-                              "  4. Open a PR; \`build.yml\` rebuilds the nginx image stage." \
-                              "  5. After merge, pull the new image on the live host: \`docker pull ghcr.io/magicsunday/webtrees-nginx:${ver}-r1\`.")
-                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
-                      fi
-                  done
-
-    notify-on-failure:
-        name: Notify on workflow failure
-        needs: [check]
-        if: failure() && github.event_name != 'pull_request'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        permissions:
-            issues: write
-        steps:
-            - uses: actions/checkout@v6
-            - uses: ./.github/actions/notify-on-failure
-              with:
-                  copilot-pat: ${{ secrets.COPILOT_PAT }}
+                  1. Review release notes for nginx ${VER} (config-format / module-set changes).
+                  2. Run `./scripts/bump/bump-nginx.sh ${VER}` — updates `dev/nginx-version.json` and syncs the 5 mirror sites enforced by the lockstep test. (`make bump-nginx VERSION=${VER}` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)
+                  3. Run `make ci-pytest ci-lockstep-tests ci-nginx-config` locally.
+                  4. Open a PR; `build.yml` rebuilds the nginx image stage.
+                  5. After merge, pull the new image on the live host: `docker pull ghcr.io/magicsunday/webtrees-nginx:${VER}-r1`.

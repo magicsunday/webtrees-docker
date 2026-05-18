@@ -1,86 +1,36 @@
 name: Check for Alpine updates
 
 # Polls Docker Hub once a day at 12:45 UTC for new Alpine minor releases
-# beyond what the installer currently pins in webtrees_installer/_alpine.py.
-# A new minor needs a human review for breaking changes; the workflow only
-# opens a tracking issue rather than touching the constant.
-#
-# Mirrors check-php.yml's "scan for new minor" logic: poll Docker Hub,
-# compare against the currently-pinned minor, file an issue when something
-# newer is published.
+# beyond what the installer currently pins. Thin caller of the shared
+# `cron-docker-hub-poll.yml` reusable workflow (#140).
 
 on:
     schedule:
         - cron: '45 12 * * *'
     workflow_dispatch:
 
-permissions:
-    contents: read
-    issues: write
-    actions: write
-
 jobs:
     check:
-        runs-on: ubuntu-latest
-        # Default job timeout is 6h; a Docker Hub / curl hang would burn
-        # the full window before the next cron iteration. 20m covers a
-        # normal scan with comfortable headroom for transient slowdowns.
-        timeout-minutes: 20
-        steps:
-            - uses: actions/checkout@v6
+        uses: ./.github/workflows/cron-docker-hub-poll.yml
+        secrets:
+            copilot_pat: ${{ secrets.COPILOT_PAT }}
+        with:
+            image_label: Alpine
+            # ci-alpine-lockstep enforces `alpine:X.Y` shape on every
+            # PR; by the time this cron runs the pin is guaranteed to
+            # be `alpine:X.Y` (no patch).
+            pin_command: 'p=$(./scripts/lockstep/parse-alpine-pin.sh); echo "${p#alpine:}"'
+            repo_name: alpine
+            name_filter: '3.'
+            regex: '^[0-9]+\.[0-9]+$'
+            title_template: 'Alpine ${VER} available — consider bumping installer/webtrees_installer/_alpine.py'
+            body_template: |
+                Docker Hub publishes an `alpine:${VER}` tag newer than the installer's current pin.
 
-            - name: Scan for new Alpine minor
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  set -euo pipefail
-                  # Reuse the parser script that ci-alpine-lockstep already
-                  # exercises locally on every PR. ci-alpine-lockstep
-                  # enforces `alpine:X.Y` shape on every PR, so by the
-                  # time this cron runs the pin is guaranteed to be
-                  # `alpine:X.Y` (no patch).
-                  pinned=$(./scripts/lockstep/parse-alpine-pin.sh)
-                  pinned_minor=${pinned#alpine:}
-                  echo "Pinned Alpine minor: ${pinned_minor}"
+                **Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:
 
-                  # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
-                  # the mariadb/nginx/php cron workflows. See its header
-                  # for the env-var contract and failure-mode semantics.
-                  available=$(REPO_NAME=alpine \
-                      NAME_FILTER=3. \
-                      REGEX='^[0-9]+\.[0-9]+$' \
-                      PINNED_MINOR="$pinned_minor" \
-                      ./scripts/workflow/check-docker-hub-minor.sh)
-
-                  for ver in $available; do
-                      if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
-                          && [ "$ver" != "$pinned_minor" ]; then
-                          title="Alpine ${ver} available — consider bumping installer/webtrees_installer/_alpine.py"
-                          body=$(printf '%s\n' \
-                              "Docker Hub publishes an \`alpine:${ver}\` tag newer than the installer's current pin (\`alpine:${pinned_minor}\`)." \
-                              "" \
-                              "**Action checklist** — see [docs/maintenance.md → Bumping the Alpine pin](../blob/main/docs/maintenance.md#bumping-the-alpine-pin) for the full procedure:" \
-                              "" \
-                              "  1. Review release notes for Alpine ${ver} (busybox / musl / apk changes)." \
-                              "  2. Update \`ALPINE_BASE_IMAGE\` in \`installer/webtrees_installer/_alpine.py\` to \`\"alpine:${ver}\"\`." \
-                              "  3. Run \`make ci-alpine-lockstep\` locally — surfaces every literal \`alpine:X.Y\` reference still on the old pin so it can be sed-replaced." \
-                              "  4. Run \`make ci-test\` for the full local CI bundle (pytest + lint + lockstep + entrypoint)." \
-                              "  5. Open a PR; CI rebuilds every Alpine-derived image stage.")
-                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
-                      fi
-                  done
-
-    notify-on-failure:
-        name: Notify on workflow failure
-        needs: [check]
-        if: failure() && github.event_name != 'pull_request'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        permissions:
-            issues: write
-        steps:
-            - uses: actions/checkout@v6
-            - uses: ./.github/actions/notify-on-failure
-              with:
-                  copilot-pat: ${{ secrets.COPILOT_PAT }}
+                  1. Review release notes for Alpine ${VER} (busybox / musl / apk changes).
+                  2. Update `ALPINE_BASE_IMAGE` in `installer/webtrees_installer/_alpine.py` to `"alpine:${VER}"`.
+                  3. Run `make ci-alpine-lockstep` locally — surfaces every literal `alpine:X.Y` reference still on the old pin so it can be sed-replaced.
+                  4. Run `make ci-test` for the full local CI bundle (pytest + lint + lockstep + entrypoint).
+                  5. Open a PR; CI rebuilds every Alpine-derived image stage.

@@ -1,17 +1,10 @@
 name: Check for MariaDB updates
 
 # Polls Docker Hub once a day at 12:15 UTC for new MariaDB minor
-# releases in the 11.x line beyond what the compose templates currently
-# pin. A new minor needs a human review for schema-migration / config
-# changes; the workflow only opens a tracking issue rather than touching
-# the templates.
+# releases in the 11.x line beyond the compose-template pin. Thin
+# caller of `cron-docker-hub-poll.yml` (#140).
 #
-# Mirrors check-alpine.yml + check-nginx.yml's "scan for new minor"
-# logic — see check-alpine.yml for the rationale behind cross-cutting
-# decisions (curl --max-time, pagination, self-test, `|| true` after
-# grep).
-#
-# 12.x major releases are NOT tracked here — moving across a major
+# 12.x major releases are NOT tracked — moving across a major
 # requires an explicit migration plan; the workflow would otherwise
 # spam an issue every time a 12.0 patch lands.
 
@@ -20,95 +13,25 @@ on:
         - cron: '15 12 * * *'
     workflow_dispatch:
 
-permissions:
-    contents: read
-    issues: write
-    actions: write
-
 jobs:
     check:
-        runs-on: ubuntu-latest
-        timeout-minutes: 20
-        steps:
-            - uses: actions/checkout@v6
+        uses: ./.github/workflows/cron-docker-hub-poll.yml
+        secrets:
+            copilot_pat: ${{ secrets.COPILOT_PAT }}
+        with:
+            image_label: MariaDB
+            pin_command: './scripts/lockstep/parse-mariadb-pin.sh'
+            repo_name: mariadb
+            name_filter: '11.'
+            regex: '^11\.[0-9]+$'
+            title_template: 'MariaDB ${VER} available — consider bumping the compose-template pin'
+            body_template: |
+                Docker Hub publishes a `mariadb:${VER}` tag newer than the current pin.
 
-            - name: Scan for new MariaDB minor in the 11.x line
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  set -euo pipefail
-                  # The pin is hardcoded in installer compose templates +
-                  # the dev compose.yaml. Read the standalone template's
-                  # `image: mariadb:X.Y` directive as the canonical
-                  # source. Anchor the grep to the `image:` directive so
-                  # a comment line carrying `mariadb:X.Y` (currently the
-                  # bind-mount BYOD section explainer) cannot be picked
-                  # up by `head -1` instead of the real image line.
-                  #
-                  # `|| true` keeps the script alive under set -euo
-                  # pipefail when grep finds zero matches, so the
-                  # `if [ -z "$pinned_minor" ]` guard can produce its
-                  # actionable error message instead of leaking a raw
-                  # shell exit.
-                  # The regex anchors `[0-9]+\.[0-9]+` against either
-                  # whitespace OR end-of-line so we accept the canonical
-                  # X.Y rolling-minor pin (with or without trailing
-                  # comment) and reject X.Y.Z patch-pinned variants —
-                  # the latter would let MariaDB silently freeze on a
-                  # specific patch while the workflow keeps tracking
-                  # the rolling minor as if everything were fine.
-                  # Symmetric with `_PIN_RE` in
-                  # installer/tests/test_mariadb_pin_lockstep.py.
-                  pinned_minor=$( { grep -hE '^\s*image:\s*mariadb:[0-9]+\.[0-9]+([[:space:]]|$)' \
-                      installer/webtrees_installer/templates/compose.standalone.j2 \
-                      || true; } \
-                      | head -1 \
-                      | sed -E 's|^\s*image:\s*mariadb:([0-9]+\.[0-9]+).*|\1|')
-                  if [ -z "$pinned_minor" ]; then
-                      echo "::error::Could not parse the mariadb pin from compose.standalone.j2; expected an 'image: mariadb:X.Y' line"
-                      exit 1
-                  fi
-                  echo "Pinned MariaDB minor: ${pinned_minor}"
+                **Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:
 
-                  # Docker Hub polling + filter + pin-self-test all live
-                  # in `scripts/workflow/check-docker-hub-minor.sh`, shared with
-                  # the alpine/nginx/php cron workflows. The `11.X` regex
-                  # restricts to rolling-minor tags (drops `11.X.Y` patch
-                  # variants and channel tags like `11-jammy`/`lts`).
-                  available=$(REPO_NAME=mariadb \
-                      NAME_FILTER=11. \
-                      REGEX='^11\.[0-9]+$' \
-                      PINNED_MINOR="$pinned_minor" \
-                      ./scripts/workflow/check-docker-hub-minor.sh)
-
-                  for ver in $available; do
-                      if [ "$(printf '%s\n%s\n' "$pinned_minor" "$ver" | sort -V | head -1)" = "$pinned_minor" ] \
-                          && [ "$ver" != "$pinned_minor" ]; then
-                          title="MariaDB ${ver} available — consider bumping the compose-template pin"
-                          body=$(printf '%s\n' \
-                              "Docker Hub publishes a \`mariadb:${ver}\` tag newer than the current pin (\`mariadb:${pinned_minor}\`)." \
-                              "" \
-                              "**Action checklist** — see [docs/maintenance.md → Bumping the MariaDB pin](../blob/main/docs/maintenance.md#bumping-the-mariadb-pin) for the full procedure:" \
-                              "" \
-                              "  1. Review release notes for MariaDB ${ver} (schema-migration / config-format / upgrade-path notes)." \
-                              "  2. Run \`./scripts/bump/bump-mariadb.sh ${ver}\` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (\`make bump-mariadb VERSION=${ver}\` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)" \
-                              "  3. Test the upgrade on a snapshot first; major-minor moves may need \`mariadb-upgrade\` on existing volumes." \
-                              "  4. Run \`make ci-pytest ci-lockstep-tests\` locally." \
-                              "  5. Open a PR; CI re-runs the smoke matrix against the new pin.")
-                          TITLE="$title" BODY="$body" ./scripts/workflow/file-bump-issue.sh
-                      fi
-                  done
-
-    notify-on-failure:
-        name: Notify on workflow failure
-        needs: [check]
-        if: failure() && github.event_name != 'pull_request'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        permissions:
-            issues: write
-        steps:
-            - uses: actions/checkout@v6
-            - uses: ./.github/actions/notify-on-failure
-              with:
-                  copilot-pat: ${{ secrets.COPILOT_PAT }}
+                  1. Review release notes for MariaDB ${VER} (schema-migration / config-format / upgrade-path notes).
+                  2. Run `./scripts/bump/bump-mariadb.sh ${VER}` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (`make bump-mariadb VERSION=${VER}` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)
+                  3. Test the upgrade on a snapshot first; major-minor moves may need `mariadb-upgrade` on existing volumes.
+                  4. Run `make ci-pytest ci-lockstep-tests` locally.
+                  5. Open a PR; CI re-runs the smoke matrix against the new pin.
