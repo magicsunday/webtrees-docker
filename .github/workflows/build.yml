@@ -57,12 +57,13 @@ jobs:
                   echo "installer_tag=${installer_tag}" >> "$GITHUB_OUTPUT"
 
     build-php:
-        name: php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
+        name: php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
         needs: matrix
-        runs-on: ubuntu-latest
-        # Multi-arch buildx (linux/amd64 + linux/arm64) under qemu is the
-        # slow path; 60m covers a clean build with composer install +
-        # transitive deps, leaving headroom for transient GHCR pushes.
+        runs-on: ${{ matrix.platform.runner }}
+        # Native single-platform build (#127): each runner builds its
+        # own arch, then a manifest job stitches the per-arch tags into
+        # a multi-arch manifest. 60m covers a clean composer install +
+        # transitive deps with headroom for transient GHCR pushes.
         timeout-minutes: 60
         permissions:
             contents: read
@@ -71,25 +72,28 @@ jobs:
             fail-fast: false
             matrix:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+                # Platform-matrix shape used by every build-* and smoke-test
+                # job in this workflow:
+                #   runner — GHA runs-on: label (native host arch).
+                #   docker — buildx --platform value.
+                #   arch   — tag suffix on the per-arch image AND the
+                #            cache scope (so amd64 cache doesn't evict
+                #            arm64 cache).
+                # Adding a third arch (e.g. linux/arm/v7) needs an entry
+                # here AND a matching `${base}-<arch>` source in the
+                # corresponding manifest-* imagetools-create invocation —
+                # those two surfaces are not coupled by tooling, drift
+                # is detectable only at runtime as a missing-image error.
+                platform:
+                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
+                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
         steps:
             - uses: actions/checkout@v6
-            - uses: docker/setup-qemu-action@v4
             - uses: docker/setup-buildx-action@v4
             - uses: ./.github/actions/ghcr-login
               with:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Compute tag list
-              id: tags
-              run: |
-                  set -euo pipefail
-                  primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  tags="$primary"
-                  for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
-                      tags="$tags,ghcr.io/magicsunday/webtrees-php:$extra"
-                  done
-                  printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
 
             - uses: docker/build-push-action@v7
               with:
@@ -97,23 +101,126 @@ jobs:
                   file: ./Dockerfile
                   target: php-build
                   push: true
-                  platforms: linux/amd64,linux/arm64
-                  tags: ${{ steps.tags.outputs.tags }}
+                  platforms: ${{ matrix.platform.docker }}
+                  tags: ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}-${{ matrix.platform.arch }}
                   build-args: |
                       PHP_VERSION=${{ matrix.entry.php }}
                       WEBTREES_VERSION=${{ matrix.entry.webtrees }}
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
                       DOCKER_SERVER=ghcr.io/magicsunday
-                  cache-from: type=gha,scope=php-${{ matrix.entry.php }}
-                  cache-to: type=gha,mode=max,scope=php-${{ matrix.entry.php }}
+                  cache-from: type=gha,scope=php-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  cache-to: type=gha,mode=max,scope=php-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+
+    manifest-php:
+        name: manifest php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
+        needs: [matrix, build-php]
+        runs-on: ubuntu-latest
+        # Manifest stitching is registry-only (no buildx, no compile);
+        # 10m is generous for `imagetools create` + GHCR roundtrips.
+        # All build-php cells (every entry × both platforms) must finish
+        # before any manifest-php cell starts — GHA `needs:` waits on
+        # ALL cells of a matrix dependency by default.
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: write
+        strategy:
+            fail-fast: false
+            matrix:
+                entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+        steps:
+            # `actions/checkout` here is solely so the local composite
+            # action `./.github/actions/ghcr-login` resolves; nothing
+            # else in this job reads repo content. Do NOT remove it
+            # thinking it is unused.
+            - uses: actions/checkout@v6
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # `tag_args` accumulates `-t <fully-qualified-tag>` pairs
+            # from the primary tag plus every `matrix.entry.tags` extra
+            # (e.g. `latest`, `2.2`). It is interpolated UNQUOTED into
+            # the imagetools-create command below so the shell can
+            # word-split it into separate flags — adding a tag value
+            # that contains whitespace would corrupt the command. All
+            # current tag values in dev/versions.json are simple
+            # alpha-numeric version strings, so this is safe today.
+            - name: Compute tag args
+              id: tags
+              run: |
+                  set -euo pipefail
+                  primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  tag_args="-t $primary"
+                  for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
+                      tag_args="$tag_args -t ghcr.io/magicsunday/webtrees-php:$extra"
+                  done
+                  printf 'tag_args=%s\n' "$tag_args" >> "$GITHUB_OUTPUT"
+
+            # The `${base}-amd64` / `${base}-arm64` sources hardcode the
+            # tag suffix from the build-php platform matrix. If a third
+            # arch is added in the platform-matrix above, an extra
+            # source line MUST be added here too — see the platform
+            # comment in build-php for the coupling.
+            - name: Assemble multi-arch manifest
+              run: |
+                  set -euo pipefail
+                  base="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
+                      "${base}-amd64" \
+                      "${base}-arm64"
 
     build-php-full:
-        name: php-full ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
+        name: php-full ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
         needs: matrix
-        runs-on: ubuntu-latest
-        # Same shape + budget as build-php (multi-arch buildx + composer).
+        runs-on: ${{ matrix.platform.runner }}
+        # Same shape + budget as build-php (single-platform native build).
         timeout-minutes: 60
+        permissions:
+            contents: read
+            packages: write
+        strategy:
+            fail-fast: false
+            matrix:
+                entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+                # Platform matrix — see build-php for the shape, the
+                # runner/docker/arch field semantics, and the manifest-*
+                # coupling.
+                platform:
+                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
+                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
+        steps:
+            - uses: actions/checkout@v6
+            - uses: docker/setup-buildx-action@v4
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  target: php-build-full
+                  push: true
+                  platforms: ${{ matrix.platform.docker }}
+                  tags: ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  build-args: |
+                      PHP_VERSION=${{ matrix.entry.php }}
+                      WEBTREES_VERSION=${{ matrix.entry.webtrees }}
+                      VCS_REF=${{ github.sha }}
+                      BUILD_DATE=${{ github.event.repository.updated_at }}
+                      DOCKER_SERVER=ghcr.io/magicsunday
+                  cache-from: type=gha,scope=php-full-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  cache-to: type=gha,mode=max,scope=php-full-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+
+    manifest-php-full:
+        name: manifest php-full ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
+        needs: [matrix, build-php-full]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
         permissions:
             contents: read
             packages: write
@@ -123,54 +230,53 @@ jobs:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         steps:
             - uses: actions/checkout@v6
-            - uses: docker/setup-qemu-action@v4
-            - uses: docker/setup-buildx-action@v4
             - uses: ./.github/actions/ghcr-login
               with:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Compute tag list
+            # See manifest-php for the tag_args word-splitting contract
+            # and the per-arch suffix coupling — same shape applies.
+            - name: Compute tag args
               id: tags
               run: |
                   set -euo pipefail
                   primary="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
-                  tags="$primary"
+                  tag_args="-t $primary"
                   for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
-                      tags="$tags,ghcr.io/magicsunday/webtrees-php-full:$extra"
+                      tag_args="$tag_args -t ghcr.io/magicsunday/webtrees-php-full:$extra"
                   done
-                  printf 'tags=%s\n' "$tags" >> "$GITHUB_OUTPUT"
+                  printf 'tag_args=%s\n' "$tag_args" >> "$GITHUB_OUTPUT"
 
-            - uses: docker/build-push-action@v7
-              with:
-                  context: .
-                  file: ./Dockerfile
-                  target: php-build-full
-                  push: true
-                  platforms: linux/amd64,linux/arm64
-                  tags: ${{ steps.tags.outputs.tags }}
-                  build-args: |
-                      PHP_VERSION=${{ matrix.entry.php }}
-                      WEBTREES_VERSION=${{ matrix.entry.webtrees }}
-                      VCS_REF=${{ github.sha }}
-                      BUILD_DATE=${{ github.event.repository.updated_at }}
-                      DOCKER_SERVER=ghcr.io/magicsunday
-                  cache-from: type=gha,scope=php-full-${{ matrix.entry.php }}
-                  cache-to: type=gha,mode=max,scope=php-full-${{ matrix.entry.php }}
+            - name: Assemble multi-arch manifest
+              run: |
+                  set -euo pipefail
+                  base="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
+                      "${base}-amd64" \
+                      "${base}-arm64"
 
     build-nginx:
-        name: nginx ${{ needs.matrix.outputs.nginx_tag }}
+        name: nginx ${{ needs.matrix.outputs.nginx_tag }} (${{ matrix.platform.arch }})
         needs: matrix
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.platform.runner }}
         # Smaller build than the PHP stages (no composer) but still
-        # multi-arch buildx + nginx -t at build time. 30m covers it.
+        # native single-platform buildx + nginx -t at build time. 30m
+        # covers it on the slower of the two runners.
         timeout-minutes: 30
         permissions:
             contents: read
             packages: write
+        strategy:
+            fail-fast: false
+            matrix:
+                # Platform matrix — see build-php for the shape and the
+                # manifest-* per-arch coupling.
+                platform:
+                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
+                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
         steps:
             - uses: actions/checkout@v6
-            - uses: docker/setup-qemu-action@v4
             - uses: docker/setup-buildx-action@v4
             - uses: ./.github/actions/ghcr-login
               with:
@@ -183,38 +289,74 @@ jobs:
                   file: ./Dockerfile
                   target: nginx-build
                   push: true
-                  platforms: linux/amd64,linux/arm64
+                  platforms: ${{ matrix.platform.docker }}
                   # nginx -t inside the build resolves the `phpfpm` upstream
                   # hostname; buildkit (since the v4 buildx bump) mounts
                   # /etc/hosts read-only, so the stub now arrives via --add-host
                   # rather than the old `echo >> /etc/hosts` workaround.
                   add-hosts: phpfpm=127.0.0.1
-                  # #58 image-namespace flatten — dual-publish on flat
-                  # (canonical) + nested (legacy deprecation alias).
-                  tags: |
-                      ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}
-                      ghcr.io/magicsunday/webtrees-nginx:latest
+                  tags: ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}-${{ matrix.platform.arch }}
                   build-args: |
                       NGINX_CONFIG_REVISION=${{ needs.matrix.outputs.nginx_config_revision }}
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
-                  cache-from: type=gha,scope=nginx
-                  cache-to: type=gha,mode=max,scope=nginx
+                  cache-from: type=gha,scope=nginx-${{ matrix.platform.arch }}
+                  cache-to: type=gha,mode=max,scope=nginx-${{ matrix.platform.arch }}
 
-    build-installer:
-        name: installer ${{ needs.matrix.outputs.installer_tag }}
-        needs: matrix
+    manifest-nginx:
+        name: manifest nginx ${{ needs.matrix.outputs.nginx_tag }}
+        needs: [matrix, build-nginx]
         runs-on: ubuntu-latest
-        # Slim Python image build (no compiled deps); 20m comfortably
-        # covers a clean build + GHCR push.
-        timeout-minutes: 20
+        timeout-minutes: 10
         permissions:
             contents: read
             packages: write
         steps:
             - uses: actions/checkout@v6
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: docker/setup-qemu-action@v4
+            # nginx has a single canonical tag-shape per release (no
+            # per-entry extras like webtrees-php), so the `:latest`
+            # alias is hardcoded inline here rather than routed through
+            # a `tags` field in dev/nginx-version.json. The asymmetry
+            # versus manifest-php is intentional — webtrees-php's extras
+            # vary per matrix.entry, nginx's do not. A future `:rolling`
+            # or `:edge` alias also lands inline.
+            - name: Assemble multi-arch manifest
+              run: |
+                  set -euo pipefail
+                  base="ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}"
+                  # #58 image-namespace flatten — dual-publish on
+                  # versioned tag + :latest alias.
+                  docker buildx imagetools create \
+                      -t "${base}" \
+                      -t "ghcr.io/magicsunday/webtrees-nginx:latest" \
+                      "${base}-amd64" \
+                      "${base}-arm64"
+
+    build-installer:
+        name: installer ${{ needs.matrix.outputs.installer_tag }} (${{ matrix.platform.arch }})
+        needs: matrix
+        runs-on: ${{ matrix.platform.runner }}
+        # Slim Python image build (no compiled deps); 20m comfortably
+        # covers a clean build + GHCR push on either runner.
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            packages: write
+        strategy:
+            fail-fast: false
+            matrix:
+                # Platform matrix — see build-php for the shape and the
+                # manifest-* per-arch coupling.
+                platform:
+                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
+                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
+        steps:
+            - uses: actions/checkout@v6
             - uses: docker/setup-buildx-action@v4
 
             - uses: ./.github/actions/ghcr-login
@@ -227,37 +369,70 @@ jobs:
               with:
                   context: .
                   file: installer/Dockerfile
-                  platforms: linux/amd64,linux/arm64
+                  platforms: ${{ matrix.platform.docker }}
                   push: true
-                  # #58 image-namespace flatten — dual-publish on flat
-                  # (canonical) + nested (legacy deprecation alias).
-                  tags: |
-                      ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}
-                      ghcr.io/magicsunday/webtrees-installer:latest
-                  cache-from: type=gha,scope=installer
-                  cache-to: type=gha,scope=installer,mode=max
+                  tags: ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}-${{ matrix.platform.arch }}
+                  cache-from: type=gha,scope=installer-${{ matrix.platform.arch }}
+                  cache-to: type=gha,scope=installer-${{ matrix.platform.arch }},mode=max
+
+    manifest-installer:
+        name: manifest installer ${{ needs.matrix.outputs.installer_tag }}
+        needs: [matrix, build-installer]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v6
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # Same shape as manifest-nginx — single tag-set per
+            # release, no per-entry extras, so `:latest` is inline.
+            - name: Assemble multi-arch manifest
+              run: |
+                  set -euo pipefail
+                  base="ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}"
+                  # #58 image-namespace flatten — dual-publish on
+                  # versioned tag + :latest alias.
+                  docker buildx imagetools create \
+                      -t "${base}" \
+                      -t "ghcr.io/magicsunday/webtrees-installer:latest" \
+                      "${base}-amd64" \
+                      "${base}-arm64"
 
     smoke-test:
-        name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
-        needs: [matrix, build-php, build-php-full, build-nginx, build-installer]
-        runs-on: ubuntu-latest
+        name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
+        needs: [matrix, manifest-php, manifest-php-full, manifest-nginx, manifest-installer]
+        runs-on: ${{ matrix.platform.runner }}
         # Smoke pulls the just-built images and brings the stack up to
         # the login probe. 30m absorbs slow first-boot bootstraps on
         # GHA's variable cold-start performance (DB schema migration +
-        # AUTO_SEED).
+        # AUTO_SEED). Each platform cell pulls the matching single-arch
+        # variant out of the multi-arch manifest assembled by the
+        # manifest-* jobs above.
         timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
                 edition: [core, full, demo, dev]
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+                # Platform-matrix subset — smoke only needs `runner` + `arch`
+                # (no buildx invocation here). See build-php for the full
+                # shape and the manifest-* coupling.
+                platform:
+                    - {runner: ubuntu-latest, arch: amd64}
+                    - {runner: ubuntu-24.04-arm, arch: arm64}
         # The smoke-test runs on a fresh ubuntu-latest VM per matrix cell, so
         # /tmp/smoke is naturally isolated; the matrix-derived suffix is
         # belt-and-braces for any future migration to self-hosted runners
         # that reuse the workspace. SMOKE_PORT is the single source of truth
         # for both the installer's --port flag and the curl probe URL.
         env:
-            SMOKE_DIR: /tmp/smoke-${{ matrix.edition }}-${{ matrix.entry.php }}
+            SMOKE_DIR: /tmp/smoke-${{ matrix.edition }}-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
             SMOKE_PORT: 18080
             EDITION: ${{ matrix.edition }}
         steps:
@@ -427,6 +602,8 @@ jobs:
     demo-import-e2e:
         name: demo-import E2E
         needs: [matrix, smoke-test]
+        # Single-arch E2E on amd64 to keep matrix budget reasonable;
+        # arm64 import coverage falls out of the smoke-test matrix.
         runs-on: ubuntu-latest
         # Full stack-up + GEDCOM import; 30m absorbs the slow first-boot
         # bootstrap (DB schema migration + AUTO_SEED + admin user) before
@@ -532,7 +709,7 @@ jobs:
         # IMPORTANT: keep this `needs:` list in sync with every other job
         # in the workflow. GHA has no glob for `needs:`, so a missing entry
         # silently disables failure notification for that job.
-        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, smoke-test, demo-import-e2e]
+        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, manifest-php, manifest-php-full, manifest-nginx, manifest-installer, smoke-test, demo-import-e2e]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
         timeout-minutes: 5
