@@ -52,6 +52,9 @@ allowlist_regex='^(FALSE|TRUE|HEALTHCHECK|CMD|CMD-SHELL)$'
 # Filter to UPPER_ tokens ≥3 chars (avoids 2-char acronyms like OS).
 # `sort -u` deduplicates between the two extraction modes when an
 # env var appears in both surfaces.
+# shellcheck disable=SC2016
+# Backticks inside the regex are intentional markdown delimiters,
+# not bash command substitution.
 diy_backticked=$(grep -oE '`[A-Z][A-Z0-9_]{2,}`' docs/diy.md \
     | sed 's/`//g')
 diy_yaml_keys=$(grep -oE '^[[:space:]]+[A-Z][A-Z0-9_]{2,}:' docs/diy.md \
@@ -62,6 +65,7 @@ diy_vars=$(printf '%s\n%s\n' "$diy_backticked" "$diy_yaml_keys" \
 
 # Each line in env-vars.md's primary table starts with a backticked
 # variable name; capture them the same way.
+# shellcheck disable=SC2016
 envdoc_vars=$(grep -oE '`[A-Z][A-Z0-9_]{2,}`' docs/env-vars.md \
     | sort -u \
     | sed 's/`//g')

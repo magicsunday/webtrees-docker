@@ -154,66 +154,14 @@ Full guide: [`docs/customizing.md`](docs/customizing.md) — covers
 `compose.override.yaml` patterns (PHP limits, custom nginx snippets,
 external database, third-party modules) plus Backup / Restore.
 
-## Choosing a webtrees line
+## Upgrades, mode switches, line choice
 
-Two parallel image tracks are published:
-
-| Tag | Webtrees line | PHP versions built | When to pick |
-|---|---|---|---|
-| `latest`, `2`, `2.2` | 2.2.x (current) | 8.3 / 8.4 / 8.5 | New installs, active feature work. |
-| `2.1` | 2.1.x (LTS-style) | 8.3 / 8.4 / 8.5 | Stay on the older line until you are ready for the 2.1 → 2.2 upgrade. |
-
-Pin a specific PHP minor with a fully-qualified tag — e.g.
-`ghcr.io/magicsunday/webtrees-php:2.1.27-php8.4` or
-`ghcr.io/magicsunday/webtrees-php:2.2.6-php8.5`. The line aliases
-(`latest`, `2`, `2.1`, `2.2`) follow the rolling top-of-line PHP entry
-(currently php8.5); pin a numeric tag if you need build determinism.
-
-The 2.1 → 2.2 upgrade is a standard webtrees major bump: stop the
-stack, swap the `WEBTREES_VERSION` value in `.env`, bring the stack
-back up. Webtrees runs its own schema migrations on first start;
-back up `<project>_database` first if the data matters to you.
-
-## Updating to a new webtrees release
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/upgrade | bash
-```
-
-The `upgrade` launcher stops the stack, drops the `<project>_app`
-volume so the new image can re-seed it, and re-runs the installer
-with `--force`. The `<project>_database` and `<project>_media` volumes
-survive the upgrade. Pass custom flags via `bash -s -- --port 8443`
-if you deviate from the quickstart defaults.
-
-If you prefer to step through manually (audit each command before
-it runs, or tweak individual steps):
-
-```bash
-docker compose down
-docker volume rm "$(basename "$PWD")_app"
-curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
-  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 28080 --force
-docker compose pull
-docker compose up -d
-```
-
-## Switching modes
-
-To toggle between standalone (production) and dev (module-maintainer):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/switch | bash -s -- dev
-curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/switch | bash -s -- standalone
-```
-
-If you cloned the repo you can also run `./switch dev` / `./switch
-standalone` directly from the checkout. The launcher reads the
-existing `.env`, stops the current stack, and re-runs the wizard with
-the target mode — preserving the port, admin settings, and database
-credentials you used before. Switching INTO dev mode requires a git
-clone of this repo in the current directory; the wizard refuses
-otherwise.
+- **Updating to a new webtrees release** (one-liner + manual fallback)
+  → [`docs/upgrade.md`](docs/upgrade.md#updating-to-a-new-webtrees-release)
+- **Switching between standalone and dev mode**
+  → [`docs/upgrade.md`](docs/upgrade.md#switching-modes)
+- **Choosing which webtrees line your install tracks** (2.1 LTS vs
+  2.2 current) → [`docs/upgrade.md`](docs/upgrade.md#choosing-a-webtrees-line)
 
 ## Backup
 
@@ -222,52 +170,46 @@ Full procedure (DB dump, media tar, restore, scheduling): see
 
 ## Troubleshooting
 
+The five things most people hit:
+
 - **Port already in use** — the wizard probes the requested port and
   falls back to 28081 automatically. If 28081 is also taken, pass
   `--port <free-port>` explicitly.
-- **`docker compose pull` fails** — confirm GHCR is reachable
-  (`docker pull ghcr.io/magicsunday/webtrees-nginx:1.30-r1`) and re-run.
 - **Admin login fails** — the password is printed once in the install
-  banner and not saved to disk. If you missed it, re-run the wizard with
-  `--force` to regenerate (your tree data in the named volumes survives).
-- **`docker: command not found`** — you haven't installed Docker yet.
-  See *Before you start* above and follow the official Docker Engine
-  install guide for your platform.
-- **`permission denied while trying to connect to the Docker daemon
-  socket`** — your user isn't in the `docker` group. Run
-  `sudo usermod -aG docker $USER`, then log out and back in (group
-  membership is read at login).
+  banner and not saved to disk. If you missed it, re-run the wizard
+  with `--force` to regenerate (your tree data in the named volumes
+  survives).
+- **`docker: command not found` / permission denied on the docker
+  socket** — see *Before you start* above and follow the Docker
+  Engine install guide for your platform. After installing, add your
+  user to the `docker` group (`sudo usermod -aG docker $USER`) and
+  log out + back in.
 - **Wizard hangs on a prompt** — you piped `curl` into `bash` without
-  `--non-interactive`. Interactive prompts can't read from a pipe; add
-  the flag or download the script first and run it directly.
-- **What are all the installer flags?** — see
-  [`docs/installer-reference.md`](docs/installer-reference.md) for a
-  scenario-oriented reference covering first-time install, re-install,
-  headless / non-interactive, Traefik, and dev mode.
-- **How do I set up Traefik in front of webtrees?** — see
-  [`docs/proxy-traefik.md`](docs/proxy-traefik.md) for the end-to-end
-  walkthrough: pre-requisites, the install command, what labels the
-  wizard emits, and troubleshooting (TLS errors, router collisions,
-  wrong network).
-- **How do I update?** — see the *Updating to a new webtrees release*
-  section above. The `upgrade` one-liner handles the common case.
-- **How do I back up?** — see [`docs/customizing.md`](docs/customizing.md#backup)
-  for DB dump, media tar, restore, and scheduling.
-- **How do I add custom modules?** — see [`docs/customizing.md`](docs/customizing.md)
-  for the `compose.override.yaml` pattern that bind-mounts a modules
-  directory into phpfpm.
-- **I'm behind a corporate proxy** — export `HTTP_PROXY` /
-  `HTTPS_PROXY` / `NO_PROXY` in the shell before running the
-  one-liner, and configure the Docker daemon itself to use the proxy
-  (see Docker's networking docs). Otherwise image pulls will fail.
-- **My server can't reach GHCR** — check egress firewall rules for
-  `ghcr.io` and `*.githubusercontent.com`. If GHCR requires
-  authentication in your environment, run `docker login ghcr.io`
-  before the wizard.
+  `--non-interactive`. Interactive prompts can't read from a pipe;
+  add the flag or download the script first.
 - **webtrees lost my data after upgrade** — you removed too many
-  volumes. Only the `<project>_app` volume is safe to drop on upgrade;
+  volumes. Only `<project>_app` is safe to drop on upgrade;
   `<project>_database` and `<project>_media` hold your trees and
-  uploads and must be preserved. Restore from your latest backup.
+  uploads. Restore from your latest backup.
+
+Everything else lives in the topic docs:
+
+- Installer flags / scenarios → [`docs/installer-reference.md`](docs/installer-reference.md)
+- Traefik setup + TLS / router troubleshooting → [`docs/proxy-traefik.md`](docs/proxy-traefik.md)
+- HTTPS + cert chain diagnosis → [`docs/https-certs.md`](docs/https-certs.md)
+- Backup / restore / custom modules → [`docs/customizing.md`](docs/customizing.md)
+
+Network-connectivity edge cases:
+
+- **Behind a corporate proxy** — export `HTTP_PROXY` / `HTTPS_PROXY`
+  / `NO_PROXY` in the shell before running the one-liner, AND
+  configure the Docker daemon itself to use the proxy (see Docker's
+  networking docs). Otherwise image pulls fail.
+- **Server can't reach GHCR** — check egress firewall rules for
+  `ghcr.io` and `*.githubusercontent.com`. Quick verify:
+  `docker pull ghcr.io/magicsunday/webtrees-nginx:1.30-r1`. If GHCR
+  requires authentication in your environment, run
+  `docker login ghcr.io` before the wizard.
 
 ## Power-user paths
 

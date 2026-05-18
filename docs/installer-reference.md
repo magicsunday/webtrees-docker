@@ -61,9 +61,8 @@ docker compose up -d
 
 If the previous install left volumes that should not survive (e.g. a
 test run that landed an admin you cannot log in as), the wizard
-detects them and offers an interactive wipe — see
-[customizing.md → Surviving-volume detection](customizing.md). The
-non-interactive path requires the operator to wipe manually:
+detects them and offers an interactive wipe. The non-interactive
+path requires the operator to wipe manually:
 `docker compose -p <project> down -v` before re-running.
 
 ## Headless / non-interactive
@@ -171,3 +170,8 @@ Dev-only flags:
 
 See `installer/webtrees_installer/cli.py:_run_with_exit_codes` for the
 authoritative translation table.
+
+## Related
+
+- [`upgrade.md`](upgrade.md) — updating to a new webtrees release,
+  switching between standalone / dev mode, choosing a webtrees line.

@@ -175,3 +175,10 @@ inspect` before rendering — `--reuse-volumes wt_old` requires
 (`--use-external-db`, `--db-data-path`, `--media-path`). Operators
 who need to mix shapes (e.g. reuse media but use a fresh DB) layer
 the override manually via `compose.override.yaml`.
+
+## Related
+
+- [`upgrade.md`](upgrade.md) — updating to a new webtrees release,
+  switching between standalone / dev mode, choosing a webtrees line.
+- [`diy.md`](diy.md) — assembling your own compose stack without the
+  wizard at all.

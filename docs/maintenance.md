@@ -239,3 +239,8 @@ entrypoint). Open a PR; CI rebuilds every Alpine-derived image stage.
 There is no `make bump-php` target. Patch bumps are workflow-driven,
 and minor bumps need a structural review that does not fit a one-shot
 sed sweep.
+
+## Related
+
+- [`upgrade.md`](upgrade.md) — operator-facing upgrade / switch / line
+  procedures (this doc covers maintainer-side pin bumping).

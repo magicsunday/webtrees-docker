@@ -301,3 +301,8 @@ default + any naming collisions worth knowing) see
 - **Override not picked up** — Compose only merges
   `compose.override.yaml` when the filename matches exactly. Check
   `docker compose config` to see the effective merged stack.
+
+## Related
+
+- [`upgrade.md`](upgrade.md) — updating to a new webtrees release,
+  switching between standalone / dev mode, choosing a webtrees line.
