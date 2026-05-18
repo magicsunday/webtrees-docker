@@ -269,6 +269,13 @@ Full procedure (DB dump, media tar, restore, scheduling): see
   `<project>_database` and `<project>_media` hold your trees and
   uploads and must be preserved. Restore from your latest backup.
 
+## Contributing
+
+Project standards — design-principle order, code conventions,
+audit-loop discipline — are codified in
+[`CONTRIBUTING.md`](CONTRIBUTING.md). Read it before opening a PR.
+AI coding agents start at [`AGENTS.md`](AGENTS.md).
+
 ## For module developers
 
 Comprehensive guide: [`docs/developing.md`](docs/developing.md).

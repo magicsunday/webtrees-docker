@@ -3,7 +3,9 @@
 
 This file orients AI coding agents working on `webtrees-docker`. Humans should
 read [`README.md`](README.md) (self-hosters) or [`docs/developing.md`](docs/developing.md)
-(maintainers) instead.
+(maintainers) instead. Project standards (design-principle order, repo
+conventions, audit-loop discipline) live in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and apply to humans and agents alike.
 
 ## Project
 
@@ -80,18 +82,17 @@ qemu emulation; rely on CI for the full matrix.
 - **buildkit ≥0.18 mounts `/etc/hosts` read-only inside `RUN`** — use the
   `add-hosts:` input on `docker/build-push-action` instead of
   `echo … >> /etc/hosts`.
-- **`grep -q` SIGPIPE inside a pipefail pipeline** — feed the body via a
-  `<<<` here-string instead of `printf … |`, or eliminate the pipeline
-  entirely by capturing the upstream output into a variable
-  (`out=$(cmd) || exit 1`) and operating on `"$out"` from there. The
-  captured-variable form also surfaces the upstream command's exit
-  status, which the pipefail-vs-`if` shape silently swallows.
+- **`grep -q` SIGPIPE inside a pipefail pipeline** — see the
+  **Shell** convention block in
+  [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Out of scope for this file
 
 Self-host install instructions → [`README.md`](README.md).
 Module-developer onboarding → [`docs/developing.md`](docs/developing.md).
 Customising / backup → [`docs/customizing.md`](docs/customizing.md).
+Project standards (design-principle order, code conventions,
+audit-loop discipline) → [`CONTRIBUTING.md`](CONTRIBUTING.md).
 Architecture rationale lives with the maintainer's notes outside the repo;
 ask the maintainer if you need it.
 <!-- /GENERATED:agent-rules -->
