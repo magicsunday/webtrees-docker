@@ -8,6 +8,7 @@ ARG PHP_VERSION=8.3
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 ARG WEBTREES_VERSION=2.2.6
+ARG NGINX_BASE=1.30
 # Optional digest suffix appended to the upstream php:<minor>-fpm-alpine
 # base reference; empty = pull by rolling tag. CI passes the value from
 # dev/php_digests.lock as `@sha256:…` (the leading `@` lets the FROM line
