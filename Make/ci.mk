@@ -23,12 +23,12 @@
 # volume and race on `pip install -e .` writes under `make -jN`.
 .NOTPARALLEL: ci-test
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test`. Makefile targets cannot contain `:` in their names, so the
 # recipe is `ci-test`; both are interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -206,6 +206,10 @@ ci-composer-patches-lockstep: .logo ## Asserts setup/composer-core.json and comp
 ci-patches-apply-lockstep: .logo ## Asserts setup/patches/*.patch applies cleanly to every webtrees version in dev/versions.json.
 	echo -e "${FBLUE}▶ patches apply lockstep${FRESET}"
 	./scripts/lockstep/check-patches-apply.sh "$(CURDIR)"
+
+ci-portainer-templates-lockstep: .logo ## Asserts templates/portainer/{compose.yaml,.env.example} mirror a fresh render of the installer Jinja sources.
+	echo -e "${FBLUE}▶ portainer templates lockstep${FRESET}"
+	./scripts/lockstep/check-portainer-templates.sh "$(CURDIR)"
 
 ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirrors agree across every documented site.
 	echo -e "${FBLUE}▶ port-default lockstep${FRESET}"

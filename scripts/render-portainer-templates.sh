@@ -39,16 +39,22 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/templates/portainer"
+# WEBTREES_INSTALLER_RENDER_OUT lets callers (the ci-portainer-templates
+# lockstep) redirect the render into their own tempdir so they never
+# touch the committed templates/portainer/ files. Default keeps the
+# release-time workflow (operator runs the script, files land in the
+# committed path) unchanged.
+OUT="${WEBTREES_INSTALLER_RENDER_OUT:-$ROOT/templates/portainer}"
 mkdir -p "$OUT"
 
 # Stage the render in a host-side tempdir; only `mv` into $OUT after
 # every post-condition passes. This keeps a failing run from leaving
 # half-rendered files behind that a later `git diff` would surface as
-# a confusing state. The tempdir lives under $ROOT/templates/ so the
-# atomic rename stays on the same filesystem.
-STAGE=$(mktemp -d -p "$ROOT/templates" portainer-stage.XXXXXX)
-trap 'rm -rf "$STAGE"' EXIT
+# a confusing state. The tempdir lives in the system $TMPDIR so an
+# uncaught SIGKILL doesn't leak a tempdir into the repo tree (where a
+# careless `git add .` would commit half-rendered output).
+STAGE=$(mktemp -d -t portainer-stage.XXXXXX)
+trap 'rm -rf "$STAGE"' EXIT INT TERM HUP
 
 # Non-editable install (no `-e`, no `[test]` extras) so the host's
 # installer/ tree stays clean and the docker step pulls the minimum
@@ -137,10 +143,11 @@ fi
 
 # Validate the rendered compose under docker compose config so a
 # trailing-comma or unknown-key regression fails the release-time
-# render rather than the operator's Portainer import.
-if ! docker compose -f "$STAGE/compose.yaml" --env-file "$STAGE/.env.example" config -q >/dev/null 2>&1; then
-    printf 'render-portainer-templates: docker compose config rejected the rendered files:\n' >&2
-    docker compose -f "$STAGE/compose.yaml" --env-file "$STAGE/.env.example" config -q 1>&2 || true
+# render rather than the operator's Portainer import. Capture stderr in
+# the same invocation so the diagnostic message reaches the operator
+# without a second compose run.
+if ! validate_err=$(docker compose -f "$STAGE/compose.yaml" --env-file "$STAGE/.env.example" config -q 2>&1); then
+    printf 'render-portainer-templates: docker compose config rejected the rendered files:\n%s\n' "$validate_err" >&2
     exit 1
 fi
 
@@ -148,5 +155,12 @@ fi
 mv "$STAGE/compose.yaml" "$OUT/compose.yaml"
 mv "$STAGE/.env.example" "$OUT/.env.example"
 
-printf 'Regenerated templates/portainer/compose.yaml + .env.example.\n'
+# Print the actual $OUT path so an operator who has leaked
+# WEBTREES_INSTALLER_RENDER_OUT into their shell (e.g. from a sourced
+# .envrc, a debugging session, or a CI step) can see at a glance that
+# the render landed somewhere other than the committed templates/
+# tree. A silent redirect would let a release-time operator commit a
+# stale templates/portainer/ tree while believing the render had
+# refreshed it.
+printf 'Regenerated %s/compose.yaml + %s/.env.example.\n' "$OUT" "$OUT"
 printf 'Review the diff and commit if intentional.\n'

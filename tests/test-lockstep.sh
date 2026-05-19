@@ -96,7 +96,7 @@ assert_lockstep_fails() {
 # guard, natural sort) keeps a malformed-but-recoverable input
 # acceptable.
 assert_lockstep_passes() {
-    local name=$1 target=$2
+    local name=$1 target=$2 expect_in_stderr=${3:-}
     local stderr_out exit_code
 
     set +e
@@ -106,6 +106,20 @@ assert_lockstep_passes() {
 
     if [ "$exit_code" -ne 0 ]; then
         echo "FAIL  $name: expected exit 0, got $exit_code"
+        echo "      actual stderr (last 5 lines):"
+        printf '%s\n' "$stderr_out" | tail -5 | sed 's/^/        /'
+        fail=$((fail + 1))
+        results+=("FAIL  $name")
+        return
+    fi
+
+    # Optional positive-control assertion on stderr content. Lets a
+    # caller distinguish e.g. "exited 0 via short-circuit" from "exited
+    # 0 via full execution" — otherwise a regression that renames an
+    # env-var guard would silently fall through to the normal happy
+    # path and the test would still pass.
+    if [ -n "$expect_in_stderr" ] && ! printf '%s\n' "$stderr_out" | grep -qF "$expect_in_stderr"; then
+        echo "FAIL  $name: stderr does not contain '${expect_in_stderr}'"
         echo "      actual stderr (last 5 lines):"
         printf '%s\n' "$stderr_out" | tail -5 | sed 's/^/        /'
         fail=$((fail + 1))
@@ -1276,6 +1290,31 @@ assert_lockstep_fails \
     "ci-patches-apply-lockstep: broken context anchor flagged" \
     "ci-patches-apply-lockstep" \
     "does not apply cleanly"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-portainer-templates-lockstep
+# ──────────────────────────────────────────────────────────────────────
+#
+# The render-path tests (mutated-drift + clean-pass) are intentionally
+# omitted here. Each case invokes the full renderer (docker run
+# python:3.13-slim + pip install + jinja render, ~60–90 s) and two
+# cases push the overall test-lockstep wall-clock past the harness
+# budget (observed Exit 137 = SIGKILL). The lockstep itself runs every
+# CI invocation via `ci-test`, so actual drift between committed
+# templates/portainer/ files and the Jinja sources fails CI loudly.
+#
+# What IS exercised here: the CHECK_PORTAINER_TEMPLATES=0 offline
+# escape hatch. It short-circuits before any docker invocation
+# (~10 ms), and a regression that renames the env var, flips the
+# default, or moves the guard below the docker block would break
+# offline CI lanes silently. That branch has no production gate, so
+# this cheap test pins the contract in place.
+
+CHECK_PORTAINER_TEMPLATES=0 assert_lockstep_passes \
+    "ci-portainer-templates-lockstep: CHECK_PORTAINER_TEMPLATES=0 short-circuits" \
+    "ci-portainer-templates-lockstep" \
+    "CHECK_PORTAINER_TEMPLATES=0 — skipping portainer-templates lockstep"
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
