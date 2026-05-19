@@ -16,6 +16,7 @@ from typing import IO
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
+    print_standalone_http_security_note,
     print_standalone_http_url_lines,
     print_what_next_section,
 )
@@ -252,10 +253,29 @@ def run_standalone(
 
     # Resolve the tristate via the shared helper. The standalone flow
     # doesn't read an existing .env (env_value=None), so resolution
-    # collapses to "explicit CLI value, else the wizard default of True".
+    # collapses to "explicit CLI value, else the wizard default".
+    #
+    # Smart default: `proxy standalone` means no upstream TLS
+    # terminator is in scope (this flow never asks for a domain under
+    # standalone — that's a traefik-only field). Defaulting
+    # ENFORCE_HTTPS=TRUE there emits a 301 to `https://<host>/` that
+    # nothing answers (canonical port 443 isn't bound), trapping
+    # direct-LAN browsers in a broken redirect. Default off; the
+    # operator can still opt in with `--https` if they terminate TLS
+    # themselves (Caddy / nginx-on-host / Cloudflare Tunnel in front
+    # of the published port). `proxy traefik` keeps the TRUE default —
+    # Traefik terminates TLS upstream.
+    #
+    # Gate on the RESOLVED `proxy_mode` local (set after the
+    # ask_choice prompt above), not on `args.proxy_mode`. Reading raw
+    # CLI args misses the interactive path where the operator runs the
+    # wizard without `--proxy` and picks "standalone" at the prompt —
+    # exactly the scenario the README quickstart sends a first-time
+    # user through.
     enforce_https = resolve_enforce_https(
         cli_value=args.enforce_https,
         env_value=None,
+        default=proxy_mode != "standalone",
     )
 
     # #41 BYOD external-db: verify reachability before render so an
@@ -1209,6 +1229,11 @@ def _print_banner(
                 app_port=app_port,
                 host_lan_ip=os.environ.get("HOST_LAN_IP", "").strip() or None,
             )
+            # Symmetric advisory: when HTTPS is off (now the smart
+            # default for `proxy standalone` without a domain) the
+            # operator gets plaintext HTTP. Make the trade-off
+            # explicit so it isn't inherited silently.
+            print_standalone_http_security_note(stdout=stdout, term=term)
     else:
         print(f"{term.info('•')} Webtrees URL: https://{domain}/", file=stdout)
         # Issue #131 reminder: the stack only routes via this URL when

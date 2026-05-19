@@ -413,6 +413,93 @@ def test_run_standalone_allows_default_enforce_https_when_traefik_chosen_at_prom
     assert "ENFORCE_HTTPS=TRUE" in (tmp_path / ".env").read_text()
 
 
+def test_run_standalone_no_domain_defaults_enforce_https_false(
+    tmp_path: Path,
+) -> None:
+    """Direct-LAN install (`--proxy standalone` with no `--domain`, no
+    explicit `--https`) defaults to ENFORCE_HTTPS=FALSE. Without an
+    upstream TLS terminator, defaulting TRUE would emit a 301 to
+    https://<host>/ that nothing answers (canonical port 443 unbound),
+    trapping the operator in a broken redirect."""
+    args = _args(
+        work_dir=tmp_path,
+        proxy_mode="standalone",
+        domain=None,
+        enforce_https=None,
+    )
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE):
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    assert "ENFORCE_HTTPS=FALSE" in (tmp_path / ".env").read_text()
+
+
+def test_run_standalone_traefik_mode_keeps_enforce_https_true(
+    tmp_path: Path,
+) -> None:
+    """`--proxy traefik --domain <fqdn>` has Traefik terminating TLS
+    upstream and forwarding to webtrees with `X-Forwarded-Proto=https`.
+    Default stays TRUE so the in-app links match the public scheme."""
+    args = _args(
+        work_dir=tmp_path,
+        proxy_mode="traefik",
+        domain="webtrees.example.org",
+        app_port=None,
+        enforce_https=None,
+    )
+    exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    assert "ENFORCE_HTTPS=TRUE" in (tmp_path / ".env").read_text()
+
+
+def test_run_standalone_interactive_pick_no_domain_defaults_enforce_https_false(
+    tmp_path: Path,
+) -> None:
+    """The interactive path: operator runs `webtrees-installer` with no
+    `--proxy` / `--domain` / `--https`, picks 'Standalone (no proxy)' at
+    the prompt. `args.proxy_mode` is None, `args.domain` is None — the
+    smart default must gate on the RESOLVED locals after the prompts
+    have run, not on `args.*` (which would still see None and silently
+    fall back to ENFORCE_HTTPS=TRUE, reproducing the redirect bug)."""
+    args = _args(
+        work_dir=tmp_path,
+        interactive=True,
+        proxy_mode=None,
+        domain=None,
+        enforce_https=None,
+    )
+    with patch(
+        "webtrees_installer.flow.ask_choice",
+        side_effect=["full", "standalone"],
+    ), patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE):
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    assert "ENFORCE_HTTPS=FALSE" in (tmp_path / ".env").read_text()
+
+
+def test_run_standalone_no_domain_with_explicit_https_flag_opts_in(
+    tmp_path: Path,
+) -> None:
+    """CLI flag still wins. `--proxy standalone --https` with no domain is
+    a legitimate opt-in (operator runs Caddy on the host, points it at
+    the published port, no public FQDN configured here). The 'direct
+    browser access not possible' banner fires to make the trade-off
+    visible."""
+    args = _args(
+        work_dir=tmp_path,
+        proxy_mode="standalone",
+        domain=None,
+        enforce_https=True,
+    )
+    with patch("webtrees_installer.flow.probe_port", return_value=PortStatus.FREE):
+        exit_code = run_standalone(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    assert "ENFORCE_HTTPS=TRUE" in (tmp_path / ".env").read_text()
+
+
 def test_run_standalone_writes_admin_password_to_secrets_init(tmp_path: Path) -> None:
     """Compose.yaml must reference /secrets/wt_admin_password."""
     args = _args(work_dir=tmp_path)
@@ -967,6 +1054,31 @@ def test_print_banner_standalone_no_https_shows_http_url() -> None:
     text = out.getvalue()
     assert "http://localhost:8080/" in text
     assert "https://localhost" not in text
+    # Symmetric advisory must accompany the plaintext-HTTP URL — without
+    # it the now-default ENFORCE_HTTPS=FALSE banner inherits the
+    # cleartext-on-LAN trade-off silently.
+    assert "HTTPS is off" in text
+
+
+def test_print_banner_standalone_enforce_https_does_not_show_http_security_note() -> None:
+    """The plaintext-HTTP advisory belongs to the FALSE branch only.
+    When ENFORCE_HTTPS=TRUE under standalone, the reverse-proxy
+    warning fires instead; emitting the HTTP-off advisory there would
+    contradict the URL the operator just chose to keep HTTPS-only."""
+    out = StringIO()
+    with patch.dict(os.environ, {"HOST_LAN_IP": ""}, clear=False):
+        _print_banner(
+            stdout=out,
+            work_dir=Path("/tmp/wt"),
+            proxy_mode="standalone",
+            app_port=8080,
+            domain=None,
+            admin_user=None,
+            admin_password=None,
+            enforce_https=True,
+            no_up=False,
+        )
+    assert "HTTPS is off" not in out.getvalue()
 
 
 def test_print_banner_standalone_no_https_includes_lan_url_when_env_set() -> None:

@@ -102,6 +102,31 @@ def print_standalone_http_url_lines(
         )
 
 
+def print_standalone_http_security_note(
+    *,
+    stdout: IO[str],
+    term: Term,
+) -> None:
+    """Emit a one-line plaintext-HTTP advisory for standalone+ENFORCE_HTTPS=FALSE.
+
+    Counterpart to :func:`print_standalone_enforce_https_warning`: that
+    helper fires when the operator opts into HTTPS without an upstream
+    TLS terminator and warns that direct browser access is broken. This
+    helper fires on the other branch, where HTTPS is off and the stack
+    serves plaintext on the chosen port. Symmetric banner coverage keeps
+    operators aware of the trade-off they're inheriting (logins +
+    session cookies travel cleartext on the LAN — safe on a trusted
+    home network, sketchy on shared Wi-Fi).
+    """
+    print(
+        f"  {term.warning('!')} HTTPS is off — logins and session "
+        f"cookies travel unencrypted. Safe on a trusted LAN; "
+        f"for shared / hostile networks, re-run with --https + a "
+        f"TLS-terminating reverse proxy in front.",
+        file=stdout,
+    )
+
+
 def print_standalone_http_url_lan_only(
     *,
     stdout: IO[str],

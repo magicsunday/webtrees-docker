@@ -18,6 +18,7 @@ import pytest
 
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
+    print_standalone_http_security_note,
     print_standalone_http_url_lines,
     print_what_next_section,
 )
@@ -101,6 +102,32 @@ def test_print_standalone_enforce_https_warning_interpolates_rerun_verb() -> Non
         rerun_verb="dev wizard",
     )
     assert "re-run the dev wizard with --no-https" in out.getvalue()
+
+
+def test_print_standalone_http_security_note_emits_single_line() -> None:
+    """The plaintext-HTTP advisory is one line — keeps banner real estate
+    tight on the now-default standalone+ENFORCE_HTTPS=FALSE branch."""
+    out = StringIO()
+    print_standalone_http_security_note(
+        stdout=out,
+        term=Term.for_stream(out),
+    )
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    assert len(lines) == 1
+
+
+def test_print_standalone_http_security_note_includes_required_phrases() -> None:
+    """Contract-key phrases pinning the plaintext-HTTP advisory.
+    Symmetric counterpart to the ENFORCE_HTTPS=TRUE warning above."""
+    out = StringIO()
+    print_standalone_http_security_note(
+        stdout=out,
+        term=Term.for_stream(out),
+    )
+    text = out.getvalue()
+    assert "HTTPS is off" in text
+    assert "unencrypted" in text
+    assert "--https" in text
 
 
 def test_print_standalone_http_url_lines_localhost_only_when_no_lan_ip() -> None:
