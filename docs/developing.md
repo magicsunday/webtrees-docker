@@ -182,6 +182,13 @@ Today's bundle:
   strings).
 - `make ci-hadolint` — Dockerfile lint at the `error` failure threshold;
   warnings stay visible but do not fail the build.
+- `make ci-*-lockstep` — drift checks across canonical pin sources
+  (image pins, port defaults, JSON catalog ↔ `.env.dist`, nginx tag
+  derivation, etc.). See `dev/README.md` for the invariant table and
+  `scripts/lockstep/` for the individual checks.
+- `make ci-lockstep-tests` — failure-path tests that inject each
+  invariant violation into a throwaway worktree and assert the
+  matching lockstep check fails loud.
 - `make ci-entrypoint` — entrypoint state-machine integration tests
   against the canonical published php image (tag resolved from
   `dev/versions.json`).

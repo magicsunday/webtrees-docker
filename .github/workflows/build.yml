@@ -24,6 +24,7 @@ jobs:
         timeout-minutes: 5
         outputs:
             php_entries: ${{ steps.set.outputs.php_entries }}
+            nginx_base: ${{ steps.set.outputs.nginx_base }}
             nginx_tag: ${{ steps.set.outputs.nginx_tag }}
             nginx_config_revision: ${{ steps.set.outputs.nginx_config_revision }}
             installer_tag: ${{ steps.set.outputs.installer_tag }}
@@ -38,22 +39,61 @@ jobs:
                   # they have drifted instead of shipping a stale wheel.
                   cmp LICENSE installer/LICENSE
 
+            # Pipe the workflow_dispatch input through `env:` so the GHA
+            # templater never inlines it into the shell line — bash reads it
+            # as a normal env var and the `--arg` form of jq passes it as
+            # data, not a filter fragment. Regex-validate the shape before
+            # use so a malformed input fails fast with a clear annotation
+            # instead of producing a confusing empty-match downstream.
             - id: set
+              env:
+                  WEBTREES_VERSION_INPUT: ${{ inputs.webtrees_version }}
               run: |
                   set -euo pipefail
-                  if [ -n "${{ inputs.webtrees_version }}" ]; then
-                      php_entries=$(jq -c "[.[] | select(.webtrees == \"${{ inputs.webtrees_version }}\")]" dev/versions.json)
+                  if [ -n "$WEBTREES_VERSION_INPUT" ]; then
+                      if [[ ! "$WEBTREES_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                          echo "::error::workflow_dispatch input 'webtrees_version' must match X.Y.Z"
+                          exit 1
+                      fi
+                      php_entries=$(jq -c --arg ver "$WEBTREES_VERSION_INPUT" '[.[] | select(.webtrees == $ver)]' dev/versions.json)
                       if [ "$php_entries" = "[]" ]; then
-                          echo "::error::webtrees ${{ inputs.webtrees_version }} not present in dev/versions.json"
+                          echo "::error::webtrees $WEBTREES_VERSION_INPUT not present in dev/versions.json"
                           exit 1
                       fi
                   else
                       php_entries=$(jq -c . dev/versions.json)
                   fi
                   echo "php_entries=$php_entries" >> "$GITHUB_OUTPUT"
-                  echo "nginx_tag=$(jq -r .tag dev/nginx-version.json)" >> "$GITHUB_OUTPUT"
-                  echo "nginx_config_revision=$(jq -r .config_revision dev/nginx-version.json)" >> "$GITHUB_OUTPUT"
-                  installer_tag=$(jq -r .tag dev/installer-version.json)
+                  # Validate the shape of every value emitted as a matrix
+                  # output — downstream consumers interpolate them into
+                  # shell strings (image-tag suffixes, --build-arg
+                  # values), so a malformed dev/*.json reaches a shell
+                  # context. The ci-*-lockstep checks guard the files at
+                  # commit time; this is the defence-in-depth gate at
+                  # workflow runtime.
+                  nginx_base=$(jq -r .nginx_base dev/nginx-version.json)
+                  if [[ ! "$nginx_base" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::dev/nginx-version.json .nginx_base '$nginx_base' must match X.Y"
+                      exit 1
+                  fi
+                  nginx_tag=$(jq -r .tag dev/nginx-version.json)
+                  if [[ ! "$nginx_tag" =~ ^[0-9]+\.[0-9]+-r[0-9]+$ ]]; then
+                      echo "::error::dev/nginx-version.json .tag '$nginx_tag' must match X.Y-rN"
+                      exit 1
+                  fi
+                  nginx_config_revision=$(jq -r .config_revision dev/nginx-version.json)
+                  if [[ ! "$nginx_config_revision" =~ ^[0-9]+$ ]]; then
+                      echo "::error::dev/nginx-version.json .config_revision '$nginx_config_revision' must match N (non-negative integer)"
+                      exit 1
+                  fi
+                  installer_tag=$(jq -r .version dev/installer-version.json)
+                  if [[ ! "$installer_tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::dev/installer-version.json .version '$installer_tag' must match X.Y.Z"
+                      exit 1
+                  fi
+                  echo "nginx_base=${nginx_base}" >> "$GITHUB_OUTPUT"
+                  echo "nginx_tag=${nginx_tag}" >> "$GITHUB_OUTPUT"
+                  echo "nginx_config_revision=${nginx_config_revision}" >> "$GITHUB_OUTPUT"
                   echo "installer_tag=${installer_tag}" >> "$GITHUB_OUTPUT"
 
     build-php:
@@ -95,6 +135,33 @@ jobs:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
+            # Look up the multi-arch manifest digest probe-php-digests.sh
+            # recorded for this PHP minor. The build below passes it as
+            # `PHP_DIGEST=...` so the Dockerfile's FROM line resolves the
+            # base image by digest, not by mutable tag. A tag republish
+            # between the probe and this build cannot substitute the base.
+            - name: Resolve PHP base-image digest
+              id: php_digest
+              env:
+                  PHP_MINOR: ${{ matrix.entry.php }}
+              run: |
+                  set -euo pipefail
+                  # Regex-validate PHP_MINOR shape before using it in a
+                  # grep pattern — a value like `8\.5|.*` could otherwise
+                  # match unintended digest rows.
+                  if [[ ! "$PHP_MINOR" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.php '$PHP_MINOR' must match X.Y"
+                      exit 1
+                  fi
+                  digest=$(grep "^${PHP_MINOR}=" dev/php_digests.lock | head -n1 | cut -d= -f2-)
+                  if [ -z "$digest" ]; then
+                      echo "::error::dev/php_digests.lock has no entry for PHP ${PHP_MINOR}"
+                      exit 1
+                  fi
+                  # Emit with a leading '@' so the Dockerfile FROM line can
+                  # concatenate the value directly onto the tag.
+                  echo "value=@${digest}" >> "$GITHUB_OUTPUT"
+
             - uses: docker/build-push-action@v7
               with:
                   context: .
@@ -105,6 +172,7 @@ jobs:
                   tags: ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}-${{ matrix.platform.arch }}
                   build-args: |
                       PHP_VERSION=${{ matrix.entry.php }}
+                      PHP_DIGEST_REF=${{ steps.php_digest.outputs.value }}
                       WEBTREES_VERSION=${{ matrix.entry.webtrees }}
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
@@ -140,23 +208,45 @@ jobs:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            # `tag_args` accumulates `-t <fully-qualified-tag>` pairs
-            # from the primary tag plus every `matrix.entry.tags` extra
-            # (e.g. `latest`, `2.2`). It is interpolated UNQUOTED into
-            # the imagetools-create command below so the shell can
-            # word-split it into separate flags — adding a tag value
-            # that contains whitespace would corrupt the command. All
-            # current tag values in dev/versions.json are simple
-            # alpha-numeric version strings, so this is safe today.
+            # `tag_args` accumulates `-t <fully-qualified-tag>` pairs from
+            # the primary tag plus every `matrix.entry.tags` extra
+            # (e.g. `latest`, `2.2`). Every field that flows from
+            # `dev/versions.json` is read via `env:` (not GHA template
+            # interpolation) so the value is a normal bash variable that
+            # cannot break out of the surrounding shell quoting. Each
+            # extra tag is then regex-validated against
+            # `^[A-Za-z0-9._-]+$` before concatenation so a malicious-
+            # looking entry cannot inject extra flags into
+            # imagetools-create when the line below word-splits the
+            # joined string. The webtrees + php fields go through the
+            # same `^[0-9]+\.[0-9]+(\.[0-9]+)?$` shape that build-php
+            # consumes via the matrix-step regex.
             - name: Compute tag args
               id: tags
+              env:
+                  WT: ${{ matrix.entry.webtrees }}
+                  PHP: ${{ matrix.entry.php }}
+                  TAGS_JSON: ${{ toJson(matrix.entry.tags) }}
               run: |
                   set -euo pipefail
-                  primary="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  if [[ ! "$WT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.webtrees '$WT' must match X.Y.Z"
+                      exit 1
+                  fi
+                  if [[ ! "$PHP" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.php '$PHP' must match X.Y"
+                      exit 1
+                  fi
+                  primary="ghcr.io/magicsunday/webtrees-php:${WT}-php${PHP}"
                   tag_args="-t $primary"
-                  for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
+                  while IFS= read -r extra; do
+                      [ -z "$extra" ] && continue
+                      if [[ ! "$extra" =~ ^[A-Za-z0-9._-]+$ ]]; then
+                          echo "::error::tag value '$extra' in dev/versions.json contains chars outside [A-Za-z0-9._-]"
+                          exit 1
+                      fi
                       tag_args="$tag_args -t ghcr.io/magicsunday/webtrees-php:$extra"
-                  done
+                  done < <(jq -r '.[]' <<<"$TAGS_JSON")
                   printf 'tag_args=%s\n' "$tag_args" >> "$GITHUB_OUTPUT"
 
             # The `${base}-amd64` / `${base}-arm64` sources hardcode the
@@ -165,9 +255,12 @@ jobs:
             # source line MUST be added here too — see the platform
             # comment in build-php for the coupling.
             - name: Assemble multi-arch manifest
+              env:
+                  WT: ${{ matrix.entry.webtrees }}
+                  PHP: ${{ matrix.entry.php }}
               run: |
                   set -euo pipefail
-                  base="ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  base="ghcr.io/magicsunday/webtrees-php:${WT}-php${PHP}"
                   docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
                       "${base}-amd64" \
                       "${base}-arm64"
@@ -199,6 +292,29 @@ jobs:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
+            # See build-php for the digest-pin rationale; same shape here.
+            - name: Resolve PHP base-image digest
+              id: php_digest
+              env:
+                  PHP_MINOR: ${{ matrix.entry.php }}
+              run: |
+                  set -euo pipefail
+                  # Regex-validate PHP_MINOR shape before using it in a
+                  # grep pattern — a value like `8\.5|.*` could otherwise
+                  # match unintended digest rows.
+                  if [[ ! "$PHP_MINOR" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.php '$PHP_MINOR' must match X.Y"
+                      exit 1
+                  fi
+                  digest=$(grep "^${PHP_MINOR}=" dev/php_digests.lock | head -n1 | cut -d= -f2-)
+                  if [ -z "$digest" ]; then
+                      echo "::error::dev/php_digests.lock has no entry for PHP ${PHP_MINOR}"
+                      exit 1
+                  fi
+                  # Emit with a leading '@' so the Dockerfile FROM line can
+                  # concatenate the value directly onto the tag.
+                  echo "value=@${digest}" >> "$GITHUB_OUTPUT"
+
             - uses: docker/build-push-action@v7
               with:
                   context: .
@@ -209,6 +325,7 @@ jobs:
                   tags: ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}-${{ matrix.platform.arch }}
                   build-args: |
                       PHP_VERSION=${{ matrix.entry.php }}
+                      PHP_DIGEST_REF=${{ steps.php_digest.outputs.value }}
                       WEBTREES_VERSION=${{ matrix.entry.webtrees }}
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
@@ -235,23 +352,45 @@ jobs:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            # See manifest-php for the tag_args word-splitting contract
-            # and the per-arch suffix coupling — same shape applies.
+            # See manifest-php for the tag_args validation contract and the
+            # per-arch suffix coupling — same shape applies. Every value
+            # from `dev/versions.json` reaches the shell via `env:` so
+            # quoting attacks at template-substitution time can't fire.
             - name: Compute tag args
               id: tags
+              env:
+                  WT: ${{ matrix.entry.webtrees }}
+                  PHP: ${{ matrix.entry.php }}
+                  TAGS_JSON: ${{ toJson(matrix.entry.tags) }}
               run: |
                   set -euo pipefail
-                  primary="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  if [[ ! "$WT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.webtrees '$WT' must match X.Y.Z"
+                      exit 1
+                  fi
+                  if [[ ! "$PHP" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.php '$PHP' must match X.Y"
+                      exit 1
+                  fi
+                  primary="ghcr.io/magicsunday/webtrees-php-full:${WT}-php${PHP}"
                   tag_args="-t $primary"
-                  for extra in $(jq -r '.[]' <<<'${{ toJson(matrix.entry.tags) }}'); do
+                  while IFS= read -r extra; do
+                      [ -z "$extra" ] && continue
+                      if [[ ! "$extra" =~ ^[A-Za-z0-9._-]+$ ]]; then
+                          echo "::error::tag value '$extra' in dev/versions.json contains chars outside [A-Za-z0-9._-]"
+                          exit 1
+                      fi
                       tag_args="$tag_args -t ghcr.io/magicsunday/webtrees-php-full:$extra"
-                  done
+                  done < <(jq -r '.[]' <<<"$TAGS_JSON")
                   printf 'tag_args=%s\n' "$tag_args" >> "$GITHUB_OUTPUT"
 
             - name: Assemble multi-arch manifest
+              env:
+                  WT: ${{ matrix.entry.webtrees }}
+                  PHP: ${{ matrix.entry.php }}
               run: |
                   set -euo pipefail
-                  base="ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}"
+                  base="ghcr.io/magicsunday/webtrees-php-full:${WT}-php${PHP}"
                   docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
                       "${base}-amd64" \
                       "${base}-arm64"
@@ -297,6 +436,7 @@ jobs:
                   add-hosts: phpfpm=127.0.0.1
                   tags: ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}-${{ matrix.platform.arch }}
                   build-args: |
+                      NGINX_BASE=${{ needs.matrix.outputs.nginx_base }}
                       NGINX_CONFIG_REVISION=${{ needs.matrix.outputs.nginx_config_revision }}
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
@@ -326,11 +466,21 @@ jobs:
             # vary per matrix.entry, nginx's do not. A future `:rolling`
             # or `:edge` alias also lands inline.
             - name: Assemble multi-arch manifest
+              env:
+                  NGINX_TAG: ${{ needs.matrix.outputs.nginx_tag }}
               run: |
                   set -euo pipefail
-                  base="ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}"
-                  # #58 image-namespace flatten — dual-publish on
-                  # versioned tag + :latest alias.
+                  # Regex-validate the matrix output before any use —
+                  # ci-nginx-tag-derivation-lockstep guards the file at
+                  # commit time, but the workflow's own consumers still
+                  # need a shell-level guard to keep the env+regex
+                  # contract symmetric with matrix.entry.* hardening.
+                  if [[ ! "$NGINX_TAG" =~ ^[0-9]+\.[0-9]+-r[0-9]+$ ]]; then
+                      echo "::error::nginx_tag '$NGINX_TAG' must match X.Y-rN"
+                      exit 1
+                  fi
+                  base="ghcr.io/magicsunday/webtrees-nginx:${NGINX_TAG}"
+                  # Dual-publish on versioned tag + :latest alias.
                   docker buildx imagetools create \
                       -t "${base}" \
                       -t "ghcr.io/magicsunday/webtrees-nginx:latest" \
@@ -393,11 +543,18 @@ jobs:
             # Same shape as manifest-nginx — single tag-set per
             # release, no per-entry extras, so `:latest` is inline.
             - name: Assemble multi-arch manifest
+              env:
+                  INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
               run: |
                   set -euo pipefail
-                  base="ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}"
-                  # #58 image-namespace flatten — dual-publish on
-                  # versioned tag + :latest alias.
+                  # Regex-validate before use — keeps the env+regex
+                  # contract symmetric with the matrix.entry.* hardening.
+                  if [[ ! "$INSTALLER_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::installer_tag '$INSTALLER_TAG' must match X.Y.Z"
+                      exit 1
+                  fi
+                  base="ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}"
+                  # Dual-publish on versioned tag + :latest alias.
                   docker buildx imagetools create \
                       -t "${base}" \
                       -t "ghcr.io/magicsunday/webtrees-installer:latest" \

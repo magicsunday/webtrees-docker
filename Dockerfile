@@ -8,6 +8,13 @@ ARG PHP_VERSION=8.3
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 ARG WEBTREES_VERSION=2.2.6
+# Optional digest suffix appended to the upstream php:<minor>-fpm-alpine
+# base reference; empty = pull by rolling tag. CI passes the value from
+# dev/php_digests.lock as `@sha256:…` (the leading `@` lets the FROM line
+# do a plain concatenation), so a tag republish cannot silently swap the
+# base image mid-build. Local `make build` leaves it empty and stays
+# digest-free.
+ARG PHP_DIGEST_REF=""
 
 # Major-pin: `composer:2` auto-rolls within the 2.x line so patch and
 # minor bumps land without a manual update. A stricter pin would block
@@ -209,8 +216,10 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
 ###############
 # Shared base: PHP-FPM, extensions, entrypoint. Both production tracks
 # (php-build core, php-build-full Magic-Sunday-Edition) derive from this
-# stage so the PHP runtime is built once.
-FROM php:${PHP_VERSION}-fpm-alpine AS php-base
+# stage so the PHP runtime is built once. PHP_DIGEST_REF is concatenated
+# onto the tag — CI passes `@sha256:…` so the daemon resolves by digest;
+# local `make build` leaves the arg empty and uses the rolling tag.
+FROM php:${PHP_VERSION}-fpm-alpine${PHP_DIGEST_REF} AS php-base
 
 # docker-entrypoint.sh dependencies.
 #
@@ -399,7 +408,13 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 ##################
 # Pre-baked nginx with webtrees configs and an empty /etc/nginx/conf.d/custom/
 # directory that users override-mount for their own snippets.
-FROM nginx:1.30-alpine AS nginx-build
+# NGINX_BASE is the single point of truth for the nginx minor — CI
+# passes the value from dev/nginx-version.json `.nginx_base`. Local
+# `make build` falls back to the default below; ci-env-dist-pins-
+# lockstep keeps that default in sync with `.env.dist`'s mirror of the
+# same JSON.
+ARG NGINX_BASE=1.30
+FROM nginx:${NGINX_BASE}-alpine AS nginx-build
 
 # pipefail makes a failing `nginx -t` surface at the pipe rather than
 # being masked by tee's exit. The grep guards below would also catch the
@@ -407,6 +422,9 @@ FROM nginx:1.30-alpine AS nginx-build
 # nginx itself and satisfies DL4006.
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
+# Re-declare past the FROM so the rest of this stage can interpolate it
+# into LABEL values and downstream FROM stages.
+ARG NGINX_BASE=1.30
 ARG NGINX_CONFIG_REVISION=1
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
@@ -417,20 +435,20 @@ LABEL org.opencontainers.image.title="Webtrees nginx" \
       org.opencontainers.image.vendor="Rico Sonntag" \
       org.opencontainers.image.documentation="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="1.30-r${NGINX_CONFIG_REVISION}" \
+      org.opencontainers.image.version="${NGINX_BASE}-r${NGINX_CONFIG_REVISION}" \
       org.opencontainers.image.url="https://github.com/magicsunday/webtrees-docker#readme" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.base.name="nginx:1.30-alpine" \
-      org.opencontainers.image.ref.name="webtrees-nginx:1.30-r${NGINX_CONFIG_REVISION}"
+      org.opencontainers.image.base.name="nginx:${NGINX_BASE}-alpine" \
+      org.opencontainers.image.ref.name="webtrees-nginx:${NGINX_BASE}-r${NGINX_CONFIG_REVISION}"
 
 # Baked configs: conf.d, includes, templates.
 COPY rootfs/etc/nginx/conf.d /etc/nginx/conf.d
 COPY rootfs/etc/nginx/includes /etc/nginx/includes
 COPY rootfs/etc/nginx/templates /etc/nginx/templates
 
-# Entrypoint hooks that the upstream nginx:1.30-alpine image runs from
+# Entrypoint hooks that the upstream nginx image runs from
 # /docker-entrypoint.d/ before exec'ing nginx. Used to render
 # operator-supplied NGINX_TRUSTED_PROXIES into trust-proxy-extra.conf.
 COPY rootfs/docker-entrypoint.d /docker-entrypoint.d

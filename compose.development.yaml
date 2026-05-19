@@ -113,6 +113,7 @@ services:
             dockerfile: ./Dockerfile
             target: nginx-build
             args:
+                - NGINX_BASE
                 - NGINX_CONFIG_REVISION
                 - VCS_REF
                 - BUILD_DATE

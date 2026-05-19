@@ -21,7 +21,6 @@ def test_load_catalog_reads_all_three_manifests(tmp_path: Path) -> None:
     }))
     (tmp_path / "installer-version.json").write_text(json.dumps({
         "version": "0.1.0",
-        "tag": "0.1.0",
     }))
 
     catalog = load_catalog(tmp_path)
@@ -43,7 +42,7 @@ def test_default_php_entry_prefers_latest_tag(tmp_path: Path) -> None:
         "nginx_base": "1.30", "config_revision": 1, "tag": "1.30-r1",
     }))
     (tmp_path / "installer-version.json").write_text(json.dumps({
-        "version": "0.1.0", "tag": "0.1.0",
+        "version": "0.1.0",
     }))
 
     catalog = load_catalog(tmp_path)
@@ -67,7 +66,7 @@ def test_default_php_entry_falls_back_to_first_without_latest_tag(tmp_path: Path
         "nginx_base": "1.30", "config_revision": 1, "tag": "1.30-r1",
     }))
     (tmp_path / "installer-version.json").write_text(json.dumps({
-        "version": "0.1.0", "tag": "0.1.0",
+        "version": "0.1.0",
     }))
 
     catalog = load_catalog(tmp_path)

@@ -23,12 +23,12 @@
 # volume and race on `pip install -e .` writes under `make -jN`.
 .NOTPARALLEL: ci-test
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test`. Makefile targets cannot contain `:` in their names, so the
 # recipe is `ci-test`; both are interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -178,6 +178,26 @@ ci-readme-badge-lockstep: .logo ## Asserts README webtrees/PHP badge values cove
 ci-php-versions-lockstep: .logo ## Asserts dev/versions.json has exactly one row per supported PHP minor per webtrees minor.
 	echo -e "${FBLUE}▶ PHP versions lockstep${FRESET}"
 	./scripts/lockstep/check-php-versions.sh "$(CURDIR)"
+
+ci-nginx-tag-derivation-lockstep: .logo ## Asserts dev/nginx-version.json .tag equals `<nginx_base>-r<config_revision>`.
+	echo -e "${FBLUE}▶ nginx tag derivation lockstep${FRESET}"
+	./scripts/lockstep/check-nginx-tag-derivation.sh "$(CURDIR)"
+
+ci-php-digests-lockstep: .logo ## Asserts dev/php_digests.lock key set matches dev/php-versions.json .supported.
+	echo -e "${FBLUE}▶ php digests lockstep${FRESET}"
+	./scripts/lockstep/check-php-digests-lockstep.sh "$(CURDIR)"
+
+ci-versions-latest-semver-max-lockstep: .logo ## Asserts dev/versions.json 'latest' tag sits on the semver-max webtrees row.
+	echo -e "${FBLUE}▶ versions 'latest' semver-max lockstep${FRESET}"
+	./scripts/lockstep/check-versions-latest-semver-max.sh "$(CURDIR)"
+
+ci-env-dist-pins-lockstep: .logo ## Asserts .env.dist WEBTREES_VERSION / WEBTREES_NGINX_VERSION / NGINX_CONFIG_REVISION / PHP_VERSION mirror dev/.
+	echo -e "${FBLUE}▶ .env.dist pins lockstep${FRESET}"
+	./scripts/lockstep/check-env-dist-pins.sh "$(CURDIR)"
+
+ci-dockerfile-arg-defaults-lockstep: .logo ## Asserts every `ARG <key>=<default>` in Dockerfile matches .env.dist's mirror of dev/.
+	echo -e "${FBLUE}▶ Dockerfile ARG defaults lockstep${FRESET}"
+	./scripts/lockstep/check-dockerfile-arg-defaults.sh "$(CURDIR)"
 
 ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirrors agree across every documented site.
 	echo -e "${FBLUE}▶ port-default lockstep${FRESET}"

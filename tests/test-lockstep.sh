@@ -998,6 +998,230 @@ assert_lockstep_passes \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-nginx-tag-derivation-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+echo "Setting up: nginx-version.json .config_revision bumped, .tag stale"
+echo '{"nginx_base": "1.30", "config_revision": 2, "tag": "1.30-r1"}' \
+    > "$worktree/dev/nginx-version.json"
+assert_lockstep_fails \
+    "ci-nginx-tag-derivation-lockstep: tag drift from config_revision bump" \
+    "ci-nginx-tag-derivation-lockstep" \
+    "have '1.30-r1', expected '1.30-r2'"
+restore_worktree
+
+echo "Setting up: nginx-version.json missing .tag"
+echo '{"nginx_base": "1.30", "config_revision": 1}' \
+    > "$worktree/dev/nginx-version.json"
+assert_lockstep_fails \
+    "ci-nginx-tag-derivation-lockstep: missing .tag field flagged" \
+    "ci-nginx-tag-derivation-lockstep" \
+    "missing required field 'tag'"
+restore_worktree
+
+assert_lockstep_passes \
+    "ci-nginx-tag-derivation-lockstep: clean tree passes" \
+    "ci-nginx-tag-derivation-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-php-digests-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+echo "Setting up: php_digests.lock missing 8.3 line"
+grep -v '^8\.3=' "$worktree/dev/php_digests.lock" > "$worktree/dev/php_digests.lock.new"
+mv "$worktree/dev/php_digests.lock.new" "$worktree/dev/php_digests.lock"
+assert_lockstep_fails \
+    "ci-php-digests-lockstep: missing supported minor flagged" \
+    "ci-php-digests-lockstep" \
+    "key set drift"
+restore_worktree
+
+echo "Setting up: php_digests.lock contains garbled line"
+{
+    echo '8.3=sha256:notahexvalue'
+    echo '8.4=sha256:2e8d5b74437b02cbc3c632903d20a10fdcc956ba56d25bff951cc2b610767c9a'
+    echo '8.5=sha256:82dd8cfd2aa93a98b0357e4c810f894c4ca265b5034aef3be654faae5f579487'
+} > "$worktree/dev/php_digests.lock"
+assert_lockstep_fails \
+    "ci-php-digests-lockstep: malformed line shape flagged" \
+    "ci-php-digests-lockstep" \
+    "malformed line"
+restore_worktree
+
+assert_lockstep_passes \
+    "ci-php-digests-lockstep: clean tree passes" \
+    "ci-php-digests-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-versions-latest-semver-max-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+echo "Setting up: versions.json 'latest' tag moved off the semver-max row"
+# shellcheck disable=SC2016
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    '(.[0].tags) |= map(select(. != "latest")) | (.[3].tags) |= (. + ["latest"])' \
+    versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-versions-latest-semver-max-lockstep: 'latest' on non-max row flagged" \
+    "ci-versions-latest-semver-max-lockstep" \
+    "'latest' tag is on webtrees"
+restore_worktree
+
+echo "Setting up: versions.json 'latest' tag duplicated across two rows (different webtrees)"
+# shellcheck disable=SC2016
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    '(.[3].tags) |= (. + ["latest"])' \
+    versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-versions-latest-semver-max-lockstep: multiple 'latest' rows flagged (diff webtrees)" \
+    "ci-versions-latest-semver-max-lockstep" \
+    "2 rows with the 'latest' tag"
+restore_worktree
+
+# Same-webtrees duplicate: two rows with identical webtrees value, both
+# carrying `latest`. A weaker check that `unique`s on .webtrees would
+# silently collapse this to one and pass.
+echo "Setting up: versions.json 'latest' tag on two rows with same webtrees (different PHP)"
+# shellcheck disable=SC2016
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    '(.[1].tags) |= (. + ["latest"])' \
+    versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-versions-latest-semver-max-lockstep: multiple 'latest' rows flagged (same webtrees)" \
+    "ci-versions-latest-semver-max-lockstep" \
+    "2 rows with the 'latest' tag"
+restore_worktree
+
+assert_lockstep_passes \
+    "ci-versions-latest-semver-max-lockstep: clean tree passes" \
+    "ci-versions-latest-semver-max-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-env-dist-pins-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+# Mirrors the live-demonstrated regression where .env.dist's nginx pin
+# fell behind dev/nginx-version.json after a bump.
+echo "Setting up: .env.dist WEBTREES_NGINX_VERSION holds a stale tag"
+sed -i 's/^WEBTREES_NGINX_VERSION=.*/WEBTREES_NGINX_VERSION=1.28-r1/' "$worktree/.env.dist"
+assert_lockstep_fails \
+    "ci-env-dist-pins-lockstep: stale WEBTREES_NGINX_VERSION flagged" \
+    "ci-env-dist-pins-lockstep" \
+    "WEBTREES_NGINX_VERSION drift"
+restore_worktree
+
+echo "Setting up: .env.dist WEBTREES_VERSION holds a stale value"
+sed -i 's/^WEBTREES_VERSION=.*/WEBTREES_VERSION=2.1.27/' "$worktree/.env.dist"
+assert_lockstep_fails \
+    "ci-env-dist-pins-lockstep: stale WEBTREES_VERSION flagged" \
+    "ci-env-dist-pins-lockstep" \
+    "WEBTREES_VERSION drift"
+restore_worktree
+
+echo "Setting up: .env.dist missing NGINX_CONFIG_REVISION"
+grep -v '^NGINX_CONFIG_REVISION=' "$worktree/.env.dist" > "$worktree/.env.dist.new"
+mv "$worktree/.env.dist.new" "$worktree/.env.dist"
+assert_lockstep_fails \
+    "ci-env-dist-pins-lockstep: missing NGINX_CONFIG_REVISION flagged" \
+    "ci-env-dist-pins-lockstep" \
+    "missing required key 'NGINX_CONFIG_REVISION'"
+restore_worktree
+
+# PHP_VERSION drift: .env.dist's pin must be in .supported.
+echo "Setting up: .env.dist PHP_VERSION holds a minor outside .supported"
+sed -i 's/^PHP_VERSION=.*/PHP_VERSION=8.0/' "$worktree/.env.dist"
+assert_lockstep_fails \
+    "ci-env-dist-pins-lockstep: PHP_VERSION outside .supported flagged" \
+    "ci-env-dist-pins-lockstep" \
+    "PHP_VERSION drift"
+restore_worktree
+
+# NGINX_BASE drift: .env.dist's pin must mirror dev/nginx-version.json .nginx_base.
+echo "Setting up: .env.dist NGINX_BASE holds a stale value"
+sed -i 's/^NGINX_BASE=.*/NGINX_BASE=1.28/' "$worktree/.env.dist"
+assert_lockstep_fails \
+    "ci-env-dist-pins-lockstep: stale NGINX_BASE flagged" \
+    "ci-env-dist-pins-lockstep" \
+    "NGINX_BASE drift"
+restore_worktree
+
+# Duplicate-key trap: docker compose treats the LAST KEY= line as
+# authoritative; a stale leftover above would silently flip the
+# effective value. Refuse ambiguity instead.
+echo "Setting up: .env.dist defines WEBTREES_VERSION twice"
+printf '\nWEBTREES_VERSION=9.9.9\n' >> "$worktree/.env.dist"
+assert_lockstep_fails \
+    "ci-env-dist-pins-lockstep: duplicate WEBTREES_VERSION flagged" \
+    "ci-env-dist-pins-lockstep" \
+    "defines 'WEBTREES_VERSION' 2 times"
+restore_worktree
+
+assert_lockstep_passes \
+    "ci-env-dist-pins-lockstep: clean tree passes" \
+    "ci-env-dist-pins-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-dockerfile-arg-defaults-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+# mutate_dockerfile_arg helps protect this section against silent sed
+# no-ops: if a future PHP/nginx bump rolls the Dockerfile default past
+# our hard-coded fixture value, sed exits 0 with zero modifications and
+# the lockstep then runs against an unmutated tree, producing a
+# confusing 'expected non-zero exit, got 0' diagnostic far from the
+# real cause. The hash-before/hash-after guard fails the test at the
+# fixture step, naming the file the maintainer has to refresh.
+mutate_dockerfile_arg() {
+    local file=$1 key=$2 new_value=$3
+    local before after
+    before=$(md5sum "$file")
+    # Replace EVERY occurrence so the multi-site invariant of the
+    # check-dockerfile-arg-defaults.sh script is exercised.
+    sed -i -E "s|^ARG ${key}=.*\$|ARG ${key}=${new_value}|" "$file"
+    after=$(md5sum "$file")
+    if [ "$before" = "$after" ]; then
+        echo "FAIL: mutate_dockerfile_arg made no change to $file — ARG ${key}= default may have rolled past the hard-coded pattern"
+        return 1
+    fi
+}
+
+echo "Setting up: Dockerfile carries a stale ARG PHP_VERSION default"
+mutate_dockerfile_arg "$worktree/Dockerfile" PHP_VERSION 8.2
+assert_lockstep_fails \
+    "ci-dockerfile-arg-defaults-lockstep: stale PHP_VERSION default flagged" \
+    "ci-dockerfile-arg-defaults-lockstep" \
+    "ARG PHP_VERSION=8.2"
+restore_worktree
+
+echo "Setting up: Dockerfile carries an inconsistent NGINX_BASE default"
+mutate_dockerfile_arg "$worktree/Dockerfile" NGINX_BASE 1.29
+assert_lockstep_fails \
+    "ci-dockerfile-arg-defaults-lockstep: stale NGINX_BASE default flagged" \
+    "ci-dockerfile-arg-defaults-lockstep" \
+    "ARG NGINX_BASE=1.29"
+restore_worktree
+
+echo "Setting up: Dockerfile carries an inconsistent WEBTREES_VERSION default"
+mutate_dockerfile_arg "$worktree/Dockerfile" WEBTREES_VERSION 2.2.5
+assert_lockstep_fails \
+    "ci-dockerfile-arg-defaults-lockstep: stale WEBTREES_VERSION default flagged" \
+    "ci-dockerfile-arg-defaults-lockstep" \
+    "ARG WEBTREES_VERSION=2.2.5"
+restore_worktree
+
+assert_lockstep_passes \
+    "ci-dockerfile-arg-defaults-lockstep: clean tree passes" \
+    "ci-dockerfile-arg-defaults-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
 echo
