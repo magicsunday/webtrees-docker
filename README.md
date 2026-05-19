@@ -9,50 +9,78 @@
 Docker images and a wizard for running [webtrees](https://www.webtrees.net/)
 without writing your own compose file.
 
+> New to Docker terms? Skip ahead to the [Glossary](#glossary) — it
+> explains "stack", "volume", "GHCR", "reverse proxy" etc. in one
+> line each.
+
 ## Before you start
 
-You need a host with Docker Engine installed:
+**Brand new to Docker?** On a personal computer (Mac or Windows), the
+easiest path is [Docker Desktop](https://www.docker.com/products/docker-desktop/) —
+download, install, launch it once, then come back here. On a Synology,
+QNAP, or Ugreen NAS, install the "Docker" / "Container Manager" package
+from the built-in app store.
+
+Otherwise you need a host with Docker Engine installed:
 
 - **Linux**: follow <https://docs.docker.com/engine/install/> for your distro
-  (Ubuntu/Debian/Fedora/Arch all supported). Add your user to the `docker`
-  group so you can run `docker` without `sudo`.
+  (Ubuntu/Debian/Fedora/Arch all supported). To run `docker` without typing
+  `sudo` each time, run `sudo usermod -aG docker $USER` and then log out
+  and back in.
 - **Synology / QNAP / generic NAS appliances**: install the Docker / Container Manager
   package from your NAS app store. The wizard binds the docker socket
   at `/var/run/docker.sock` — make sure that's reachable.
 - **Docker Desktop (Mac / Windows)**: works for trying it out, but for
   production self-hosting we recommend Linux on a small VPS or NAS.
 
-Verify with `docker version` — you should see both Client and Server
-sections without errors.
+To check it's working, open a terminal and run `docker version` and
+`docker compose version` (two words, with a space). Both should print
+version numbers without errors. If `docker compose version` says
+`is not a docker command`, your Docker install is missing the Compose
+plugin — follow [Docker's Compose install guide](https://docs.docker.com/compose/install/)
+to add it.
 
 That's all. The wizard takes care of the rest — no PHP, MariaDB, or
 nginx to install yourself.
 
 ## Quickstart
 
+The command below downloads the installer and runs it with sensible
+defaults. After it finishes, you can log straight into webtrees with
+an auto-created admin user — replace the email with your own.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install \
-  | bash -s -- --non-interactive --no-admin --edition full --proxy standalone --port 28080
+  | bash -s -- --non-interactive --edition full --proxy standalone --port 28080 \
+      --admin-user admin --admin-email me@example.org
 ```
 
-(Or with admin auto-create: drop `--no-admin` and add `--admin-user admin --admin-email me@example.org`.)
+> Prefer to inspect the script first? Open
+> <https://raw.githubusercontent.com/magicsunday/webtrees-docker/main/install>
+> in your browser, read it, then download and run it locally instead
+> of piping into bash.
+>
+> Want webtrees' own setup screen instead of an auto-created admin?
+> Replace `--admin-user … --admin-email …` with `--no-admin`.
 
 The wizard writes `compose.yaml` + `.env` into the current directory and
-brings the stack up via `docker compose up -d`. Visit `http://localhost:28080/`.
+brings the stack up via `docker compose up -d`.
 
-When you run the one-liner, the wizard:
+**You'll know it worked when** the terminal prints a banner with a URL
+(plus your admin password, **which is shown only once — copy it now**).
+Open the URL in your browser; you should see the webtrees logo and a
+login form.
 
-1. Pulls the wizard image (~55 MB compressed, ~165 MB on-disk, one-time).
-2. Renders `compose.yaml` and `.env` into your current directory.
-3. Pulls the application images (~260 MB download, ~765 MB on-disk, one-time).
-4. Starts the stack via `docker compose up -d`.
-5. Prints the URL plus admin credentials (if you chose `--admin-user`).
+The URL the banner prints is the one to use. `localhost` only works if
+you ran the wizard on the same computer you're browsing from. If you
+installed on a NAS or a remote server, point your browser at that
+machine's address — e.g. `http://192.168.1.50:28080/`. You can find
+the address in your router's admin page or your NAS dashboard.
 
-Total first-run time: ~2 minutes on a 100 Mbit link, less on subsequent runs.
-
-After the wizard finishes, your stack is reachable at the URL it printed.
-The first time you visit, webtrees runs its own setup wizard (or auto-
-provisions if you passed `--admin-user`).
+First-run takes about 2 minutes on a typical home connection — most
+of that is a one-time download of the wizard + webtrees images
+(roughly 300 MB total). Subsequent runs reuse the cached images and
+are much faster.
 
 ### Portainer? One-click via stack URL
 
@@ -72,21 +100,42 @@ in [`docs/portainer.md`](docs/portainer.md).
 | Edition | Image | Contains |
 |---|---|---|
 | Core | `webtrees-php` | Plain webtrees release |
-| Full (default) | `webtrees-php-full` | + Magic-Sunday charts: [fan](https://github.com/magicsunday/webtrees-fan-chart), [pedigree](https://github.com/magicsunday/webtrees-pedigree-chart), [descendants](https://github.com/magicsunday/webtrees-descendants-chart) |
+| Full (default) | `webtrees-php-full` | + the chart modules pinned in [`setup/composer-full-2.2.json`](setup/composer-full-2.2.json) / [`setup/composer-full-2.1.json`](setup/composer-full-2.1.json) (currently fan, pedigree, descendants — interactive family-tree visualisations) |
 | Full + Demo | same as Full | + a 7-generation synthetic family tree imported on first boot |
 
 `--edition core` / `full` selects between the first two; add `--demo`
-to also seed the demo tree.
+to also seed the demo tree (useful if you want to explore webtrees
+before importing your own family data — the example family loads on
+first start).
 
-## Modes
+## Proxy modes
 
-| Mode | Flag | When to use |
+**Not sure?** Pick `--proxy standalone` (the default). It works for
+"open webtrees on port 28080 on my server" with no extra setup. Only
+switch to `--proxy traefik` if you already run Traefik and know what
+that means.
+
+| Proxy | Flag | When to use |
 |---|---|---|
-| Standalone | `--proxy standalone --port <N>` | Single host, no reverse proxy. nginx publishes the chosen port. |
-| Traefik | `--proxy traefik --domain <fqdn>` | nginx joins the `traefik` external network and answers under your Traefik router. Requires a running Traefik instance already attached to that network — see [`docs/proxy-traefik.md`](docs/proxy-traefik.md). |
+| Standalone | `--proxy standalone --port <port-number, e.g. 28080>` | nginx publishes the chosen port directly. Use this whether you have no reverse proxy at all, or whether you already run one (Caddy, nginx-proxy, Cloudflare Tunnel, …) that you'll point at the published port yourself. |
+| Traefik | `--proxy traefik --domain <your-domain, e.g. webtrees.example.org>` | nginx joins the `traefik` external network and answers under your Traefik router. Requires a running Traefik instance already attached to that network — see [`docs/proxy-traefik.md`](docs/proxy-traefik.md). |
+
+`--proxy` selects how the stack publishes itself. It is independent
+of `--mode` (which switches between operator and module-developer
+install flows — only relevant if you're hacking on webtrees itself,
+see [For module developers](#for-module-developers)). The two flags
+happen to share `standalone` as a default but are orthogonal axes.
 
 ## Glossary
 
+- **Host** — the computer running Docker — your laptop, NAS, or
+  server.
+- **Docker socket** — the file Docker uses to receive commands; the
+  wizard needs to read it (the install path takes care of that for
+  you).
+- **Reverse proxy** — an extra program (Caddy, nginx-proxy, Traefik,
+  Cloudflare Tunnel, …) that sits in front of webtrees to add HTTPS
+  or route multiple domains. You probably don't need one to start.
 - **Stack** — a set of containers that run together. Yours has four
   services: `db` (MariaDB), `phpfpm` (webtrees + PHP), `nginx` (web server),
   and `init` (one-shot password-seeding).
@@ -101,7 +150,8 @@ to also seed the demo tree.
   directory basename — `webtrees` for the canonical install path), so
   your stack has `<project>_database`, `<project>_media`,
   `<project>_app`, `<project>_secrets`.
-- **GHCR** — GitHub Container Registry. All images are pulled from
+- **GHCR** — GitHub Container Registry — where the prebuilt webtrees
+  images live. All images are pulled from
   `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}`.
 
 ## What the wizard writes
@@ -174,7 +224,7 @@ The five things most people hit:
 
 - **Port already in use** — the wizard probes the requested port and
   falls back to 28081 automatically. If 28081 is also taken, pass
-  `--port <free-port>` explicitly.
+  `--port <a-different-port-number, e.g. 28090>` explicitly.
 - **Admin login fails** — the password is printed once in the install
   banner and not saved to disk. If you missed it, re-run the wizard
   with `--force` to regenerate (your tree data in the named volumes
@@ -205,9 +255,10 @@ Network-connectivity edge cases:
   / `NO_PROXY` in the shell before running the one-liner, AND
   configure the Docker daemon itself to use the proxy (see Docker's
   networking docs). Otherwise image pulls fail.
-- **Server can't reach GHCR** — check egress firewall rules for
-  `ghcr.io` and `*.githubusercontent.com`. Quick verify:
-  `docker pull ghcr.io/magicsunday/webtrees-nginx:1.30-r1`. If GHCR
+- **Server can't reach GHCR** — check whether your network blocks
+  outgoing connections to `ghcr.io` and `*.githubusercontent.com`.
+  Quick verify:
+  `docker pull ghcr.io/magicsunday/webtrees-installer:latest`. If GHCR
   requires authentication in your environment, run
   `docker login ghcr.io` before the wizard.
 

@@ -55,12 +55,18 @@ def _looks_like_repo_root(root: Path) -> bool:
     ).is_file()
 
 
+# Sites that pin `webtrees-nginx:X.Y-rN` as a load-bearing reference and
+# therefore must agree with dev/nginx-version.json `.tag`. README.md is
+# intentionally absent — the GHCR-connectivity smoke example in
+# Troubleshooting uses `webtrees-installer:latest` (no version pin) so
+# the example stays fresh across nginx bumps. Re-adding any `:X.Y-rN`
+# literal to README.md will fail this gate; quote a floating tag
+# (`:latest`) or a placeholder (`:<tag>`) instead.
 _TAG_SITES = (
     "Make/ci.mk",
     "tests/test-nginx-config.sh",
     "tests/test-trust-proxy-extra.sh",
     "templates/portainer/compose.yaml",
-    "README.md",
 )
 
 
