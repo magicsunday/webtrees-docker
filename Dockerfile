@@ -34,10 +34,13 @@ ARG PHP_VERSION=8.3
 
 WORKDIR /build
 
-# Copy the same setup files the dev install consumes: the composer manifest,
-# the patches directory referenced from composer.json's extra.patches, and
-# the front-controller wrapper that bootstraps webtrees from vendor/.
-COPY setup/composer-core.json /build/composer.json
+# Copy the version-scoped composer manifests, the shared patches dir, and
+# the front-controller wrapper. The RUN block below picks the manifest
+# matching WEBTREES_VERSION's major.minor — keeping per-version-line config
+# (patch sets, plugin allow-lists, chart constraints) directly in version-
+# controlled JSON instead of synthesising it at build time.
+COPY setup/composer-core-2.1.json /build/composer-core-2.1.json
+COPY setup/composer-core-2.2.json /build/composer-core-2.2.json
 COPY setup/patches /build/patches
 COPY setup/public /build/public
 
@@ -46,9 +49,17 @@ COPY setup/public /build/public
 # positive; suppress.
 # hadolint ignore=SC2016
 RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
+ # Select the composer manifest matching WEBTREES_VERSION's major.minor.
+ # Unknown lines fail loud — adding a new webtrees-major.minor needs a
+ # matching setup/composer-core-X.Y.json file.
+ && case "${WEBTREES_VERSION}" in \
+        2.1.*) cp composer-core-2.1.json composer.json ;; \
+        2.2.*) cp composer-core-2.2.json composer.json ;; \
+        *) echo "no composer manifest for WEBTREES_VERSION=${WEBTREES_VERSION}" >&2; exit 1 ;; \
+    esac \
  # Pin fisharebest/webtrees to the exact version this image bundles.
- # setup/composer-core.json carries a "~2.2.0" range for the dev bootstrap; the
- # image must lock to one version so the OCI label and the on-disk install
+ # The manifest carries a "~2.X.0" range for the dev bootstrap; the image
+ # locks to one exact version so the OCI label and the on-disk install
  # cannot drift.
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
  # Pin composer's resolution platform to the target image's PHP version.
@@ -74,17 +85,20 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         --ignore-platform-req=ext-exif \
         --ignore-platform-req=ext-imagick \
         --ignore-platform-req=ext-zip \
- # Verify both patches actually applied. composer-patches only logs a
- # warning when a patch fails to apply, so we grep for the sentinels we
- # ourselves planted in the patch files. If a future webtrees release
- # moves the patched code, this fail-fasts the build.
- # Patch-applied guards: composer-patches only warns on failure, so we
- # verify each hunk landed by grepping for a sentinel unique to that hunk.
+ # Verify each patch actually applied. composer-patches only logs a warning
+ # on failure, so we grep for sentinels we planted in the patch files. If a
+ # future webtrees release moves the patched code, this fail-fasts the build.
  && grep -q "Upgrade-lock: bundled image is immutable" \
         vendor/fisharebest/webtrees/app/Services/UpgradeService.php \
- && test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
- && grep -q 'merge($this->vendorModules())' \
-        vendor/fisharebest/webtrees/app/Services/ModuleService.php \
+ # VendorModuleService is 2.2.x-only — patched in via patches/add-vendor-module-service.patch
+ # referenced only from composer-core-2.2.json.
+ && case "${WEBTREES_VERSION}" in \
+        2.2.*) \
+            test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
+            && grep -q 'merge($this->vendorModules())' \
+                vendor/fisharebest/webtrees/app/Services/ModuleService.php \
+            ;; \
+    esac \
  # Reject stray files in patches/ — only .patch files should land there.
  && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
  # composer install --prefer-dist pulls fisharebest/webtrees from packagist,
@@ -145,7 +159,8 @@ ARG PHP_VERSION=8.3
 
 WORKDIR /build
 
-COPY setup/composer-full.json /build/composer.json
+COPY setup/composer-full-2.1.json /build/composer-full-2.1.json
+COPY setup/composer-full-2.2.json /build/composer-full-2.2.json
 COPY setup/patches /build/patches
 COPY setup/public /build/public
 
@@ -153,6 +168,14 @@ COPY setup/public /build/public
 # pattern is the literal PHP expression, intentionally single-quoted.
 # hadolint ignore=SC2016
 RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
+ # Select the per-version manifest. See webtrees-build for the rationale
+ # (version-scoped patch sets + chart constraints + plugin allow-lists
+ # carried directly in JSON instead of synthesised at build time).
+ && case "${WEBTREES_VERSION}" in \
+        2.1.*) cp composer-full-2.1.json composer.json ;; \
+        2.2.*) cp composer-full-2.2.json composer.json ;; \
+        *) echo "no composer-full manifest for WEBTREES_VERSION=${WEBTREES_VERSION}" >&2; exit 1 ;; \
+    esac \
  && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
  # Mirror the platform-pin from webtrees-build (see comment there) so the
  # full edition's transitive deps resolve against the deployment PHP
@@ -170,12 +193,17 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         --ignore-platform-req=ext-exif \
         --ignore-platform-req=ext-imagick \
         --ignore-platform-req=ext-zip \
- # Patch-applied guards (same sentinels as core)
+ # Patch-applied guards (same sentinels as core; VendorModuleService is
+ # 2.2.x-only).
  && grep -q "Upgrade-lock: bundled image is immutable" \
         vendor/fisharebest/webtrees/app/Services/UpgradeService.php \
- && test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
- && grep -q 'merge($this->vendorModules())' \
-        vendor/fisharebest/webtrees/app/Services/ModuleService.php \
+ && case "${WEBTREES_VERSION}" in \
+        2.2.*) \
+            test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
+            && grep -q 'merge($this->vendorModules())' \
+                vendor/fisharebest/webtrees/app/Services/ModuleService.php \
+            ;; \
+    esac \
  && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
  # Verify Magic-Sunday charts landed in vendor/ (NOT modules_v4/)
  && test -d vendor/magicsunday/webtrees-fan-chart \

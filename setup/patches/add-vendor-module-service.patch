@@ -1,19 +1,21 @@
 Add VendorModuleService for composer-installed webtrees modules.
 
-Extracted from magicsunday/webtrees fork commit 8d48a66348 (single commit
-on top of 2.2.6). Bridges Composer's InstalledVersions API to Webtrees'
-module registry so packages typed as webtrees modules are loaded directly
-from vendor/, removing the need for webtrees-module-installer-plugin and
-its modules_v4/ copy step.
+Bridges Composer's InstalledVersions API to webtrees' module registry so
+packages typed as `webtrees-module` are loaded directly from vendor/.
+Without this service, third-party webtrees modules must round-trip
+through a copy step into modules_v4/ via the installer plugin — that
+copy step has no place in an immutable image build.
 
-When this lands upstream the patch can be dropped.
+The patch can be dropped once equivalent functionality lands in webtrees
+core; the Dockerfile's post-apply sentinel grep (`merge($this->vendorModules())`)
+will then fail loud and flag the patch as redundant.
 
 diff --git a/app/Services/Composer/VendorModuleService.php b/app/Services/Composer/VendorModuleService.php
 new file mode 100644
 index 0000000000..56630ef6e2
 --- /dev/null
 +++ b/app/Services/Composer/VendorModuleService.php
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,229 @@
 +<?php
 +
 +/**
@@ -36,13 +38,18 @@ index 0000000000..56630ef6e2
 +namespace Fisharebest\Webtrees\Services\Composer;
 +
 +use Composer\InstalledVersions;
-+use Fisharebest\Webtrees\FlashMessages;
 +use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 +use Fisharebest\Webtrees\Module\ModuleInterface;
 +use Illuminate\Support\Collection;
 +use Throwable;
 +
++use function basename;
++use function class_exists;
 +use function dirname;
++use function error_log;
++use function explode;
++use function file_exists;
++use function sprintf;
 +
 +/**
 + * Service for loading Webtrees modules from the vendor directory using Composer's InstalledVersions API.
@@ -62,13 +69,8 @@ index 0000000000..56630ef6e2
 + * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
 + * @link    https://github.com/fisharebest/webtrees/
 + */
-+class VendorModuleService
++final class VendorModuleService
 +{
-+    /**
-+     * The Composer package type identifier for Webtrees modules.
-+     *
-+     * @var string The package type identifier
-+     */
 +    private const string MODULE_TYPE = 'webtrees-module';
 +
 +    /**
@@ -109,9 +111,8 @@ index 0000000000..56630ef6e2
 +    }
 +
 +    /**
-+     * Check if Composer's runtime API is available.
-+     *
-+     * @return bool
++     * Webtrees may run from a phar without the Composer runtime; gate
++     * vendor discovery on the InstalledVersions class being present.
 +     */
 +    private function isComposerAvailable(): bool
 +    {
@@ -162,25 +163,18 @@ index 0000000000..56630ef6e2
 +     */
 +    private function loadVendorModule(string $packageName): ?ModuleInterface
 +    {
-+        // Get the installation path using Composer's API
 +        $packagePath = $this->getPackageInstallPath($packageName);
 +
 +        if ($packagePath === null) {
 +            return null;
 +        }
 +
-+        $moduleFile = null;
++        $moduleFile = $packagePath . DIRECTORY_SEPARATOR . 'module.php';
 +
-+        // Look for the module.php file
-+        if (file_exists($packagePath . DIRECTORY_SEPARATOR . 'module.php')) {
-+            $moduleFile = $packagePath . DIRECTORY_SEPARATOR . 'module.php';
-+        }
-+
-+        if ($moduleFile === null) {
++        if (!file_exists($moduleFile)) {
 +            return null;
 +        }
 +
-+        // Load and return module
 +        return $this->loadModuleFile($moduleFile);
 +    }
 +
@@ -207,26 +201,24 @@ index 0000000000..56630ef6e2
 +    }
 +
 +    /**
-+     * Logs error messages for debugging and administrative visibility.
++     * Records a vendor-module discovery failure to PHP's error log.
 +     *
-+     * @param string         $message   The primary error message describing the problem
-+     * @param Throwable|null $exception Optional exception providing additional details
++     * Discovery runs during webtrees bootstrap, before the session
++     * middleware fires and outside any HTTP context (CLI runs invoke
++     * this path too). Writing through FlashMessages — which mutates
++     * $_SESSION — would surface as a confusing 'session not initialised'
++     * fatal that hides the real underlying module-load failure.
 +     *
-+     * @return void
++     * @param string         $message   Primary error message describing the problem.
++     * @param Throwable|null $exception Optional exception providing additional details.
 +     */
 +    private function logError(string $message, ?Throwable $exception = null): void
 +    {
-+        $fullMessage = $message;
++        $fullMessage = $exception === null
++            ? $message
++            : sprintf('%s: %s', $message, $exception->getMessage());
 +
-+        if ($exception !== null) {
-+            $fullMessage .= ': ' . $exception->getMessage();
-+        }
-+
-+        // Use FlashMessages for user-visible errors in admin interface
-+        FlashMessages::addMessage(
-+            $fullMessage,
-+            'danger'
-+        );
++        error_log('webtrees vendor module: ' . $fullMessage);
 +    }
 +
 +    /**
@@ -243,10 +235,12 @@ index 0000000000..56630ef6e2
 +     */
 +    private function generateModuleName(string $packageName): string
 +    {
-+        $moduleName = substr(
-+            $packageName,
-+            strpos($packageName, '/') + 1
-+        );
++        // Composer guarantees `<vendor>/<name>` shape; the explode-and-fallback
++        // form guards against a future malformed entry slipping through where
++        // `strpos`'s `false` return would silently coerce to `false + 1 === 1`
++        // and mangle the name.
++        $parts      = explode('/', $packageName, 2);
++        $moduleName = $parts[1] ?? $packageName;
 +
 +        return '_' . $moduleName . '_';
 +    }

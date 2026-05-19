@@ -1,29 +1,22 @@
 <?php
 
 /**
- * This file is part of the package magicsunday/webtrees-base.
+ * Front controller for the bundled webtrees image.
  *
- * For the full copyright and license information, please read the
- * LICENSE file that was distributed with this source code.
+ * Bootstraps the composer autoloader and dispatches to webtrees via
+ * the modern `Webtrees::new()->run(PHP_SAPI)` entry point. The
+ * composer manifest pins `fisharebest/webtrees: ~2.2.0`, so the
+ * minimum supported runtime API is the 2.2 line.
  */
+
+declare(strict_types=1);
 
 use Fisharebest\Webtrees\Webtrees;
 
-// Set up the application for the frontend
+use function dirname;
+
 (static function () {
     require dirname(__DIR__) . '/vendor/autoload.php';
 
-    // Webtrees below 2.2.0
-    if (version_compare(Webtrees::VERSION, '2.2.0', '<') === true) {
-        $webtrees = new Webtrees();
-        $webtrees->bootstrap();
-
-        if (PHP_SAPI === 'cli') {
-            $webtrees->cliRequest();
-        } else {
-            $webtrees->httpRequest();
-        }
-    } else {
-        return Webtrees::new()->run(PHP_SAPI);
-    }
+    return Webtrees::new()->run(PHP_SAPI);
 })();

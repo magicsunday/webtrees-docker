@@ -1,0 +1,39 @@
+{
+    "name": "magicsunday/webtrees-base-full",
+    "description": "Docker-based deployment with bundled Magic-Sunday charts.",
+    "type": "project",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Rico Sonntag",
+            "email": "mail@ricosonntag.de",
+            "role": "Developer",
+            "homepage": "https://www.ricosonntag.de/"
+        }
+    ],
+    "config": {
+        "preferred-install": {
+            "*": "dist"
+        },
+        "allow-plugins": {
+            "cweagans/composer-patches": true,
+            "magicsunday/webtrees-module-installer-plugin": false
+        },
+        "sort-packages": true
+    },
+    "require": {
+        "fisharebest/webtrees": "~2.2.0",
+        "cweagans/composer-patches": "^1.7",
+        "magicsunday/webtrees-fan-chart": "^3.6",
+        "magicsunday/webtrees-pedigree-chart": "^2.7",
+        "magicsunday/webtrees-descendants-chart": "^2.6"
+    },
+    "extra": {
+        "patches": {
+            "fisharebest/webtrees": {
+                "Disable the in-app upgrade prompt (bundled image is immutable)": "patches/disable-upgrade-prompt.patch",
+                "Add VendorModuleService for composer-installed modules": "patches/add-vendor-module-service.patch"
+            }
+        }
+    }
+}

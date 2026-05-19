@@ -25,7 +25,18 @@ copy_application_files() {
     fi
 
     cp -r "${APP_DIR}"/../setup/public/* "${APP_DIR}"/public
-    cp -r "${APP_DIR}"/../setup/composer-core.json "${APP_DIR}/composer.json"
+
+    # Pick the composer manifest matching the env's WEBTREES_VERSION
+    # major.minor — same shape as the Dockerfile (webtrees-build /
+    # webtrees-build-full stages) so the dev install and the image
+    # install resolve the same manifest.
+    local major_minor=${WEBTREES_VERSION%.*}
+    local manifest="${APP_DIR}/../setup/composer-core-${major_minor}.json"
+    if [[ ! -f "${manifest}" ]]; then
+        log_error "no composer manifest for WEBTREES_VERSION=${WEBTREES_VERSION} (expected ${manifest})"
+        exit 1
+    fi
+    cp -r "${manifest}" "${APP_DIR}/composer.json"
 
     # Patches consumed by cweagans/composer-patches must sit next to
     # composer.json — paths in composer.json's extra.patches are relative to it.

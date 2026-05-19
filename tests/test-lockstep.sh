@@ -1222,6 +1222,63 @@ assert_lockstep_passes \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-composer-patches-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+# Drift: composer-core-2.2.json gets an extra patch entry that the matching
+# composer-full-2.2.json doesn't carry. The lockstep must flag the asymmetry.
+echo "Setting up: composer-core-2.2.json gains an extra patch entry not in composer-full-2.2.json"
+# shellcheck disable=SC2016
+docker run --rm -v "$worktree/setup:/d" -w /d ghcr.io/jqlang/jq:latest \
+    '.extra.patches["fisharebest/webtrees"]["Bogus extra patch"] = "patches/bogus.patch"' \
+    composer-core-2.2.json > "$worktree/setup/composer-core-2.2.json.new"
+mv "$worktree/setup/composer-core-2.2.json.new" "$worktree/setup/composer-core-2.2.json"
+assert_lockstep_fails \
+    "ci-composer-patches-lockstep: extra patch only in core flagged" \
+    "ci-composer-patches-lockstep" \
+    "divergent extra.patches"
+restore_worktree
+
+# Drift: composer-core-2.1.json gets an unexpected description.
+# Anything outside the documented-divergence keys must be byte-identical.
+echo "Setting up: composer-core-2.1.json gets an unexpected sort-packages flip"
+# shellcheck disable=SC2016
+docker run --rm -v "$worktree/setup:/d" -w /d ghcr.io/jqlang/jq:latest \
+    '.config["sort-packages"] = false' \
+    composer-core-2.1.json > "$worktree/setup/composer-core-2.1.json.new"
+mv "$worktree/setup/composer-core-2.1.json.new" "$worktree/setup/composer-core-2.1.json"
+assert_lockstep_fails \
+    "ci-composer-patches-lockstep: unexpected divergence outside documented set flagged" \
+    "ci-composer-patches-lockstep" \
+    "diverges from the manifest baseline"
+restore_worktree
+
+assert_lockstep_passes \
+    "ci-composer-patches-lockstep: clean tree passes" \
+    "ci-composer-patches-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# ci-patches-apply-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+assert_lockstep_passes \
+    "ci-patches-apply-lockstep: clean tree passes (online apply check)" \
+    "ci-patches-apply-lockstep"
+restore_worktree
+
+# Mutate disable-upgrade-prompt.patch so the context anchor no longer
+# matches; the apply check must reject.
+echo "Setting up: disable-upgrade-prompt.patch has a broken context line"
+sed -i 's/public function isUpgradeAvailable/public function isUpgradeNotAvailable/' \
+    "$worktree/setup/patches/disable-upgrade-prompt.patch"
+assert_lockstep_fails \
+    "ci-patches-apply-lockstep: broken context anchor flagged" \
+    "ci-patches-apply-lockstep" \
+    "does not apply cleanly"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
 echo
