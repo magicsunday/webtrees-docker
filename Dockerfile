@@ -98,10 +98,10 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # future webtrees release moves the patched code, this fail-fasts the build.
  && grep -q "Upgrade-lock: bundled image is immutable" \
         vendor/fisharebest/webtrees/app/Services/UpgradeService.php \
- # VendorModuleService is 2.2.x-only — patched in via patches/add-vendor-module-service.patch
- # referenced only from composer-core-2.2.json.
+ # VendorModuleService is patched in via patches/add-vendor-module-service.patch
+ # referenced from both composer-core-2.1.json and composer-core-2.2.json.
  && case "${WEBTREES_VERSION}" in \
-        2.2.*) \
+        2.1.* | 2.2.*) \
             test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
             && grep -q 'merge($this->vendorModules())' \
                 vendor/fisharebest/webtrees/app/Services/ModuleService.php \
@@ -201,12 +201,12 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         --ignore-platform-req=ext-exif \
         --ignore-platform-req=ext-imagick \
         --ignore-platform-req=ext-zip \
- # Patch-applied guards (same sentinels as core; VendorModuleService is
- # 2.2.x-only).
+ # Patch-applied guards (same sentinels as core; VendorModuleService now
+ # applies to both 2.1.x and 2.2.x).
  && grep -q "Upgrade-lock: bundled image is immutable" \
         vendor/fisharebest/webtrees/app/Services/UpgradeService.php \
  && case "${WEBTREES_VERSION}" in \
-        2.2.*) \
+        2.1.* | 2.2.*) \
             test -f vendor/fisharebest/webtrees/app/Services/Composer/VendorModuleService.php \
             && grep -q 'merge($this->vendorModules())' \
                 vendor/fisharebest/webtrees/app/Services/ModuleService.php \

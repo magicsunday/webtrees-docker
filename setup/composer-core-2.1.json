@@ -27,7 +27,8 @@
     "extra": {
         "patches": {
             "fisharebest/webtrees": {
-                "Disable the in-app upgrade prompt (bundled image is immutable)": "patches/disable-upgrade-prompt.patch"
+                "Disable the in-app upgrade prompt (bundled image is immutable)": "patches/disable-upgrade-prompt.patch",
+                "Add VendorModuleService for composer-installed modules": "patches/add-vendor-module-service.patch"
             }
         }
     }

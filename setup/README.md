@@ -13,7 +13,7 @@ instead of synthesised at build time.
 | `composer-core-<major.minor>.json` | Composer manifest for the core `php` image variant of that webtrees line — webtrees only, no bundled charts. | `Dockerfile` (`webtrees-build` stage), `install-application.sh` |
 | `composer-full-<major.minor>.json` | Composer manifest for the `php-full` variant of that webtrees line — webtrees plus the version-matched Magic-Sunday fan / pedigree / descendants charts. | `Dockerfile` (`webtrees-build-full` stage) |
 | `patches/disable-upgrade-prompt.patch` | Forces `UpgradeService::isUpgradeAvailable()` to return false. Referenced from every manifest (applies to every webtrees line). | `extra.patches` in all composer manifests |
-| `patches/add-vendor-module-service.patch` | Adds `app/Services/Composer/VendorModuleService.php` and a `vendorModules()` hook in `ModuleService`. Bridges Composer's `InstalledVersions` API to webtrees' module registry. Referenced only from `composer-*-2.2.json` — webtrees 2.1.x lacks the `ModuleService` shape this patch's context anchors expect. | `extra.patches` in `composer-{core,full}-2.2.json` |
+| `patches/add-vendor-module-service.patch` | Adds `app/Services/Composer/VendorModuleService.php` and a `vendorModules()` hook in `ModuleService`. Bridges Composer's `InstalledVersions` API to webtrees' module registry. Referenced from all four manifests — applies to both webtrees 2.1.x and 2.2.x. | `extra.patches` in all four composer manifests |
 | `public/index.php` | Front-controller wrapper that bootstraps autoload and dispatches via `Webtrees::new()->run(PHP_SAPI)`. | Copied into the image at `/var/www/html/public/index.php` |
 | `vendor/fisharebest/webtrees/data/config.ini.php` | Empty `config.ini.php` scaffold the entrypoint copies into `data/` for the browser-setup-wizard path. Real values are written at first boot. | `scripts/configuration` (dev bootstrap), entrypoint |
 
@@ -35,8 +35,8 @@ these keys:
 * `name`, `description` — core vs full
 * `require["fisharebest/webtrees"]` — `~2.1.0` vs `~2.2.0`
 * `require["magicsunday/webtrees-*"]` — full carries chart deps, core does not
-* `config.allow-plugins["magicsunday/webtrees-module-installer-plugin"]` — 2.1 enables the installer-plugin (legacy module-wiring path); 2.2 disables it (charts wire via VendorModuleService instead)
-* `extra.patches` — 2.2 carries the VendorModuleService entry; 2.1 does not
+* `config.allow-plugins["magicsunday/webtrees-module-installer-plugin"]` — disabled (`false`) in both 2.1 and 2.2 full manifests; absent from core manifests (which never install chart packages). Disabling the plugin keeps chart packages in `vendor/` where VendorModuleService can discover them at runtime without a `modules_v4/` round-trip.
+* `extra.patches` — all four manifests carry both patches (disable-upgrade-prompt + add-vendor-module-service)
 
 Every other key (authors, license, type, sort-packages, preferred-install, …)
 MUST match byte-identically across all four manifests.

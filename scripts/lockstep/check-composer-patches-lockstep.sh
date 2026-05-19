@@ -5,11 +5,13 @@
 #   * `description`                           — core vs full differ
 #   * `require["fisharebest/webtrees"]`       — `~2.1.0` vs `~2.2.0`
 #   * `require["magicsunday/webtrees-*"]`     — full carries chart deps, core does not
-#   * `config.allow-plugins[*]`               — version-line-specific (2.1 enables the
-#                                               installer-plugin, 2.2 disables it)
-#   * `extra.patches`                         — 2.2 carries the VendorModuleService entry
+#   * `config.allow-plugins[*]`               — full manifests carry
+#                                               magicsunday/webtrees-module-installer-plugin: false
+#                                               (disabled so charts stay in vendor/ for
+#                                               VendorModuleService discovery); absent from core
+#                                               manifests which never install chart packages
 #
-# Everything else (authors, license, type, sort-packages, preferred-install, …)
+# Everything else (authors, license, type, sort-packages, preferred-install, extra.patches, …)
 # MUST match byte-for-byte across all four manifests. Invoked by
 # `make ci-composer-patches-lockstep`.
 

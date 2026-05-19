@@ -6,9 +6,10 @@ Without this service, third-party webtrees modules must round-trip
 through a copy step into modules_v4/ via the installer plugin — that
 copy step has no place in an immutable image build.
 
-The patch can be dropped once equivalent functionality lands in webtrees
-core; the Dockerfile's post-apply sentinel grep (`merge($this->vendorModules())`)
-will then fail loud and flag the patch as redundant.
+Applies to both webtrees 2.1.x and 2.2.x. The patch can be dropped once
+equivalent functionality lands in webtrees core; the Dockerfile's
+post-apply sentinel grep (`merge($this->vendorModules())`) will then fail
+loud and flag the patch as redundant.
 
 diff --git a/app/Services/Composer/VendorModuleService.php b/app/Services/Composer/VendorModuleService.php
 new file mode 100644
@@ -265,11 +266,10 @@ index fb4205b042..a7312d133e 100644
                  ->map(static function (ModuleInterface $module) use ($module_info): ModuleInterface {
                      $info = $module_info->get($module->name());
  
-@@ -713,6 +715,16 @@ class ModuleService
-             ->mapWithKeys(static fn (ModuleCustomInterface $module): array => [$module->name() => $module]);
+@@ -714,4 +716,14 @@ class ModuleService
      }
  
-+    /**
+     /**
 +     * All vendor modules in the system. Vendor modules are installed via Composer.
 +     *
 +     * @return Collection<string, ModuleCustomInterface>
@@ -279,6 +279,6 @@ index fb4205b042..a7312d133e 100644
 +        return (new VendorModuleService())->getVendorModules();
 +    }
 +
-     /**
++    /**
       * Load a custom module in a static scope, to prevent it from modifying local or object variables.
       */
