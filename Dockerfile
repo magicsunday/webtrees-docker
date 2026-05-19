@@ -15,6 +15,14 @@ ARG WEBTREES_VERSION=2.2.6
 # base image mid-build. Local `make build` leaves it empty and stays
 # digest-free.
 ARG PHP_DIGEST_REF=""
+# NGINX_BASE must be declared at file-global scope (before any FROM)
+# so the nginx-build stage's `FROM nginx:${NGINX_BASE}-alpine` can
+# interpolate it. An ARG declared inside an earlier stage goes out of
+# scope at the next FROM and BuildKit then sees `nginx:-alpine`,
+# failing with "invalid reference format". The stage itself re-declares
+# `ARG NGINX_BASE` past its FROM to use the value in LABEL etc. — see
+# scoping rules in BuildKit docs.
+ARG NGINX_BASE=1.30
 
 # Major-pin: `composer:2` auto-rolls within the 2.x line so patch and
 # minor bumps land without a manual update. A stricter pin would block
@@ -438,10 +446,9 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 # directory that users override-mount for their own snippets.
 # NGINX_BASE is the single point of truth for the nginx minor — CI
 # passes the value from dev/nginx-version.json `.nginx_base`. Local
-# `make build` falls back to the default below; ci-env-dist-pins-
-# lockstep keeps that default in sync with `.env.dist`'s mirror of the
-# same JSON.
-ARG NGINX_BASE=1.30
+# `make build` falls back to the file-global default near the top of
+# this Dockerfile; ci-env-dist-pins-lockstep keeps that default in
+# sync with `.env.dist`'s mirror of the same JSON.
 FROM nginx:${NGINX_BASE}-alpine AS nginx-build
 
 # pipefail makes a failing `nginx -t` surface at the pipe rather than
