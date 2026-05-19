@@ -98,8 +98,11 @@ def test_render_dev_env_writes_full_env(tmp_path: Path, catalog: Catalog) -> Non
     assert "PMA_PORT=50011" in env
     assert "compose.publish.yaml" in env
     assert "compose.traefik.yaml" not in env
-    # Default flips ON regardless of proxy mode — operators opt out via
-    # --no-https (enforce_https=False) when there's no TLS termination.
+    # Test feeds enforce_https=True explicitly via _args default; the
+    # render-layer test pins what the Jinja template does with that
+    # value. The wizard-level smart-default (standalone → FALSE,
+    # traefik → TRUE) is exercised in the run_dev / collect_dev_inputs
+    # tests below, not here.
     assert "ENFORCE_HTTPS=TRUE" in env
 
 
@@ -251,11 +254,44 @@ def test_collect_dev_inputs_preserves_existing_enforce_https_false() -> None:
         work_dir=Path("/work"), force=False,
         existing=existing,
         host_info=_HOST,
-        # enforce_https defaults to True (the new wizard default); the
-        # existing .env value should win on re-render.
+        # The smart default for the standalone branch (which the empty
+        # stdin steers towards via use_traefik=False) is FALSE — same
+        # outcome as the env value here, but the env-vs-default
+        # precedence is the contract being pinned: env wins.
         stdin=StringIO("\n" * 16), stdout=StringIO(),
     )
     assert args.enforce_https is False
+
+
+def test_collect_dev_inputs_no_env_no_cli_standalone_defaults_false() -> None:
+    """Smart default mirroring flow.py's #147 fix: with no .env, no
+    CLI flag, and use_traefik=False at the prompt, enforce_https
+    defaults to FALSE (standalone has no upstream TLS terminator).
+    Empty stdin lines take each prompt's default — `use_traefik`
+    defaults to False, so proxy_mode resolves to 'standalone'."""
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={},
+        host_info=_HOST,
+        stdin=StringIO("\n" * 16), stdout=StringIO(),
+    )
+    assert args.proxy_mode == "standalone"
+    assert args.enforce_https is False
+
+
+def test_collect_dev_inputs_no_env_no_cli_traefik_defaults_true() -> None:
+    """Counterpart: use_traefik=True at the prompt resolves proxy_mode
+    to 'traefik' and enforce_https defaults to TRUE (Traefik terminates
+    TLS upstream). First prompt is `ask_yesno('Is a Traefik reverse
+    proxy available?', default=False)` — feed 'y\\n' to override."""
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={},
+        host_info=_HOST,
+        stdin=StringIO("y\n" + "\n" * 16), stdout=StringIO(),
+    )
+    assert args.proxy_mode == "traefik"
+    assert args.enforce_https is True
 
 
 def test_collect_dev_inputs_no_https_overrides_existing_true() -> None:
@@ -369,13 +405,41 @@ def test_run_dev_non_interactive_writes_env_and_pulls(
     assert (tmp_path / "app").is_dir()
 
 
-def test_run_dev_non_interactive_resolves_none_enforce_https_to_true(
+def test_run_dev_non_interactive_standalone_defaults_enforce_https_false(
     tmp_path: Path, silence_dev_runtime
 ) -> None:
-    """`--non-interactive` without `--no-https` (enforce_https=None) renders
-    the wizard's TRUE default, not Jinja's None-is-falsy FALSE."""
+    """`--non-interactive --proxy standalone` without `--no-https`
+    (enforce_https=None) defaults to ENFORCE_HTTPS=FALSE. dev_domain
+    under standalone resolves to a LAN-IP-with-port form (no upstream
+    TLS terminator), and defaulting TRUE would emit a 301 to
+    `https://<host>/` that nothing answers — same trap #147 fixed in
+    the production flow."""
     from webtrees_installer.dev_flow import run_dev
     args = _args(work_dir=tmp_path, enforce_https=None)
+
+    exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
+
+    assert exit_code == 0
+    env = (tmp_path / ".env").read_text()
+    assert "ENFORCE_HTTPS=FALSE" in env
+
+
+def test_run_dev_non_interactive_traefik_defaults_enforce_https_true(
+    tmp_path: Path, silence_dev_runtime
+) -> None:
+    """`--non-interactive --proxy traefik` without `--no-https`
+    (enforce_https=None) keeps the TRUE default. Traefik terminates TLS
+    upstream and forwards X-Forwarded-Proto=https; in-app links must
+    match the public scheme."""
+    from webtrees_installer.dev_flow import run_dev
+    args = _args(
+        work_dir=tmp_path,
+        enforce_https=None,
+        proxy_mode="traefik",
+        dev_domain="webtrees.example.org",
+        app_port=None,
+        pma_port=None,
+    )
 
     exit_code = run_dev(args, stdin=StringIO(), stdout=StringIO())
 
@@ -621,6 +685,29 @@ def test_print_dev_banner_standalone_no_https_shows_http_url() -> None:
     text = out.getvalue()
     assert "http://webtrees.localhost:50010/" in text
     assert "https://webtrees.localhost" not in text
+
+
+def test_print_dev_banner_standalone_no_https_includes_security_note() -> None:
+    """Dev wizard parity with the production banner: the symmetric
+    plaintext-HTTP advisory must accompany the http://… URL so a
+    developer running on a shared dev VM / Wi-Fi sees the cleartext
+    trade-off they inherited from the now-default ENFORCE_HTTPS=FALSE
+    under standalone."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    _print_dev_banner(stdout=out, args=_args(enforce_https=False, proxy_mode="standalone"))
+    assert "HTTPS is off" in out.getvalue()
+
+
+def test_print_dev_banner_standalone_with_https_omits_security_note() -> None:
+    """The plaintext-HTTP advisory belongs to the FALSE branch only.
+    Standalone + ENFORCE_HTTPS=TRUE fires the reverse-proxy warning
+    instead — emitting both would contradict the operator's HTTPS
+    choice."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+    out = StringIO()
+    _print_dev_banner(stdout=out, args=_args(enforce_https=True, proxy_mode="standalone"))
+    assert "HTTPS is off" not in out.getvalue()
 
 
 def test_print_dev_banner_traefik_shows_https_domain() -> None:

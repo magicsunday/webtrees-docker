@@ -120,9 +120,10 @@ def print_standalone_http_security_note(
     """
     print(
         f"  {term.warning('!')} HTTPS is off — logins and session "
-        f"cookies travel unencrypted. Safe on a trusted LAN; "
-        f"for shared / hostile networks, re-run with --https + a "
-        f"TLS-terminating reverse proxy in front.",
+        f"cookies travel unencrypted. Safe on a trusted LAN; for "
+        f"shared / hostile networks, put a TLS-terminating reverse "
+        f"proxy in front of the published port and pre-set "
+        f"ENFORCE_HTTPS=TRUE in .env before re-running the wizard.",
         file=stdout,
     )
 

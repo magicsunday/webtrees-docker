@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from webtrees_installer import __version__
+from webtrees_installer._cli_resolve import cli_optout_to_tristate
 from webtrees_installer._term import Term
 from webtrees_installer.flow import StandaloneArgs, run_standalone
 from webtrees_installer.prereq import PrereqError
@@ -255,13 +256,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-https",
         action="store_true",
-        help="Standalone proxy mode only. Opt out of HTTPS enforcement "
-             "(ENFORCE_HTTPS=FALSE). The default is ENFORCE_HTTPS=TRUE; "
-             "use this flag for local-only installs without TLS termination, "
-             "or for setups where a separate upstream proxy (not the bundled "
-             "Traefik template) handles HTTP-only forwarding. Rejected with "
-             "--proxy traefik because the rendered Traefik router still "
-             "terminates TLS at the edge — see docs/customizing.md.",
+        help="Force ENFORCE_HTTPS=FALSE. Standalone proxy mode already "
+             "defaults to FALSE (no upstream TLS terminator in scope), "
+             "so this flag is redundant there — it matters when an "
+             "operator wants traefik mode to serve plain HTTP behind "
+             "Traefik (rare). Rejected with --proxy traefik when the "
+             "bundled router still terminates TLS at the edge — see "
+             "docs/customizing.md. To force ENFORCE_HTTPS=TRUE on a "
+             "standalone install where the operator terminates TLS "
+             "in front of the stack themselves (Caddy / nginx-on-host "
+             "/ Cloudflare Tunnel), pre-create an .env with "
+             "ENFORCE_HTTPS=TRUE before running the wizard; the env "
+             "value wins over the smart default.",
     )
     parser.add_argument(
         "--pretty-urls",
@@ -332,10 +338,12 @@ def _dispatch(args: argparse.Namespace) -> int:
             # _detect_host_info() pick up the env var (or fall back to
             # os.getcwd() for direct-host invocations).
             host_work_dir=args.host_work_dir,
-            # Tristate: --no-https → False (explicit opt-out); absence →
-            # None (let collect_dev_inputs honour the existing .env or
-            # fall through to the wizard's TRUE default).
-            enforce_https=False if args.no_https else None,
+            # `--no-https` → False, absence → None (the downstream
+            # resolver honours the existing .env or applies the
+            # proxy_mode-keyed smart default for fresh installs). See
+            # cli_optout_to_tristate's docstring for the GH-147/148
+            # rationale that motivated centralising this conversion.
+            enforce_https=cli_optout_to_tristate(args.no_https),
             force=args.force,
             no_up=args.no_up,
         )
@@ -362,9 +370,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         admin_email=args.admin_email,
         demo=args.demo,
         demo_seed=args.demo_seed,
-        # Tristate: --no-https → False; absence → None (let the standalone
-        # flow apply the wizard's TRUE default).
-        enforce_https=False if args.no_https else None,
+        # Same `--no-https` → False / absence → None mapping the dev
+        # flow uses; see cli_optout_to_tristate.
+        enforce_https=cli_optout_to_tristate(args.no_https),
         pretty_urls=args.pretty_urls,
         force=args.force,
         no_up=args.no_up,

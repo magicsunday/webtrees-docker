@@ -253,29 +253,15 @@ def run_standalone(
 
     # Resolve the tristate via the shared helper. The standalone flow
     # doesn't read an existing .env (env_value=None), so resolution
-    # collapses to "explicit CLI value, else the wizard default".
-    #
-    # Smart default: `proxy standalone` means no upstream TLS
-    # terminator is in scope (this flow never asks for a domain under
-    # standalone — that's a traefik-only field). Defaulting
-    # ENFORCE_HTTPS=TRUE there emits a 301 to `https://<host>/` that
-    # nothing answers (canonical port 443 isn't bound), trapping
-    # direct-LAN browsers in a broken redirect. Default off; the
-    # operator can still opt in with `--https` if they terminate TLS
-    # themselves (Caddy / nginx-on-host / Cloudflare Tunnel in front
-    # of the published port). `proxy traefik` keeps the TRUE default —
-    # Traefik terminates TLS upstream.
-    #
-    # Gate on the RESOLVED `proxy_mode` local (set after the
-    # ask_choice prompt above), not on `args.proxy_mode`. Reading raw
-    # CLI args misses the interactive path where the operator runs the
-    # wizard without `--proxy` and picks "standalone" at the prompt —
-    # exactly the scenario the README quickstart sends a first-time
-    # user through.
+    # collapses to "explicit CLI value, else the proxy_mode-keyed
+    # smart default" (standalone → FALSE / traefik → TRUE, see the
+    # helper's docstring for the rationale and the GH-147/148 history).
+    # Pass the PROMPT-RESOLVED `proxy_mode` local (not `args.proxy_mode`)
+    # so the interactive path also gets the right default.
     enforce_https = resolve_enforce_https(
         cli_value=args.enforce_https,
         env_value=None,
-        default=proxy_mode != "standalone",
+        proxy_mode=proxy_mode,
     )
 
     # #41 BYOD external-db: verify reachability before render so an

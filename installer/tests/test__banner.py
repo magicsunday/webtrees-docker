@@ -118,7 +118,13 @@ def test_print_standalone_http_security_note_emits_single_line() -> None:
 
 def test_print_standalone_http_security_note_includes_required_phrases() -> None:
     """Contract-key phrases pinning the plaintext-HTTP advisory.
-    Symmetric counterpart to the ENFORCE_HTTPS=TRUE warning above."""
+    Symmetric counterpart to the ENFORCE_HTTPS=TRUE warning above.
+
+    The opt-out instruction must reference the .env pre-seed
+    mechanism (the actual way to force ENFORCE_HTTPS=TRUE on
+    standalone — no `--https` argparse flag exists, only `--no-https`)
+    so an operator following the banner advice doesn't hit
+    `unrecognized arguments`."""
     out = StringIO()
     print_standalone_http_security_note(
         stdout=out,
@@ -127,7 +133,7 @@ def test_print_standalone_http_security_note_includes_required_phrases() -> None
     text = out.getvalue()
     assert "HTTPS is off" in text
     assert "unencrypted" in text
-    assert "--https" in text
+    assert "ENFORCE_HTTPS=TRUE" in text
 
 
 def test_print_standalone_http_url_lines_localhost_only_when_no_lan_ip() -> None:

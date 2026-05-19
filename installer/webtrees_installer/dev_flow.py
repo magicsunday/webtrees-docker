@@ -21,6 +21,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
+    print_standalone_http_security_note,
     print_standalone_http_url_lan_only,
     print_what_next_section,
 )
@@ -69,9 +70,11 @@ class DevArgs:
 
     # Tristate, mirrors admin_bootstrap in flow.py: None = operator
     # didn't pass --no-https on the CLI (use .env value if present, else
-    # the wizard default of True); True/False = explicit operator choice
-    # that wins over the .env. After collect_dev_inputs() resolves the
-    # value this is always concrete True/False before render time.
+    # the proxy_mode-keyed smart default — standalone FALSE / traefik
+    # TRUE, see _cli_resolve.resolve_enforce_https); True/False =
+    # explicit operator choice that wins over the .env. After
+    # collect_dev_inputs() resolves the value this is always concrete
+    # True/False before render time.
     enforce_https: bool | None
 
     force: bool
@@ -193,10 +196,12 @@ def collect_dev_inputs(
     who passes ``--no-up`` on the command line keeps that behaviour even
     when the wizard runs the interactive prompt loop.
 
-    ``enforce_https`` is tristate: an explicit ``True``/``False`` (operator
-    passed a CLI flag) wins over everything; ``None`` (no CLI flag) means
-    honour the existing .env's value on a re-render, falling back to the
-    wizard's ``True`` default for fresh installs.
+    ``enforce_https`` is tristate: an explicit ``True``/``False``
+    (operator passed a CLI flag) wins over everything; ``None`` (no
+    CLI flag) means honour the existing .env's value on a re-render,
+    falling back to the proxy_mode-keyed smart default for fresh
+    installs (standalone FALSE / traefik TRUE — see
+    :func:`webtrees_installer._cli_resolve.resolve_enforce_https`).
     """
 
     use_traefik = ask_yesno(
@@ -206,9 +211,14 @@ def collect_dev_inputs(
     )
     proxy_mode = "traefik" if use_traefik else "standalone"
 
+    # See resolve_enforce_https' docstring for the proxy_mode-keyed
+    # smart default (standalone → FALSE / traefik → TRUE). The
+    # prompt-resolved `proxy_mode` local feeds it so the operator's
+    # `use_traefik` choice drives the default.
     enforce_https = resolve_enforce_https(
         cli_value=enforce_https,
         env_value=existing.get("ENFORCE_HTTPS"),
+        proxy_mode=proxy_mode,
     )
 
     app_port: int | None = None
@@ -387,17 +397,25 @@ def run_dev(
         return 1
 
     # Parse the existing .env once and reuse it for both the tristate
-    # resolution and the interactive prompt loop. The resolution runs
-    # unconditionally so a None never reaches Jinja, which would otherwise
-    # render ENFORCE_HTTPS=FALSE because Python's None is falsy.
+    # resolution and the interactive prompt loop. For non-interactive
+    # runs, normalise now so a None never reaches Jinja (Python's None
+    # would otherwise render as ENFORCE_HTTPS=FALSE because None is
+    # falsy). For interactive runs, defer to collect_dev_inputs which
+    # sees the PROMPT-RESOLVED `proxy_mode` and applies the smart
+    # default correctly — pre-resolving here would lock in a default
+    # derived from `args.proxy_mode` (the CLI placeholder, typically
+    # "standalone"), and a subsequent operator choice of "Traefik" at
+    # the use_traefik prompt would land with the wrong default.
     existing = _parse_env(work_dir / ".env")
-    args = dataclasses.replace(
-        args,
-        enforce_https=resolve_enforce_https(
-            cli_value=args.enforce_https,
-            env_value=existing.get("ENFORCE_HTTPS"),
-        ),
-    )
+    if not args.interactive:
+        args = dataclasses.replace(
+            args,
+            enforce_https=resolve_enforce_https(
+                cli_value=args.enforce_https,
+                env_value=existing.get("ENFORCE_HTTPS"),
+                proxy_mode=args.proxy_mode,
+            ),
+        )
 
     if args.interactive:
         host_info = _detect_host_info()
@@ -560,6 +578,10 @@ def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
                     app_port=args.app_port,
                     host_lan_ip=os.environ.get("HOST_LAN_IP", "").strip() or None,
                 )
+            # Symmetric advisory mirrors the production banner: surface
+            # the cleartext-on-LAN trade-off so a developer running on a
+            # shared dev VM / Wi-Fi gets it explicitly.
+            print_standalone_http_security_note(stdout=stdout, term=term)
         print(
             f"{term.info('•')} phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
             file=stdout,
