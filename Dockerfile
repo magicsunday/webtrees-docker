@@ -213,10 +213,27 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
             ;; \
     esac \
  && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
- # Verify Magic-Sunday charts landed in vendor/ (NOT modules_v4/)
- && test -d vendor/magicsunday/webtrees-fan-chart \
- && test -d vendor/magicsunday/webtrees-pedigree-chart \
- && test -d vendor/magicsunday/webtrees-descendants-chart \
+ # Verify Magic-Sunday charts landed in the version-appropriate location.
+ # The 2.1.x manifest allows `magicsunday/webtrees-module-installer-plugin`
+ # (no VendorModuleService patch exists for 2.1 core), so the plugin
+ # relocates each chart to `vendor/fisharebest/webtrees/modules_v4/<chart>/`
+ # — where webtrees 2.1's native module loader picks them up. The 2.2.x
+ # manifest explicitly disables the plugin (`: false`) because the
+ # add-vendor-module-service.patch teaches 2.2 core to load modules
+ # directly from `vendor/magicsunday/`. Same goal (charts loadable as
+ # modules), different layouts driven by what each core release supports.
+ && case "${WEBTREES_VERSION}" in \
+        2.1.*) \
+            test -d vendor/fisharebest/webtrees/modules_v4/webtrees-fan-chart \
+            && test -d vendor/fisharebest/webtrees/modules_v4/webtrees-pedigree-chart \
+            && test -d vendor/fisharebest/webtrees/modules_v4/webtrees-descendants-chart \
+            ;; \
+        2.2.*) \
+            test -d vendor/magicsunday/webtrees-fan-chart \
+            && test -d vendor/magicsunday/webtrees-pedigree-chart \
+            && test -d vendor/magicsunday/webtrees-descendants-chart \
+            ;; \
+    esac \
  # composer install --prefer-dist pulls fisharebest/webtrees from packagist,
  # which strips resources/lang/<locale>/messages.po via .gitattributes
  # export-ignore. Without those files webtrees' SetupWizard fatals on the
