@@ -5,15 +5,12 @@ from __future__ import annotations
 import enum
 import subprocess
 
-from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+from webtrees_installer._alpine import get_helper_image
 
 
 # Public knob: callers can pass `timeout_s=PROBE_TIMEOUT_S * 2` or similar
 # to scale the deadline relative to the default without hardcoding seconds.
 PROBE_TIMEOUT_S = 20
-
-# Private dependency pin: the image is an implementation detail of the probe.
-_PROBE_IMAGE = ALPINE_BASE_IMAGE
 
 # Phrases the Docker daemon emits when the requested host port is occupied.
 # Matched case-insensitively. Linux (`bind: address already in use`), Docker
@@ -69,17 +66,17 @@ def probe_port(port: int, *, timeout_s: float | None = None) -> PortStatus:
 
 
 def _run_docker_probe(port: int, *, timeout_s: float) -> subprocess.CompletedProcess[str]:
-    """Spin up an alpine container that exits immediately while holding the port.
+    """Spin up a container that exits immediately while holding the port.
 
     The container-side port (``1``) is arbitrary — only the host-side ``-p``
-    binding matters for the probe, so the alpine command (``true``) exits
+    binding matters for the probe, so the command (``true``) exits
     instantly without listening.
     """
     return subprocess.run(
         [
             "docker", "run", "--rm",
             "-p", f"{port}:1",
-            _PROBE_IMAGE,
+            get_helper_image(),
             "true",
         ],
         capture_output=True,

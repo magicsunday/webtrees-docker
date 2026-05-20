@@ -105,3 +105,27 @@ def test_propagates_project_name_prereq_error(
 
     with pytest.raises(PrereqError, match="COMPOSE_PROJECT_NAME"):
         _write_admin_password_secret(work_dir=Path("/work"), password="pw")
+
+
+def test_uses_helper_image_override_when_env_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WEBTREES_HELPER_IMAGE is forwarded to the docker-run pre-seed call.
+
+    When the env var is set (e.g. by the ``installer-run`` composite action
+    to the already-pulled installer image), the ``docker run`` command must
+    use it instead of Docker Hub's ``alpine:3.23`` so concurrent CI cells
+    don't exhaust the unauthenticated pull rate limit.
+    """
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "myproj")
+    monkeypatch.setenv("WEBTREES_HELPER_IMAGE", "ghcr.io/example/installer:1.2.3")
+    with patch(
+        "webtrees_installer.flow.subprocess.run",
+        return_value=_ok(),
+    ) as run:
+        _write_admin_password_secret(work_dir=Path("/tmp/x"), password="pw")
+
+    # The second call is the docker-run pre-seed; it must reference the override.
+    second_cmd = run.call_args_list[1].args[0]
+    assert "ghcr.io/example/installer:1.2.3" in second_cmd
+    assert "alpine:3.23" not in second_cmd

@@ -343,6 +343,7 @@ exec docker run --rm --pull=always "${tty_flags[@]}" \
     -e WORK_DIR="$PWD" \
     -e COMPOSE_PROJECT_NAME \
     -e HOST_LAN_IP \
+    -e WEBTREES_HELPER_IMAGE="$INSTALLER_IMAGE" \
     -v "$PWD:/work" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     "$INSTALLER_IMAGE" "${installer_args[@]}"

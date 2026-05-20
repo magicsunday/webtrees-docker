@@ -41,6 +41,7 @@ runs:
               # shellcheck disable=SC2086
               docker run --rm \
                   -e COMPOSE_PROJECT_NAME="${project_name}" \
+                  -e WEBTREES_HELPER_IMAGE="ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}" \
                   -v "${WORK_DIR}:/work" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
                   "ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}" \

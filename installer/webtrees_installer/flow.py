@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
-from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+from webtrees_installer._alpine import ALPINE_BASE_IMAGE, get_helper_image
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
     print_standalone_http_security_note,
@@ -1134,7 +1134,7 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
                 "docker", "run", "--rm", "-i",
                 "--pull=missing", "--quiet",
                 "-v", f"{volume}:/secrets",
-                ALPINE_BASE_IMAGE,
+                get_helper_image(),
                 "sh", "-ec",
                 "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
             ],
