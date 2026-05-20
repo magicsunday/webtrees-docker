@@ -1111,6 +1111,29 @@ def _handle_surviving_volumes(
         print(file=stdout)
 
 
+def _installer_image() -> str | None:
+    """Return the Docker image running this installer, or ``None``.
+
+    When the installer runs inside a Docker container (the normal distribution
+    path), Docker sets the container hostname to the short container ID.
+    Inspecting that ID via the mounted Docker socket returns the image
+    reference — which is already present on the host, so no additional Docker
+    Hub pull is needed. Returns ``None`` when the installer is not running in
+    Docker (e.g. direct Python invocation during local development), signalling
+    the caller to fall back to the Alpine base image.
+    """
+    try:
+        container_id = Path("/proc/self/hostname").read_text().strip()
+        result = subprocess.run(
+            ["docker", "inspect", "--format={{.Config.Image}}", container_id],
+            capture_output=True, text=True, check=True,
+        )
+        image = result.stdout.strip()
+        return image or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     """Pre-seed the secrets volume with the wizard's admin password.
 
@@ -1118,9 +1141,14 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     and only generates a fresh password if the file is empty. By creating the
     project-scoped volume (`<project>_secrets`, where `<project>` mirrors
     compose's own project-name derivation) up-front and writing the password
-    through an ephemeral alpine container, the init step finds the file
-    already populated and leaves it alone — which means the password the
-    wizard shows in the banner is the one the bootstrap hook will use.
+    through an ephemeral container, the init step finds the file already
+    populated and leaves it alone — which means the password the wizard shows
+    in the banner is the one the bootstrap hook will use.
+
+    When the installer runs inside Docker (the normal distribution path) it
+    reuses its own already-pulled image for the write step so no Docker Hub
+    pull is needed. Direct Python invocations (local dev) fall back to the
+    Alpine base image with ``--pull=missing``.
     """
     volume = f"{_compose_project_name(work_dir)}_secrets"
 
@@ -1128,13 +1156,20 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
         ["docker", "volume", "create", volume],
         check=True, capture_output=True, text=True,
     )
+
+    # Prefer the installer's own image (already on the host, no Docker Hub
+    # pull needed) over the Alpine base image. Falls back to Alpine when the
+    # installer is not running inside Docker (e.g. local Python invocation).
+    seed_image = _installer_image() or ALPINE_BASE_IMAGE
+    pull_mode = "never" if seed_image != ALPINE_BASE_IMAGE else "missing"
+
     try:
         subprocess.run(
             [
                 "docker", "run", "--rm", "-i",
-                "--pull=missing", "--quiet",
+                f"--pull={pull_mode}", "--quiet",
                 "-v", f"{volume}:/secrets",
-                ALPINE_BASE_IMAGE,
+                seed_image,
                 "sh", "-ec",
                 "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
             ],
@@ -1144,8 +1179,8 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     except subprocess.CalledProcessError as exc:
         # Pre-seeding into the volume failed; the volume itself was either
         # just created or already existed but is now in an indeterminate
-        # state (alpine may have partially written the file). Drop it so
-        # the next run starts clean, then re-raise as PrereqError so the
+        # state (the seed container may have partially written the file). Drop
+        # it so the next run starts clean, then re-raise as PrereqError so the
         # CLI surfaces a clean message instead of a Python traceback.
         subprocess.run(
             ["docker", "volume", "rm", "-f", volume],
