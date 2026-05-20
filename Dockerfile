@@ -216,17 +216,17 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # Verify Magic-Sunday charts landed in the version-appropriate location.
  # The 2.1.x manifest allows `magicsunday/webtrees-module-installer-plugin`
  # (no VendorModuleService patch exists for 2.1 core), so the plugin
- # relocates each chart to `vendor/fisharebest/webtrees/modules_v4/<chart>/`
- # — where webtrees 2.1's native module loader picks them up. The 2.2.x
+ # relocates each chart to top-level `modules_v4/<chart>/` in this build
+ # workspace — where webtrees 2.1's native module loader picks them up. The 2.2.x
  # manifest explicitly disables the plugin (`: false`) because the
  # add-vendor-module-service.patch teaches 2.2 core to load modules
  # directly from `vendor/magicsunday/`. Same goal (charts loadable as
  # modules), different layouts driven by what each core release supports.
  && case "${WEBTREES_VERSION}" in \
         2.1.*) \
-            test -d vendor/fisharebest/webtrees/modules_v4/webtrees-fan-chart \
-            && test -d vendor/fisharebest/webtrees/modules_v4/webtrees-pedigree-chart \
-            && test -d vendor/fisharebest/webtrees/modules_v4/webtrees-descendants-chart \
+            test -d modules_v4/webtrees-fan-chart \
+            && test -d modules_v4/webtrees-pedigree-chart \
+            && test -d modules_v4/webtrees-descendants-chart \
             ;; \
         2.2.*) \
             test -d vendor/magicsunday/webtrees-fan-chart \
@@ -256,7 +256,11 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  && mv vendor/fisharebest/webtrees/data data \
  && ln -s ../../../data vendor/fisharebest/webtrees/data \
  && mkdir -p /opt/webtrees-dist/html \
- && mv composer.json composer.lock vendor public data /opt/webtrees-dist/html/ \
+ && case "${WEBTREES_VERSION}" in \
+        2.1.*) mv composer.json composer.lock vendor public data modules_v4 /opt/webtrees-dist/html/ ;; \
+        2.2.*) mv composer.json composer.lock vendor public data /opt/webtrees-dist/html/ ;; \
+        *) echo "no bundle layout for WEBTREES_VERSION=${WEBTREES_VERSION}" >&2; exit 1 ;; \
+    esac \
  && rm -rf /build/patches \
  && test -f /opt/webtrees-dist/html/public/index.php \
  && test -d /opt/webtrees-dist/html/vendor/fisharebest/webtrees \

@@ -200,7 +200,8 @@ setup_webtrees_dist() {
         if ! cp -a "$entry" /var/www/html/; then
             log_error "Failed to copy $entry into /var/www/html — rolling back"
             rm -rf /var/www/html/composer.json /var/www/html/composer.lock \
-                   /var/www/html/vendor /var/www/html/public /var/www/html/data
+                   /var/www/html/vendor /var/www/html/public /var/www/html/data \
+                   /var/www/html/modules_v4
             return 1
         fi
     done
