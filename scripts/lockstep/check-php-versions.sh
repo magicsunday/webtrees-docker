@@ -3,38 +3,37 @@
 # per webtrees minor. Invoked by `make ci-php-versions-lockstep`.
 #
 # The single source of truth for supported PHP minors is
-# dev/php-versions.json `.supported`. dev/versions.json carries the
-# actual catalog rows the build matrix consumes; for every unique
-# webtrees minor in the catalog, the set of PHP values MUST equal
-# `supported` exactly (no missing minor, no extra).
+# dev/php-versions.json `.supported`, modelled as a per-webtrees-minor
+# map (`{"2.1": ["8.3","8.4"], "2.2": ["8.3","8.4","8.5"]}`) because
+# upstream webtrees branches drop or add PHP support independently —
+# 2.1.x lost 8.5 support that 2.2.x carries forward. A single flat
+# `.supported` list would force the catalog to ship rows that upstream
+# composer cannot resolve (transitive plugin pins block the build).
+#
+# For every unique webtrees minor in `dev/versions.json`, the set of
+# `.php` values across that minor's rows MUST equal
+# `.supported[<wt-minor>]` exactly (no missing minor, no extra).
 #
 # Drift modes this catches:
-#   * Operator bumps `supported` from [8.3,8.4,8.5] to [8.4,8.5,8.6]
-#     but forgets to add the 8.6 rows to versions.json — the auto-
-#     bump cron would then ship inconsistent matrices on the next
-#     webtrees release. Caught here.
-#   * Operator hand-edits versions.json to drop the 8.3 rows but
-#     leaves `supported` untouched — same scenario, opposite
-#     direction. Caught here.
-#   * Auto-bump cron ran with a stale `supported` and the new
+#   * Operator bumps `.supported["2.2"]` from [8.3,8.4,8.5] to
+#     [8.4,8.5,8.6] but forgets to refresh the 2.2.x rows in
+#     versions.json — the auto-bump cron would then ship inconsistent
+#     matrices on the next webtrees release. Caught here.
+#   * Operator hand-edits versions.json to drop the 8.3 rows of a
+#     webtrees minor but leaves the matching `.supported[<wt-minor>]`
+#     untouched — same scenario, opposite direction. Caught here.
+#   * Auto-bump cron ran with a stale `.supported` map and the new
 #     webtrees rows are missing a minor. Caught here.
+#   * versions.json carries rows for a webtrees minor that has no
+#     entry in `.supported` (e.g. a new 2.3.x branch landed in the
+#     catalog before php-versions.json grew its key). Caught here.
+#   * `.supported` has an entry for a webtrees minor that no longer
+#     appears in versions.json (e.g. 2.0.x was retired but its key
+#     was forgotten). Caught here.
 #
-# Schema-strict extraction of .supported:
-#   * `select(type == "string" and (. | test("^[1-9][0-9]*\.[0-9]+$")))`
-#     enforces the project's PHP-minor shape `<positive-digit>.<digit+>`
-#     — drops nulls, numbers, arrays-of-arrays, empty strings,
-#     whitespace (including invisible characters like zero-width
-#     space U+200B), leading dots (`.3`), trailing dots (`8.`),
-#     dot-only (`...`), patch-pinned (`8.3.1`), and any non-digit
-#     character. Mirrors scripts/bump/bump-nginx.py's `_MINOR_RE`
-#     precedent; a hand-edited `.supported` that slips a malformed
-#     value past this filter would propagate via the auto-bump cron
-#     into every new versions.json row without any downstream layer
-#     catching it.
-#   * `unique` after the filter rejects accidental duplicates by
-#     normalizing the input; the post-filter length check below
-#     catches the symmetric case where the operator deliberately
-#     listed a duplicate.
+# Schema-shape validation lives in scripts/lib/php-versions-lib.sh
+# (`ci_validate_php_supported_shape`) so all four `.supported`
+# consumers gate on the same invariants.
 
 set -euo pipefail
 
@@ -43,6 +42,8 @@ cd "$repo_root"
 
 # shellcheck source=scripts/lib/images.env
 source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/php-versions-lib.sh
+source "$(dirname "$0")/../lib/php-versions-lib.sh"
 
 ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
     echo "::error::dev/versions.json is not parseable JSON" >&2
@@ -54,63 +55,86 @@ ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
     exit 1
 }
 
-# Expected: sorted unique `.supported` from php-versions.json.
-# Actual (per webtrees-minor): sorted unique `.php` values for every
-# row carrying that minor. Compare per-bucket; first drift fails loud
-# with a `::error::` annotation naming the offending webtrees minor +
-# the symmetric-difference set.
-supported_raw=$(ci_run_jq "$repo_root" \
-    -r '(.supported // []) | length' php-versions.json) || {
-    echo "::error::docker run for supported-php length-probe failed" >&2
+ci_validate_php_supported_shape "$repo_root"
+
+# Diagnostic: show the per-minor expectations the rest of the run
+# will enforce.
+expectations=$(ci_run_jq "$repo_root" \
+    -r '.supported | to_entries | map("\(.key)=[\(.value | sort | join(","))]") | join(" ")' php-versions.json) || {
+    echo "::error::docker run for .supported expectation-render failed" >&2
     exit 1
 }
+echo "  supported PHP minors per webtrees minor: $expectations"
 
-supported_clean=$(ci_run_jq "$repo_root" \
-    -r '[(.supported // [])[] | select(type == "string" and (. | test("^[1-9][0-9]*\\.[0-9]+$")))] | unique' php-versions.json) || {
-    echo "::error::docker run for supported-php clean-extract failed" >&2
-    exit 1
-}
-
-supported_clean_count=$(printf '%s' "$supported_clean" | ci_run_jq_stdin -r length) || {
-    echo "::error::docker run for supported-php length-count failed" >&2
-    exit 1
-}
-
-if [ "$supported_raw" != "$supported_clean_count" ]; then
-    echo "::error::dev/php-versions.json \`.supported\` contains duplicates, non-strings, empty values, whitespace-bearing entries, leading/trailing dots, patch-pinned (X.Y.Z), or values not matching the strict X.Y minor shape. Raw length: $supported_raw, post-filter length: $supported_clean_count." >&2
-    exit 1
-fi
-
-supported=$(printf '%s' "$supported_clean" | ci_run_jq_stdin -r 'sort | join(",")') || {
-    echo "::error::docker run for supported-php sort/join failed" >&2
-    exit 1
-}
-
-[ -n "$supported" ] || {
-    echo "::error::dev/php-versions.json \`.supported\` is missing, empty, or not an array" >&2
-    exit 1
-}
-
-echo "  supported PHP minors: $supported"
-
+# Webtrees minors used in versions.json — derived by stripping the
+# patch from `.webtrees` (e.g. "2.1.27" -> "2.1") so the lookup
+# against `.supported` keys is direct. The capture regex anchors at
+# start-of-string and the trailing `.[0-9]+` requires the patch to
+# be present, so "2.1" alone (no patch) yields no minor — the
+# downstream loop then correctly fails closed on the missing key.
 webtrees_minors=$(ci_run_jq "$repo_root" \
-    -r '[.[].webtrees] | unique | .[]' versions.json) || {
+    -r '[.[] | (.webtrees | capture("^(?<m>[1-9][0-9]*\\.[0-9]+)") | .m)] | unique | .[]' versions.json) || {
     echo "::error::docker run for webtrees-minor extraction failed" >&2
     exit 1
 }
 
+# Supported keys not present in versions.json — `.supported` has a
+# leftover entry for a retired webtrees branch. The cron's fan-out
+# would still emit rows for it on the next bump, materialising image
+# tags for a branch the maintainer considers dead.
+present_csv=$(printf '%s\n' "$webtrees_minors" | paste -sd, -)
+# shellcheck disable=SC2016
+# `$present` inside the single-quoted jq filter is the jq variable
+# bound via `--arg`, not a bash expansion. Splitting the CSV inside
+# jq keeps the orphan-key set arithmetic in a single jq pass without
+# a host-jq stdin sub-call.
+orphans=$(ci_run_jq "$repo_root" \
+    --arg present "$present_csv" \
+    -r '.supported | keys - ($present | split(",")) | join(",")' \
+    php-versions.json) || {
+    echo "::error::docker run for .supported orphan-key probe failed" >&2
+    exit 1
+}
+if [ -n "$orphans" ]; then
+    echo "::error::dev/php-versions.json \`.supported\` has key(s) but dev/versions.json has no row for that webtrees minor: $orphans. Either re-add a row or drop the orphan key(s)." >&2
+    exit 1
+fi
+
 for wt in $webtrees_minors; do
     # shellcheck disable=SC2016
-    # `$wt` inside the single-quoted jq filter is a jq variable bound via
-    # `--arg wt "$wt"` on the line above, not a bash expansion. The single
-    # quotes are intentional so jq sees the literal `$wt` token.
+    # `$wt` inside the single-quoted jq filter is the jq variable
+    # bound via `--arg`, not a bash expansion.
+    has_key=$(ci_run_jq "$repo_root" \
+        -r --arg wt "$wt" '.supported | has($wt)' php-versions.json) || {
+        echo "::error::docker run for .supported[wt] presence-probe failed (wt=$wt)" >&2
+        exit 1
+    }
+    if [ "$has_key" != "true" ]; then
+        echo "::error::dev/versions.json carries rows for webtrees minor '$wt' but dev/php-versions.json \`.supported\` has no entry for it. Add \`.supported[\"$wt\"]\` listing the PHP minors that this webtrees branch supports." >&2
+        exit 1
+    fi
+
+    # shellcheck disable=SC2016
+    # `$wt` inside the single-quoted jq filter is the jq variable
+    # bound via `--arg`, not a bash expansion.
+    expected=$(ci_run_jq "$repo_root" \
+        -r --arg wt "$wt" '.supported[$wt] | sort | join(",")' php-versions.json) || {
+        echo "::error::docker run for .supported[wt] extraction failed (wt=$wt)" >&2
+        exit 1
+    }
+
+    # shellcheck disable=SC2016
+    # `$wt` inside the single-quoted jq filter is the jq variable
+    # bound via `--arg`, not a bash expansion. The trailing `.`
+    # appended to `$wt` is what prevents `startswith("2.1")` from
+    # falsely claiming `"2.10.x"` rows for the `2.1` bucket.
     actual=$(ci_run_jq "$repo_root" \
-        -r --arg wt "$wt" '[.[] | select(.webtrees == $wt) | .php] | sort | join(",")' versions.json) || {
+        -r --arg wt "$wt" '[.[] | select(.webtrees | startswith($wt + ".")) | .php] | sort | join(",")' versions.json) || {
         echo "::error::docker run for per-webtrees PHP extraction failed (wt=$wt)" >&2
         exit 1
     }
-    if [ "$actual" != "$supported" ]; then
-        echo "::error::dev/versions.json rows for webtrees $wt carry PHP '$actual' but dev/php-versions.json \`.supported\` is '$supported'. Add or remove rows so the two agree, or update php-versions.json if a minor was intentionally added/dropped." >&2
+    if [ "$actual" != "$expected" ]; then
+        echo "::error::dev/versions.json rows for webtrees $wt carry PHP '$actual' but dev/php-versions.json \`.supported[\"$wt\"]\` is '$expected'. Add or remove rows so the two agree, or update php-versions.json if a minor was intentionally added/dropped." >&2
         exit 1
     fi
 done

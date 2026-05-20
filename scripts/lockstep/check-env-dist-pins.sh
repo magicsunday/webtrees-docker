@@ -24,6 +24,8 @@ cd "$repo_root"
 
 # shellcheck source=scripts/lib/images.env
 source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/php-versions-lib.sh
+source "$(dirname "$0")/../lib/php-versions-lib.sh"
 
 env_dist=".env.dist"
 [ -f "$env_dist" ] || {
@@ -71,6 +73,12 @@ ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
     exit 1
 }
 
+# Schema-shape gate before the union extraction so a pre-migration
+# flat-array `.supported` (or any other malformed shape) fails with
+# a clear schema diagnostic. Mirrors the gate at the top of
+# check-php-versions.sh.
+ci_validate_php_supported_shape "$repo_root"
+
 # Source-of-truth webtrees: the row carrying the "latest" tag in
 # versions.json. ci-versions-latest-semver-max-lockstep separately
 # asserts that row IS the semver-max row, so here we just read the
@@ -107,8 +115,12 @@ if [ "$env_nginx_base" != "$expected_nginx_base" ]; then
     exit 1
 fi
 
-php_supported_set=$(ci_run_jq "$repo_root" \
-    -r '[.supported // []] | flatten | join(" ")' php-versions.json)
+# `.supported` is a per-webtrees-minor map (see check-php-versions.sh
+# for the schema and rationale). The .env.dist default is a single PHP
+# pin used by any webtrees minor, so membership is checked against the
+# UNION of every value array across keys — routed through the shared
+# helper so a future schema migration touches one place, not three.
+php_supported_set=$(ci_php_supported_union "$repo_root" | tr ',' ' ')
 
 php_in_supported=0
 for minor in $php_supported_set; do

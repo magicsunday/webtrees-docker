@@ -146,34 +146,90 @@ fi
 rolling=$(jq -c '[.[] | select(.tags | index("latest")) | .tags[]] | unique' dev/versions.json)
 canonical_php=$(jq -r '.[] | select(.tags | index("latest")) | .php' dev/versions.json)
 [ -n "$canonical_php" ] || { echo "::error::no row in dev/versions.json carries 'latest'"; exit 1; }
+canonical_webtrees=$(jq -r '.[] | select(.tags | index("latest")) | .webtrees' dev/versions.json)
+[ -n "$canonical_webtrees" ] || { echo "::error::no row in dev/versions.json carries 'latest' (webtrees field)"; exit 1; }
 
 # The supported PHP minors are the single source of truth at
-# `dev/php-versions.json`. ci-php-versions-lockstep enforces that
-# every existing webtrees row already has one entry per supported
-# minor, so the fan-out below extends that invariant to every new
-# webtrees version with no hardcoded literal.
-php_minors=$(jq -c '.supported' dev/php-versions.json)
-[ -n "$php_minors" ] && [ "$php_minors" != "null" ] && [ "$php_minors" != "[]" ] || \
-    { echo "::error::dev/php-versions.json missing or empty \`.supported\` array"; exit 1; }
-# Shape gate: refuse to fan out values that aren't strict X.Y
-# minors. Mirrors Make/ci.mk's ci-php-versions-lockstep regex.
-jq -e 'all((.supported // [])[]; type == "string" and (. | test("^[1-9][0-9]*\\.[0-9]+$")))' dev/php-versions.json >/dev/null || \
-    { echo "::error::dev/php-versions.json \`.supported\` contains a value not matching the strict X.Y minor shape; run \`make ci-php-versions-lockstep\` locally for the exact culprit"; exit 1; }
+# `dev/php-versions.json`, modelled as a per-webtrees-minor map so
+# branches that drop PHP support (e.g. webtrees 2.1.x not supporting
+# PHP 8.5) keep an honest catalog. ci-php-versions-lockstep enforces
+# that every existing webtrees row's PHP set equals
+# `.supported[<wt-minor>]`, so the fan-out below extends that
+# invariant to every new webtrees version with no hardcoded literal.
+#
+# Schema-shape validation routed through the same helper the
+# lockstep checks use, so the cron pre-flight and the local lockstep
+# agree on failure modes.
+# shellcheck source=scripts/lib/images.env
+source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/php-versions-lib.sh
+source "$(dirname "$0")/../lib/php-versions-lib.sh"
+ci_validate_php_supported_shape "$(pwd)"
+php_support_map=$(jq -c '.supported' dev/php-versions.json)
+
+# Every new webtrees version must have a corresponding key in
+# `.supported` — without it, the fan-out below would produce zero
+# rows for that version and the next cron would re-detect it as
+# "new" indefinitely. Pre-validate so notify-on-failure carries an
+# actionable message.
+for version in "${versions[@]}"; do
+    wt_minor=$(ci_wt_minor_strip_patch "$version")
+    has_key=$(jq -r --arg wt "$wt_minor" '.supported | has($wt)' dev/php-versions.json)
+    if [ "$has_key" != "true" ]; then
+        echo "::error::dev/php-versions.json \`.supported\` has no entry for webtrees minor '$wt_minor' (derived from new version '$version'). Add \`.supported[\"$wt_minor\"]\` before letting the cron bump this branch." >&2
+        exit 1
+    fi
+done
+
+# Cross-minor rolling-tag relocation guard.
+#
+# The fan-out below re-attaches the rolling-tag bundle (latest, major,
+# minor) at `($ver == $newest and . == $php)`. If the newest version's
+# minor differs from the prior latest row's minor, the bundle's minor
+# tag would migrate from one webtrees branch onto another — e.g.
+# bumping 2.1.28 while latest lives on 2.2.6 would tag the new 2.1.28
+# image as `2.2`, silently mis-routing a `docker pull image:2.2` to
+# the wrong branch. The PHP-membership proxy used in earlier iterations
+# only caught this when the two branches' supported PHP sets were
+# disjoint at canonical_php; an upstream PHP back-port to 2.1 would
+# silently let the proxy pass while still mis-routing the minor tag.
+# Direct minor-equality is the correct invariant.
+newest_minor=$(ci_wt_minor_strip_patch "$newest")
+canonical_minor=$(ci_wt_minor_strip_patch "$canonical_webtrees")
+if [ "$newest_minor" != "$canonical_minor" ]; then
+    echo "::error::cron cannot bump webtrees minor '$newest_minor' while the rolling 'latest' tag lives on minor '$canonical_minor' (row $canonical_webtrees). Relocating the rolling 'latest'/'$canonical_minor'/major tags across webtrees minors automatically would mis-route the minor tag to the new branch. Wait for the cron to detect the next release on the '$canonical_minor' branch, OR open a manual bump PR that moves 'latest' onto the new branch first." >&2
+    exit 1
+fi
+
+# Sanity: with same-minor confirmed, the canonical PHP must still be
+# a member of `.supported[<newest-minor>]`. Same-minor + supported-PHP
+# drift can only happen if `.supported[<newest-minor>]` was hand-edited
+# AFTER the cron started reading versions.json — i.e. main drifted
+# between lockstep-green and the cron's execution window. Fail loud
+# with a distinct diagnostic so the operator can tell intra-minor PHP
+# drift from cross-minor relocation.
+canonical_in_set=$(jq -r --arg wt "$newest_minor" --arg p "$canonical_php" '.supported[$wt] | index($p) != null' dev/php-versions.json)
+if [ "$canonical_in_set" != "true" ]; then
+    echo "::error::canonical PHP '$canonical_php' (from the prior 'latest' row $canonical_webtrees) is no longer in dev/php-versions.json \`.supported[\"$newest_minor\"]\`. dev/php-versions.json appears to have drifted between the lockstep-green commit and this cron invocation. Re-run \`make ci-php-versions-lockstep\` on main to confirm the drift, then re-run the cron." >&2
+    exit 1
+fi
 
 # Build the new versions.json from the existing one plus one row per
-# (new webtrees version × supported PHP minor). The newest version's
-# row at canonical_php carries the rolling tag bundle; older
-# intermediate versions in the batch open their slots empty.
+# (new webtrees version × supported PHP minor for that version's
+# branch). The newest version's row at canonical_php carries the
+# rolling tag bundle; older intermediate versions in the batch open
+# their slots empty.
 versions_json=$(printf '%s\n' "${versions[@]}" | jq -R . | jq -sc .)
 new_rows=$(jq -c \
     --arg newest "$newest" \
     --arg php "$canonical_php" \
     --argjson rolling "$rolling" \
-    --argjson minors "$php_minors" \
+    --argjson support_map "$php_support_map" \
     --argjson new_versions "$versions_json" '
     (map(.tags -= $rolling)
      + ($new_versions | map(. as $ver
-        | $minors
+        | ($ver | capture("^(?<m>[1-9][0-9]*\\.[0-9]+)") | .m) as $wt_minor
+        | $support_map[$wt_minor]
         | map({webtrees: $ver, php: ., tags: (if ($ver == $newest and . == $php) then $rolling else [] end)})) | add)
     )
     | [.[] | select(.tags | index("latest"))] + [.[] | select(.tags | index("latest") | not)]

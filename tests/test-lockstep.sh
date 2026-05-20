@@ -439,28 +439,65 @@ restore_worktree
 # ──────────────────────────────────────────────────────────────────────
 # ci-php-versions-lockstep — supported PHP minors drift from versions.json rows
 # ──────────────────────────────────────────────────────────────────────
-echo "Setting up: versions.json keeps 8.3/8.4/8.5 rows, php-versions.json drops 8.3"
+# `.supported` is a per-webtrees-minor map (e.g.
+# `{"2.1": ["8.3","8.4"], "2.2": ["8.3","8.4","8.5"]}`) so branches
+# that drop PHP support remain modellable. The tests below pin both
+# the drift detections (PHP set per webtrees minor must equal the
+# map's value) and the schema-shape gates (top-level type, key shape,
+# value shape).
+
+# PHP set per minor disagrees: versions.json keeps the 2.2.x 8.3 row
+# but `.supported["2.2"]` is trimmed to 8.4 + 8.5.
+echo "Setting up: php-versions.json drops 8.3 for 2.2 but versions.json keeps the row"
 docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
-    -c '.supported = ["8.4", "8.5"]' php-versions.json > "$worktree/dev/php-versions.json.new"
+    -c '.supported["2.2"] = ["8.4", "8.5"]' php-versions.json > "$worktree/dev/php-versions.json.new"
 mv "$worktree/dev/php-versions.json.new" "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: shrinking .supported without dropping versions.json rows fails" \
+    "ci-php-versions-lockstep: shrinking .supported[wt] without dropping versions.json rows fails" \
     ci-php-versions-lockstep \
     'carry PHP'
 restore_worktree
 
-# Symmetric: versions.json gains a 9.0 row but php-versions.json
-# `.supported` still excludes it. The bumper would never produce
-# this state, but a hand-edit could; the lockstep catches both
-# directions.
-echo "Setting up: versions.json gains a 9.0 row, php-versions.json unchanged"
+# Symmetric: versions.json gains a 9.0 row for 2.2 but
+# `.supported["2.2"]` still excludes it. The bumper would never
+# produce this state, but a hand-edit could; the lockstep catches
+# both directions.
+echo "Setting up: versions.json gains a 9.0 row for 2.2, php-versions.json unchanged"
 docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
     -c '. + [{"webtrees":"2.2.6","php":"9.0","tags":[]}]' versions.json > "$worktree/dev/versions.json.new"
 mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: extending versions.json without bumping .supported fails" \
+    "ci-php-versions-lockstep: extending versions.json without bumping .supported[wt] fails" \
     ci-php-versions-lockstep \
     'carry PHP'
+restore_worktree
+
+# versions.json gains rows for a webtrees minor (2.3) that has no
+# `.supported` entry. The cron's fan-out would never produce this
+# state, but a hand-edit could.
+echo "Setting up: versions.json carries 2.3.0 rows, php-versions.json has no 2.3 key"
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '. + [{"webtrees":"2.3.0","php":"8.4","tags":[]},{"webtrees":"2.3.0","php":"8.5","tags":[]}]' \
+    versions.json > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_fails \
+    "ci-php-versions-lockstep: versions.json carries unsupported webtrees minor fails" \
+    ci-php-versions-lockstep \
+    'has no entry for it'
+restore_worktree
+
+# Symmetric: `.supported` has a key for a webtrees minor that no
+# longer appears in versions.json (retired branch with leftover
+# entry). The cron's fan-out would then never emit rows for it,
+# making it impossible to ever recover the branch.
+echo "Setting up: php-versions.json has orphan 2.0 key, versions.json has no 2.0 rows"
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '.supported["2.0"] = ["8.3"]' php-versions.json > "$worktree/dev/php-versions.json.new"
+mv "$worktree/dev/php-versions.json.new" "$worktree/dev/php-versions.json"
+assert_lockstep_fails \
+    "ci-php-versions-lockstep: orphan .supported key without versions.json rows fails" \
+    ci-php-versions-lockstep \
+    'no row for that webtrees minor'
 restore_worktree
 
 # php-versions.json missing the `.supported` key entirely.
@@ -469,7 +506,7 @@ echo '{}' > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: missing .supported key fails with actionable message" \
     ci-php-versions-lockstep \
-    'missing, empty, or not an array'
+    'must be an object mapping webtrees-minor'
 restore_worktree
 
 # php-versions.json not parseable.
@@ -481,62 +518,90 @@ assert_lockstep_fails \
     'not parseable JSON'
 restore_worktree
 
-# Duplicate entries in .supported (a hand-edit typo: `["8.3", "8.3", "8.5"]`).
-echo "Setting up: php-versions.json .supported has duplicates"
-echo '{"supported": ["8.3", "8.3", "8.5"]}' > "$worktree/dev/php-versions.json"
+# `.supported` is a flat array (pre-migration shape) — top-level type
+# must be object now.
+echo "Setting up: php-versions.json .supported is a flat array"
+echo '{"supported": ["8.3", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: duplicate entries in .supported fail loud" \
+    "ci-php-versions-lockstep: flat .supported array fails the type gate" \
     ci-php-versions-lockstep \
-    'contains duplicates'
+    'must be an object mapping webtrees-minor'
 restore_worktree
 
-# Non-string entry in .supported (`[8.3, "8.4", "8.5"]` — first is a number).
-echo "Setting up: php-versions.json .supported has a non-string entry"
-echo '{"supported": [8.3, "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+# Empty `.supported` object — no per-minor entries. Each webtrees
+# minor in versions.json then fails the per-key lookup.
+echo "Setting up: php-versions.json .supported is empty object"
+echo '{"supported": {}}' > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: non-string entry in .supported fails loud" \
+    "ci-php-versions-lockstep: empty .supported object fails per-key lookup" \
     ci-php-versions-lockstep \
-    'non-strings'
+    'has no entry for it'
 restore_worktree
 
-# Whitespace-bearing entry in .supported (`["8.3 ", "8.4"]` — trailing space).
-echo "Setting up: php-versions.json .supported has whitespace-bearing entry"
-echo '{"supported": ["8.3 ", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+# Duplicate entries in a value list (a hand-edit typo:
+# `{"2.2": ["8.3","8.3","8.5"]}`).
+echo "Setting up: php-versions.json .supported value has duplicates"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["8.3","8.3","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: whitespace-bearing entry in .supported fails loud" \
+    "ci-php-versions-lockstep: duplicate entries in .supported value fail loud" \
     ci-php-versions-lockstep \
-    'whitespace-bearing'
+    'value has duplicates'
 restore_worktree
 
-# Empty .supported array — a hand-edit dropping every minor.
-echo "Setting up: php-versions.json .supported is empty array"
-echo '{"supported": []}' > "$worktree/dev/php-versions.json"
+# Non-string entry in a value list.
+echo "Setting up: php-versions.json .supported value has a non-string entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": [8.3,"8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: empty .supported array fails loud" \
+    "ci-php-versions-lockstep: non-string entry in .supported value fails loud" \
     ci-php-versions-lockstep \
-    'missing, empty, or not an array'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
-# Unsorted .supported — must NOT fail; the lockstep sorts internally
-# before comparing, so operator may store the list in any order.
-echo "Setting up: php-versions.json .supported is unsorted but valid"
-echo '{"supported": ["8.5", "8.3", "8.4"]}' > "$worktree/dev/php-versions.json"
+# Whitespace-bearing entry in a value list.
+echo "Setting up: php-versions.json .supported value has whitespace-bearing entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["8.3 ","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
+assert_lockstep_fails \
+    "ci-php-versions-lockstep: whitespace-bearing entry in .supported value fails loud" \
+    ci-php-versions-lockstep \
+    'not matching strict PHP-minor X.Y shape'
+restore_worktree
+
+# Empty value list for a webtrees minor — hand-edit dropping every
+# PHP slot for that branch. ci-php-versions-lockstep refuses to fan
+# out into zero rows.
+echo "Setting up: php-versions.json .supported has empty value for 2.2"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": []}}' \
+    > "$worktree/dev/php-versions.json"
+assert_lockstep_fails \
+    "ci-php-versions-lockstep: empty .supported value fails loud" \
+    ci-php-versions-lockstep \
+    'value is empty'
+restore_worktree
+
+# Unsorted value lists — must NOT fail; the lockstep sorts internally
+# before comparing, so operator may store entries in any order.
+echo "Setting up: php-versions.json .supported values unsorted but valid"
+echo '{"supported": {"2.1": ["8.4","8.3"], "2.2": ["8.5","8.3","8.4"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_passes \
-    "ci-php-versions-lockstep: unsorted but valid .supported passes" \
+    "ci-php-versions-lockstep: unsorted but valid .supported values pass" \
     ci-php-versions-lockstep
 restore_worktree
 
-# Zero-width space inside a value (`"8.3​"`) — `\S` would let
-# this through, but the strict X.Y regex `^[1-9][0-9]*\.[0-9]+$`
-# rejects. Without this defense, the comparison would print
-# "8.3,8.4,8.5" vs "8.3,8.4,8.5" (visually identical, byte-different)
-# and burn operator debugging time.
-echo "Setting up: php-versions.json .supported has zero-width-space-bearing entry"
-printf '{"supported": ["8.3\\u200b", "8.4", "8.5"]}\n' > "$worktree/dev/php-versions.json"
+# Zero-width space inside a value — `\S` would let this through but
+# the strict X.Y regex `^[1-9][0-9]*\.[0-9]+$` rejects. Without this
+# defense, the comparison would print "8.3,8.4" vs "8.3,8.4" (visually
+# identical, byte-different) and burn operator debugging time.
+echo "Setting up: php-versions.json .supported value has zero-width-space-bearing entry"
+printf '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["8.3\\u200b","8.4","8.5"]}}\n' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
-    "ci-php-versions-lockstep: zero-width-space in .supported fails loud" \
+    "ci-php-versions-lockstep: zero-width-space in .supported value fails loud" \
     ci-php-versions-lockstep \
-    'duplicates, non-strings, empty values'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
 # Shape-family malformed entries: trailing dot, leading dot, dot-only,
@@ -545,52 +610,98 @@ restore_worktree
 # Each case is a hand-edit typo that could otherwise propagate via
 # check-versions.yml's auto-bump fan-out into every new versions.json
 # row, producing `FROM php:8.-fpm-alpine` (invalid reference format).
-echo "Setting up: php-versions.json .supported has trailing-dot entry"
-echo '{"supported": ["8.", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+echo "Setting up: php-versions.json .supported value has trailing-dot entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["8.","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: trailing-dot value (\`8.\`) fails loud" \
     ci-php-versions-lockstep \
-    'not matching the strict X.Y minor shape'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
-echo "Setting up: php-versions.json .supported has leading-dot entry"
-echo '{"supported": [".3", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+echo "Setting up: php-versions.json .supported value has leading-dot entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": [".3","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: leading-dot value (\`.3\`) fails loud" \
     ci-php-versions-lockstep \
-    'not matching the strict X.Y minor shape'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
-echo "Setting up: php-versions.json .supported has dot-only entry"
-echo '{"supported": ["...", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+echo "Setting up: php-versions.json .supported value has dot-only entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["...","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: dot-only value (\`...\`) fails loud" \
     ci-php-versions-lockstep \
-    'not matching the strict X.Y minor shape'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
-echo "Setting up: php-versions.json .supported has patch-pinned entry"
-echo '{"supported": ["8.3.1", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+echo "Setting up: php-versions.json .supported value has patch-pinned entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["8.3.1","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: patch-pinned value (\`8.3.1\`) fails loud" \
     ci-php-versions-lockstep \
-    'not matching the strict X.Y minor shape'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
-echo "Setting up: php-versions.json .supported has no-dot entry"
-echo '{"supported": ["8", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+echo "Setting up: php-versions.json .supported value has no-dot entry"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["8","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: no-dot value (\`8\`) fails loud" \
     ci-php-versions-lockstep \
-    'not matching the strict X.Y minor shape'
+    'not matching strict PHP-minor X.Y shape'
 restore_worktree
 
-echo "Setting up: php-versions.json .supported has leading-zero major"
-echo '{"supported": ["08.3", "8.4", "8.5"]}' > "$worktree/dev/php-versions.json"
+echo "Setting up: php-versions.json .supported value has leading-zero major"
+echo '{"supported": {"2.1": ["8.3","8.4"], "2.2": ["08.3","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
 assert_lockstep_fails \
     "ci-php-versions-lockstep: leading-zero major (\`08.3\`) fails loud" \
     ci-php-versions-lockstep \
-    'not matching the strict X.Y minor shape'
+    'not matching strict PHP-minor X.Y shape'
+restore_worktree
+
+# `.supported` key does not match the strict webtrees-minor shape
+# — e.g. patch-pinned ("2.1.27"), prefixed ("v2.1"), or no-dot ("2").
+echo "Setting up: php-versions.json .supported key is patch-pinned"
+echo '{"supported": {"2.1.27": ["8.3","8.4"], "2.2": ["8.3","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
+assert_lockstep_fails \
+    "ci-php-versions-lockstep: patch-pinned key (\`2.1.27\`) fails loud" \
+    ci-php-versions-lockstep \
+    'key(s) not matching the strict webtrees-minor X.Y shape'
+restore_worktree
+
+echo "Setting up: php-versions.json .supported key has prefix"
+echo '{"supported": {"v2.1": ["8.3","8.4"], "2.2": ["8.3","8.4","8.5"]}}' \
+    > "$worktree/dev/php-versions.json"
+assert_lockstep_fails \
+    "ci-php-versions-lockstep: prefixed key (\`v2.1\`) fails loud" \
+    ci-php-versions-lockstep \
+    'key(s) not matching the strict webtrees-minor X.Y shape'
+restore_worktree
+
+# Double-digit second number: a future "2.10.x" webtrees branch must
+# bucket into `.supported["2.10"]`, NOT collide with `.supported["2.1"]`.
+# The trailing `.` in the `startswith($wt + ".")` selector is the only
+# guard against the collision; without this test a refactor that drops
+# the `.` would silently lump 2.10.x rows into the 2.1 bucket and
+# fail per-minor PHP-set equality unpredictably.
+echo "Setting up: versions.json + php-versions.json carry both 2.1 and 2.10 minors"
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '.supported["2.10"] = ["8.5"]' php-versions.json \
+    > "$worktree/dev/php-versions.json.new"
+mv "$worktree/dev/php-versions.json.new" "$worktree/dev/php-versions.json"
+docker run --rm -v "$worktree/dev:/d" -w /d ghcr.io/jqlang/jq:latest \
+    -c '. + [{"webtrees":"2.10.0","php":"8.5","tags":[]}]' versions.json \
+    > "$worktree/dev/versions.json.new"
+mv "$worktree/dev/versions.json.new" "$worktree/dev/versions.json"
+assert_lockstep_passes \
+    "ci-php-versions-lockstep: 2.1 and 2.10 minors bucket independently" \
+    ci-php-versions-lockstep
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────

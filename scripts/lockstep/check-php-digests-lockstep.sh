@@ -24,6 +24,8 @@ cd "$repo_root"
 
 # shellcheck source=scripts/lib/images.env
 source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/php-versions-lib.sh
+source "$(dirname "$0")/../lib/php-versions-lib.sh"
 
 lock_file="dev/php_digests.lock"
 [ -f "$lock_file" ] || {
@@ -35,6 +37,14 @@ ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
     echo "::error::dev/php-versions.json is not parseable JSON" >&2
     exit 1
 }
+
+# Schema-shape gate before the union extraction so a pre-migration
+# flat-array `.supported` (or any other malformed shape) fails with a
+# clear schema diagnostic rather than jq's opaque 'Cannot iterate
+# over string'. Mirrors the gate at the top of check-php-versions.sh
+# so individual-target invocations of this script (without the
+# umbrella `make ci-test`) still produce actionable errors.
+ci_validate_php_supported_shape "$repo_root"
 
 # Line-shape sanity: every non-empty, non-comment line must match
 # `<minor>=sha256:<64-hex>`. A malformed line surfaces here with the
@@ -49,9 +59,14 @@ while IFS= read -r line; do
     fi
 done < "$lock_file"
 
-supported=$(ci_run_jq "$repo_root" \
-    -r '[.supported // []] | flatten | sort | join(",")' php-versions.json) || {
-    echo "::error::docker run for .supported extraction failed" >&2
+# `.supported` is a per-webtrees-minor map (see check-php-versions.sh
+# for the schema and rationale). The digest .lock pins images by PHP
+# minor regardless of which webtrees branch consumes them, so the
+# expected key set is the UNION of every value array across keys —
+# routed through the shared helper so a future schema migration
+# touches one place, not three.
+supported=$(ci_php_supported_union "$repo_root") || {
+    echo "::error::ci_php_supported_union failed" >&2
     exit 1
 }
 
