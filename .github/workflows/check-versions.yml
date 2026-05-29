@@ -55,7 +55,7 @@ jobs:
         # normal upstream-release probe with headroom for slowdowns.
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
             - name: Find releases newer than the tracked max
               id: find
@@ -115,7 +115,7 @@ jobs:
         permissions:
             issues: write
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
             - uses: ./.github/actions/notify-on-failure
               with:
                   copilot-pat: ${{ secrets.COPILOT_PAT }}
