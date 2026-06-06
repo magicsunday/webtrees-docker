@@ -33,11 +33,15 @@ on:
         - cron: '0 12 * * *'
     workflow_dispatch:
 
+# Least privilege for the default GITHUB_TOKEN: the only GITHUB_TOKEN step
+# left is the release-probe `gh api` call (contents: read). The catalog
+# push, PR create/merge, build dispatch and tracking-issue filing all run
+# inside batch-bump under COPILOT_PAT (see the batch step), whose own
+# scopes govern them — so the former contents/issues/pull-requests/actions
+# write grants on the default token are dead and dropped. Mirrors
+# check-php.yml.
 permissions:
-    contents: write
-    issues: write
-    pull-requests: write
-    actions: write
+    contents: read
 
 # Serialise overlapping runs so a manual `workflow_dispatch` cannot race
 # the daily cron between the branch-existence probe and the orphan-delete
@@ -95,7 +99,18 @@ jobs:
             - name: Batch bump dev/versions.json, open one PR, dispatch builds, file issues
               if: steps.find.outputs.new != ''
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # A repo-scoped PAT, NOT GITHUB_TOKEN. batch-bump does
+                  # `gh pr create` + `gh pr merge --auto`, both of which a
+                  # GITHUB_TOKEN cannot satisfy: the "Allow GitHub Actions
+                  # to create and approve pull requests" org setting is off
+                  # (so `gh pr create` is rejected), and a GITHUB_TOKEN-
+                  # authored PR does not trigger the `pull_request` CI the
+                  # required `ci-test aggregate` check depends on (so auto-
+                  # merge could never satisfy the gate). A PAT-authored PR
+                  # runs CI normally, so auto-merge can land it. Aligns this
+                  # cron with check-php.yml's lander (GH-171 §2); reuses the
+                  # same secret as notify-on-failure.
+                  GH_TOKEN: ${{ secrets.COPILOT_PAT }}
                   # Route the upstream-derived release-tag list through an
                   # env var rather than `${{ … }}` interpolation directly
                   # into the shell script. A hostile upstream tag
