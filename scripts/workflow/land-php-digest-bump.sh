@@ -57,6 +57,9 @@ set -euo pipefail
 : "${GH_TOKEN:?GH_TOKEN env var is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY env var is required}"
 
+# shellcheck source=scripts/lib/auto-bump-lib.sh
+source "$(dirname "$0")/../lib/auto-bump-lib.sh"
+
 HAS_CHANGES="${HAS_CHANGES:-false}"
 
 # The probe step is the sole producer of /tmp/new_digests; without it
@@ -67,46 +70,14 @@ HAS_CHANGES="${HAS_CHANGES:-false}"
     exit 1
 }
 
-# The bot identity that authors the bump commit; matches the actor
-# github-actions uses for API calls so the commit links to the run.
-git config user.name 'github-actions[bot]'
-git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+auto_bump_git_identity
+push_remote=$(auto_bump_push_remote)
 
-# The checkout runs persist-credentials: false (zizmor artipacked), so
-# origin carries no stored credential. Push over an explicit tokenised
-# URL; reads (git ls-remote) stay anonymous on this public repo.
-push_remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-# Refuse to open a second lockfile PR while a prior one is still open.
-# Both would edit dev/php_digests.lock, so the second to merge would hit
-# a content conflict and auto-merge would stall. Deferring is safe: once
-# the open PR merges, the next cron re-detects any newer digest against
-# the updated baseline and re-bumps.
-#
-# Scoped on the `auto-bump/php-digests-` branch prefix ALONE, NOT on the
-# PR author. batch-bump-webtrees-versions.sh additionally filters
-# `author.login == github-actions[bot]` because it runs under
-# GITHUB_TOKEN, whose PRs are authored by the github-actions app. THIS
-# script runs under a PAT (see check-php.yml), whose PRs are authored by
-# the token owner's user account — an author filter would never match
-# its own PRs and the guard would be dead. The prefix is cron-exclusive
-# by convention, so prefix-only is the correct scope here. `--limit
-# 1000` overrides gh's default 30 so a stale auto-bump PR cannot be
-# paginated off behind unrelated open PRs.
-open_auto_bumps=$(gh pr list --state open --limit 1000 --json number,headRefName,title --jq '
-    [ .[]
-      | select(.headRefName | startswith("auto-bump/php-digests"))
-      | "\(.number) \(.headRefName) — \(.title)"
-    ] | .[]') || {
-    echo "::error::gh pr list failed when probing for open php-digest auto-bump PRs" >&2
-    exit 1
-}
-if [ -n "$open_auto_bumps" ]; then
-    echo "::notice::an open php-digest auto-bump PR already exists — skipping to avoid a conflicting second lockfile PR:"
-    printf '%s\n' "$open_auto_bumps"
-    echo "::notice::merge or close the listed PR and the next cron iteration will resume"
-    exit 0
-fi
+# Refuse to open a second lockfile PR while a prior one is still open
+# (shared prefix-only guard with the stuck-PR safety valve). Both PRs
+# would edit dev/php_digests.lock, so the second to merge would hit a
+# content conflict and auto-merge would stall.
+auto_bump_open_pr_guard "auto-bump/php-digests" "php-digest auto-bump"
 
 # Content-address the branch on the new lockfile so a re-run with the
 # same pending digests reuses the same branch (idempotent), while a
@@ -115,39 +86,12 @@ fi
 digest_hash=$(sha256sum /tmp/new_digests | cut -c1-12)
 branch="auto-bump/php-digests-${digest_hash}"
 
-# If the branch already exists on origin, only a true orphan (branch
-# pushed but `gh pr create` never succeeded, so NO PR exists) is safe
-# to delete + recreate. A branch with ANY PR — open (prior run),
-# merged (already shipped), or closed-not-merged (maintainer rejected
-# the bump) — must be preserved.
-#
-# `git ls-remote --exit-code` returns 0 = ref found, 2 = ref absent,
-# and other codes (e.g. 128) on a real network/auth failure. Capture
-# the code explicitly (the `|| ls_rc=$?` form keeps `set -e` from
-# aborting on the expected exit-2) and distinguish absent (proceed)
-# from a genuine error (bail loud) — a transient ls-remote failure must
-# NOT be mistaken for "branch absent" and silently skip the idempotency
-# guard.
-ls_rc=0
-git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || ls_rc=$?
-if [ "$ls_rc" -eq 0 ]; then
-    pr_count=$(gh pr list --head "$branch" --state all --json number --jq 'length') || {
-        echo "::error::gh pr list failed for $branch" >&2
-        exit 1
-    }
-    if [ "$pr_count" != "0" ]; then
-        echo "Branch $branch already exists on origin with $pr_count PR(s) (any state) — skipping to preserve PR history"
-        exit 0
-    fi
-    echo "::warning::orphan branch $branch exists without any PR — deleting so the bump can be recreated"
-    git push "$push_remote" --delete "$branch" || {
-        echo "::warning::failed to delete orphan branch $branch; manual cleanup required"
-        exit 1
-    }
-elif [ "$ls_rc" -ne 2 ]; then
-    echo "::error::git ls-remote failed for $branch with exit code $ls_rc (network/auth?), not the expected 2-for-absent" >&2
-    exit 1
-fi
+# Preserve any branch that already carries PR history; only a true
+# orphan (push landed, `gh pr create` never did) is deleted + recreated.
+# The shared guard captures the ls-remote exit code explicitly so a
+# transient network/auth failure bails loud instead of masquerading as
+# "branch absent".
+auto_bump_orphan_branch_guard "$branch" "$push_remote"
 
 git checkout -b "$branch"
 mv /tmp/new_digests dev/php_digests.lock

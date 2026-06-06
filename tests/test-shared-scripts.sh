@@ -412,8 +412,11 @@ run_test \
 
 land_dir=$(mktemp -d /tmp/wt-land-php.XXXXXX)
 trap 'rm -rf "$stub_dir" "$probe_dir" "$land_dir"' EXIT
-mkdir -p "$land_dir/dev" "$land_dir/scripts/workflow"
+mkdir -p "$land_dir/dev" "$land_dir/scripts/workflow" "$land_dir/scripts/lib"
 cp "$repo_root/scripts/workflow/land-php-digest-bump.sh" "$land_dir/scripts/workflow/" 2>/dev/null || true
+# land-php-digest-bump.sh sources ../lib/auto-bump-lib.sh; the copied
+# script resolves it relative to its own dir, so the lib must travel too.
+cp "$repo_root/scripts/lib/auto-bump-lib.sh" "$land_dir/scripts/lib/" 2>/dev/null || true
 
 land_setup() {
     printf '8.4=sha256:aaa\n8.5=sha256:bbb\n' > /tmp/new_digests
@@ -654,6 +657,169 @@ run_test \
     "notify-on-failure: assignment succeeds → 'Assigned' + exit 0" \
     "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
     0 "Assigned https://github.com/o/r/issues/1"
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/lib/auto-bump-lib.sh
+#
+# The four landing blocks both crons share live here (GH-171 §1). The
+# functions `exit` directly (sourced into the caller), so each test
+# sources the lib and calls the function under a stubbed git/gh PATH and
+# asserts the exit code + annotation. Covering the lib directly means the
+# webtrees batcher's orphan-branch path — too heavy to drive end-to-end
+# (see the batch-bump carve-out above) — is still proven, because it now
+# calls the very function tested below.
+# ──────────────────────────────────────────────────────────────────────
+
+# push-remote helper emits the tokenised URL from GH_TOKEN + repo.
+reset_stubs
+run_test \
+    "auto-bump-lib: auto_bump_push_remote emits tokenised URL" \
+    "source ./scripts/lib/auto-bump-lib.sh; GH_TOKEN=secret GITHUB_REPOSITORY=o/r auto_bump_push_remote" \
+    0 "https://x-access-token:secret@github.com/o/r.git"
+
+# Orphan guard: ls-remote network/auth error (exit 128) must bail loud,
+# NOT be mistaken for "branch absent". This is the GH-166 hardening that
+# previously lived only in the php-digest lander; routing both crons
+# through this function back-ports it to the webtrees batcher (GH-171 §1).
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 128 ;; *) exit 0 ;; esac'
+run_test \
+    "auto-bump-lib: orphan guard ls-remote error (128) → ::error:: + exit 1" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_orphan_branch_guard br https://x" \
+    1 "::error::git ls-remote failed"
+
+# Orphan guard: branch absent (ls-remote exit 2) → proceed (return 0).
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 2 ;; *) exit 0 ;; esac'
+run_test \
+    "auto-bump-lib: orphan guard branch absent (exit 2) → proceed (exit 0)" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_orphan_branch_guard br https://x && echo PROCEED" \
+    0 "PROCEED"
+
+# Orphan guard: branch exists WITH a PR (any state) → preserve history.
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 0 ;; *) exit 0 ;; esac'
+stub gh 'echo 1'
+run_test \
+    "auto-bump-lib: orphan guard branch+PR → skip (exit 0, preserve)" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_orphan_branch_guard br https://x" \
+    0 "preserve PR history"
+
+# Orphan guard: branch exists but the `gh pr list --head` probe fails →
+# ::error:: + exit 1. WITHOUT this guard a failed probe would yield an
+# empty pr_count, fall into the orphan-delete path, and force-delete a
+# branch that may actually carry a PR. (Distinct from the open-PR guard's
+# "gh pr list failed when probing" message above — this is the per-branch
+# --head probe.)
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 0 ;; *) exit 0 ;; esac'
+stub gh 'exit 1'
+run_test \
+    "auto-bump-lib: orphan guard --head probe failure → ::error:: + exit 1" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_orphan_branch_guard br https://x" \
+    1 "::error::gh pr list failed for br"
+
+# Orphan guard: branch exists with NO PR → delete orphan + proceed.
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 0 ;; push) echo "deleted $*"; exit 0 ;; *) exit 0 ;; esac'
+stub gh 'echo 0'
+run_test \
+    "auto-bump-lib: orphan guard branch, no PR → delete + proceed" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_orphan_branch_guard br https://x && echo PROCEED" \
+    0 "PROCEED"
+
+# Open-PR guard: no matching open PR → proceed (return 0).
+reset_stubs
+stub gh 'echo ""'
+run_test \
+    "auto-bump-lib: open-PR guard no match → proceed (exit 0)" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_open_pr_guard auto-bump/php-digests label && echo PROCEED" \
+    0 "PROCEED"
+
+# Open-PR guard: gh pr list failure → ::error:: + exit 1.
+reset_stubs
+stub gh 'exit 1'
+run_test \
+    "auto-bump-lib: open-PR guard gh failure → ::error:: + exit 1" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_open_pr_guard auto-bump/php-digests label" \
+    1 "::error::gh pr list failed"
+
+# Open-PR guard: a FRESH open PR (created an hour ago) → normal skip
+# (exit 0). The stub emits the lib's tab-delimited number/createdAt/rest.
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'printf "43\t%s\tauto-bump/php-digests-xyz — fresh\n" "$(date -u -d @$(( $(date +%s) - 3600 )) +%Y-%m-%dT%H:%M:%SZ)"'
+run_test \
+    "auto-bump-lib: open-PR guard fresh PR → skip (exit 0)" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_open_pr_guard auto-bump/php-digests label" \
+    0 "skipping"
+
+# Open-PR guard stuck valve: a stale open PR (older than the 72h default)
+# → ::error:: + exit 1 so notify-on-failure fires (GH-171 §3).
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'printf "42\t2020-01-01T00:00:00Z\tauto-bump/php-digests-abc — stale\n"'
+run_test \
+    "auto-bump-lib: open-PR guard stale PR → ::error:: stuck + exit 1" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_open_pr_guard auto-bump/php-digests label" \
+    1 "auto-merge appears stuck"
+
+# Open-PR guard stuck valve is configurable: a 2020 PR is NOT stale when
+# AUTO_BUMP_STALE_HOURS is cranked past its age → normal skip (exit 0).
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'printf "42\t2020-01-01T00:00:00Z\tauto-bump/php-digests-abc — old-but-tolerated\n"'
+run_test \
+    "auto-bump-lib: open-PR guard AUTO_BUMP_STALE_HOURS override tolerates age" \
+    "source ./scripts/lib/auto-bump-lib.sh; AUTO_BUMP_STALE_HOURS=10000000 auto_bump_open_pr_guard auto-bump/php-digests label" \
+    0 "skipping"
+
+# Orphan-delete failure must exit 1 (not silently proceed) so a
+# half-cleaned branch surfaces via notify-on-failure. ls-remote=0 + no PR
+# + a failing `git push --delete` drives the handler. Distinct from the
+# token-leak test below, which swallows the exit code to isolate the
+# no-leak assertion — this case pins the exit code itself.
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 0 ;; push) exit 1 ;; *) exit 0 ;; esac'
+stub gh 'echo 0'
+run_test \
+    "auto-bump-lib: orphan-delete push failure → ::warning:: + exit 1" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_orphan_branch_guard br https://x" \
+    1 "failed to delete orphan branch"
+
+# Token-leak guard: the orphan-delete failure branch must report the
+# branch name only, never the tokenised push remote. A regression that
+# echoed $push_remote into a diagnostic would leak the PAT into the run
+# log. ls-remote=0 + no PR + a failing `git push --delete` drives that
+# branch; assert the secret sentinel never appears in the output.
+reset_stubs
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 0 ;; push) exit 1 ;; *) exit 0 ;; esac'
+stub gh 'echo 0'
+# `|| true` swallows the guard's intended exit 1 (delete-failure) so the
+# grep below — not pipefail on the failure path — decides the result:
+# exit 1 (FAIL) only if the token sentinel leaked into the output.
+run_test \
+    "auto-bump-lib: orphan-delete failure never echoes the token" \
+    "source ./scripts/lib/auto-bump-lib.sh; o=\$(auto_bump_orphan_branch_guard br 'https://x-access-token:SECRETTOKEN@github.com/o/r.git' 2>&1) || true; if grep -q SECRETTOKEN <<<\"\$o\"; then exit 1; fi" \
+    0 ""
+
+# Malformed createdAt must degrade to epoch 0 (treated as fresh, never
+# stuck) and must NOT execute — the value is double-quoted into `date`,
+# never eval'd. A garbage timestamp drives the `|| echo 0` fallback.
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'printf "44\tnot-a-real-date\tauto-bump/php-digests-zzz — malformed ts\n"'
+run_test \
+    "auto-bump-lib: malformed createdAt degrades to fresh (exit 0)" \
+    "source ./scripts/lib/auto-bump-lib.sh; auto_bump_open_pr_guard auto-bump/php-digests label" \
+    0 "skipping"
 
 # ──────────────────────────────────────────────────────────────────────
 # Summary

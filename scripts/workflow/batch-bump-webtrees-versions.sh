@@ -38,19 +38,15 @@ set -euo pipefail
 
 : "${NEW_VERSIONS:?NEW_VERSIONS env var is required}"
 : "${GH_TOKEN:?GH_TOKEN env var is required}"
-
-# The bot identity that authors the auto-bump commit; matches the
-# actor github-actions uses for API calls so the commit links to the
-# workflow run in the UI.
-git config user.name 'github-actions[bot]'
-git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-# The workflow checks out with persist-credentials: false (zizmor artipacked),
-# so the origin remote carries no stored credential. Push over an explicit
-# tokenised URL instead; reads (git ls-remote) stay anonymous on this public
-# repo. GITHUB_REPOSITORY is a default GitHub Actions env var.
+# GITHUB_REPOSITORY is a default GitHub Actions env var; the shared
+# push-remote helper reads it.
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY env var is required}"
-push_remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+# shellcheck source=scripts/lib/auto-bump-lib.sh
+source "$(dirname "$0")/../lib/auto-bump-lib.sh"
+
+auto_bump_git_identity
+push_remote=$(auto_bump_push_remote)
 
 # Collect the new versions into an array. The find step's `new`
 # output is newline-separated; preserve the natural `sort -V` order
@@ -70,79 +66,27 @@ fi
 newest=${versions[${#versions[@]}-1]}
 batch_branch="auto-bump/webtrees-${newest}"
 
-# Cross-cron split-batch guard: if ANY prior auto-bump PR authored by
-# this workflow's bot is still open (matched on the
-# `auto-bump/webtrees-` branch prefix), refuse to open a second one.
-# Without this, a day-1 PR for {2.2.7} left open over a long weekend
-# would collide with a day-2 batch covering {2.2.7, 2.2.8}: both PRs
-# would add a 2.2.7 row to dev/versions.json, the second to merge
-# would hit a content conflict, and the tracking-issue thread for
-# 2.2.7 would silently link to the wrong PR.
-#
-# Scoped to PRs whose head commit was authored by the github-actions
-# bot — so a maintainer-authored experimental branch matching the
-# `auto-bump/webtrees-` prefix (hotfix, revert, spike) does NOT block
-# the cron's regular operation. Filter post-API via jq instead of in
-# the GitHub search query because `--search head:... author:...` only
-# matches issue/PR authors, not commit authors, and gh-actions opens
-# PRs with the runner's actor identity which may differ from the
-# commit author. `--limit 1000` overrides gh's default 30. Without
-# the override, a stale auto-bump PR could be paginated off the
-# result by 30+ unrelated open PRs (community contributions,
-# dependabot, etc.), the guard would see an empty list, and the
-# duplicate-overlapping-PR cascade would re-open silently. 1000 is
-# comfortably above any realistic open-PR ceiling for this project.
-open_auto_bumps=$(gh pr list --state open --limit 1000 --json number,headRefName,title,author --jq '
-    [ .[]
-      | select(.headRefName | startswith("auto-bump/webtrees-"))
-      | select(.author.login == "app/github-actions" or .author.login == "github-actions[bot]")
-      | "\(.number) \(.headRefName) — \(.title)"
-    ] | .[]') || {
-    echo "::error::gh pr list failed when probing for open auto-bump PRs" >&2
-    exit 1
-}
-if [ -n "$open_auto_bumps" ]; then
-    echo "::notice::open bot-authored auto-bump PR(s) detected — skipping batch to avoid duplicate overlapping PRs:"
-    printf '%s\n' "$open_auto_bumps"
-    echo "::notice::merge or close the listed PR(s) and the next cron iteration will resume"
-    exit 0
-fi
+# Cross-cron split-batch guard: if ANY prior auto-bump PR in the
+# `auto-bump/webtrees-` prefix family is still open, refuse to open a
+# second one. Without this, a day-1 PR for {2.2.7} left open over a long
+# weekend would collide with a day-2 batch covering {2.2.7, 2.2.8}: both
+# PRs would add a 2.2.7 row to dev/versions.json, the second to merge
+# would hit a content conflict, and the tracking-issue thread for 2.2.7
+# would silently link to the wrong PR. The shared guard also fails loud
+# if a matching open PR has wedged past AUTO_BUMP_STALE_HOURS so a stuck
+# auto-merge surfaces instead of silently skipping every cron iteration.
+auto_bump_open_pr_guard "auto-bump/webtrees-" "webtrees auto-bump"
 
-# Skip the entire batch if the newest-version's branch already has
-# ANY PR (open, closed, or merged). Querying `--state all` guards
-# three distinct cases:
-#   * open PR: a previous cron run already opened it, idempotency
-#     win.
-#   * merged PR: branch wasn't auto-deleted on merge; the version is
-#     already shipped.
-#   * closed-not-merged PR: maintainer rejected the bump. Reviving
-#     it on every subsequent cron would undo the reviewer's
-#     decision; refuse to delete a branch that carries human-curated
-#     history.
-# An "orphan" (branch exists but `gh pr create` failed mid-run, so
-# NO PR ever existed) is the ONLY safe case for auto-delete +
-# recreate.
-if git ls-remote --exit-code --heads origin "$batch_branch" >/dev/null 2>&1; then
-    pr_count=$(gh pr list --head "$batch_branch" --state all --json number --jq 'length') || {
-        echo "::error::gh pr list failed for $batch_branch" >&2
-        exit 1
-    }
-    if [ "$pr_count" != "0" ]; then
-        echo "Branch $batch_branch already exists on origin with $pr_count PR(s) (any state) — skipping batch to preserve PR history"
-        exit 0
-    fi
-    # No PR ever existed for this branch — treat as a true orphan
-    # from a partial prior run. Delete-failure is a warning (mirrors
-    # the post-`gh pr create` delete path for symmetric severity) so
-    # a transient ref-lock or branch-protection rule does not lock
-    # the workflow out of every subsequent cron iteration;
-    # notify-on-failure carries the alarm via the explicit exit 1.
-    echo "::warning::orphan branch $batch_branch exists without any PR — deleting so the batch can be recreated"
-    git push "$push_remote" --delete "$batch_branch" || {
-        echo "::warning::failed to delete orphan branch $batch_branch; manual cleanup required"
-        exit 1
-    }
-fi
+# Skip the entire batch if the newest-version's branch already has ANY
+# PR (open, closed, or merged): a prior cron's idempotency win, an
+# already-shipped merge, or a maintainer's closed-not-merged rejection
+# that must not be revived. Only a true orphan (branch exists but
+# `gh pr create` never landed a PR) is deleted + recreated. The shared
+# guard captures the ls-remote exit code explicitly so a transient
+# network/auth failure bails loud rather than being mistaken for
+# "branch absent" (the GH-166 hardening, previously only in the
+# php-digest lander — GH-171 §1).
+auto_bump_orphan_branch_guard "$batch_branch" "$push_remote"
 
 # Snapshot the rolling-tag bundle and the PHP slot that currently
 # carries `latest` BEFORE mutating the file. The NEWEST row inherits
