@@ -29,6 +29,8 @@ jobs:
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
 
             - name: Probe current PHP digests
               id: digests
@@ -52,7 +54,10 @@ jobs:
                   else
                       git commit -m "Seed dev/php_digests.lock for new PHP minor"
                   fi
-                  git push origin main
+                  # Checkout runs with persist-credentials: false (zizmor
+                  # artipacked), so push over an explicit tokenised remote
+                  # rather than the no-longer-stored origin credential.
+                  git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
                   # Only dispatch a rebuild on actual digest mutations; a
                   # pure seed of a freshly-added minor must go through the
                   # issue-only review path.
@@ -124,6 +129,8 @@ jobs:
             issues: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/notify-on-failure
               with:
                   copilot-pat: ${{ secrets.COPILOT_PAT }}

@@ -45,6 +45,13 @@ set -euo pipefail
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
+# The workflow checks out with persist-credentials: false (zizmor artipacked),
+# so the origin remote carries no stored credential. Push over an explicit
+# tokenised URL instead; reads (git ls-remote) stay anonymous on this public
+# repo. GITHUB_REPOSITORY is a default GitHub Actions env var.
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY env var is required}"
+push_remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
 # Collect the new versions into an array. The find step's `new`
 # output is newline-separated; preserve the natural `sort -V` order
 # (oldest → newest) so the rolling-tag bundle ends up on the NEWEST
@@ -131,7 +138,7 @@ if git ls-remote --exit-code --heads origin "$batch_branch" >/dev/null 2>&1; the
     # the workflow out of every subsequent cron iteration;
     # notify-on-failure carries the alarm via the explicit exit 1.
     echo "::warning::orphan branch $batch_branch exists without any PR — deleting so the batch can be recreated"
-    git push origin --delete "$batch_branch" || {
+    git push "$push_remote" --delete "$batch_branch" || {
         echo "::warning::failed to delete orphan branch $batch_branch; manual cleanup required"
         exit 1
     }
@@ -300,7 +307,7 @@ if git diff --cached --quiet; then
     exit 0
 fi
 git commit -m "$pr_title"
-git push origin "$batch_branch"
+git push "$push_remote" "$batch_branch"
 
 # If `gh pr create` fails after the push lands, the branch is
 # orphaned on the remote. Delete the branch so the next cron
@@ -313,7 +320,7 @@ if ! pr_url=$(gh pr create \
     --base main \
     --head "$batch_branch"); then
     echo "::error::gh pr create failed for $batch_branch; deleting orphan branch for self-healing next cron"
-    git push origin --delete "$batch_branch" || \
+    git push "$push_remote" --delete "$batch_branch" || \
         echo "::warning::failed to delete orphan branch $batch_branch; manual cleanup required"
     exit 1
 fi
