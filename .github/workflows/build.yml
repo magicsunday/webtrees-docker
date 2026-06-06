@@ -3,6 +3,16 @@ name: Build and push image
 # Triggers:
 #   workflow_dispatch — run manually; optionally restrict to one webtrees version
 #   tag push v*       — for release tags
+#
+# Branch-delete safety (GH-171 §4): the auto-bump crons dispatch this
+# workflow with `gh workflow run build.yml --ref <auto-bump-branch>`, then
+# enable auto-merge which squash-merges and DELETES that branch. Every
+# `actions/checkout` below runs WITHOUT an explicit `ref:`, so it defaults
+# to `github.sha` — the commit GitHub resolved the dispatched `--ref` to at
+# dispatch time, captured immutably in the run context. checkout fetches
+# that SHA by object id, so a concurrent branch delete after a fast CI-pass
+# cannot break an in-flight build. Do NOT add `ref: <branch-name>` to these
+# checkouts: a name-based fetch WOULD fail once the branch is gone.
 on:
     workflow_dispatch:
         inputs:
