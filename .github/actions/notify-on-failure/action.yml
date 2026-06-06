@@ -38,35 +38,4 @@ runs:
               RUN_ID: ${{ github.run_id }}
               EVENT_NAME: ${{ github.event_name }}
               REF_NAME: ${{ github.ref_name }}
-          run: |
-              set -euo pipefail
-              title="CI failure: ${WORKFLOW_NAME} (run ${RUN_NUMBER})"
-              failed_jobs=$(gh run view "${RUN_ID}" --json jobs \
-                  --jq '.jobs[] | select(.conclusion == "failure") | "- \(.name): \(.url)"')
-              body=$(cat <<BODY_END
-              Workflow **${WORKFLOW_NAME}** failed. Triggered by \`${EVENT_NAME}\` on \`${REF_NAME}\`.
-
-              Run: ${RUN_URL}
-
-              Failed jobs:
-              ${failed_jobs}
-
-              Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed.
-              BODY_END
-              )
-              issue_url=$(gh issue create --title "$title" --body "$body")
-              echo "Issue created: $issue_url"
-              if [ -n "${COPILOT_PAT:-}" ]; then
-                  # COPILOT_PAT is intentionally set — treat an assignment
-                  # failure as a configuration bug (wrong scope, agent
-                  # not enabled, expired token) and fail the step so it
-                  # surfaces in the Actions UI instead of hiding behind
-                  # a warning.
-                  if ! GH_TOKEN="${COPILOT_PAT}" gh issue edit "$issue_url" \
-                          --add-assignee "copilot-swe-agent[bot]"; then
-                      echo "::error::Could not assign $issue_url to Copilot. Verify (a) COPILOT_PAT has 'repo' scope (classic) or 'issues:write' + 'metadata:read' (fine-grained), (b) Copilot Coding Agent is enabled in repo settings, (c) the token has not expired."
-                      exit 1
-                  fi
-              else
-                  echo "::notice::COPILOT_PAT secret not set — skipping Copilot auto-assignment. Add a PAT to enable hands-off triage."
-              fi
+          run: ./scripts/workflow/notify-on-failure.sh
