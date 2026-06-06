@@ -120,7 +120,17 @@ branch="auto-bump/php-digests-${digest_hash}"
 # to delete + recreate. A branch with ANY PR — open (prior run),
 # merged (already shipped), or closed-not-merged (maintainer rejected
 # the bump) — must be preserved.
-if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+#
+# `git ls-remote --exit-code` returns 0 = ref found, 2 = ref absent,
+# and other codes (e.g. 128) on a real network/auth failure. Capture
+# the code explicitly (the `|| ls_rc=$?` form keeps `set -e` from
+# aborting on the expected exit-2) and distinguish absent (proceed)
+# from a genuine error (bail loud) — a transient ls-remote failure must
+# NOT be mistaken for "branch absent" and silently skip the idempotency
+# guard.
+ls_rc=0
+git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || ls_rc=$?
+if [ "$ls_rc" -eq 0 ]; then
     pr_count=$(gh pr list --head "$branch" --state all --json number --jq 'length') || {
         echo "::error::gh pr list failed for $branch" >&2
         exit 1
@@ -134,6 +144,9 @@ if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
         echo "::warning::failed to delete orphan branch $branch; manual cleanup required"
         exit 1
     }
+elif [ "$ls_rc" -ne 2 ]; then
+    echo "::error::git ls-remote failed for $branch with exit code $ls_rc (network/auth?), not the expected 2-for-absent" >&2
+    exit 1
 fi
 
 git checkout -b "$branch"

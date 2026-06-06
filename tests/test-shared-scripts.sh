@@ -480,6 +480,19 @@ run_test \
     "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r ./scripts/workflow/land-php-digest-bump.sh" \
     0 "preserve PR history"
 
+# git ls-remote failing with a real error (network/auth, exit != 0/2)
+# must bail loud, NOT be mistaken for "branch absent" and proceed.
+reset_stubs
+land_setup
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 128 ;; *) exit 0 ;; esac'
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in "pr list") echo "" ;; *) ;; esac'
+run_test \
+    "land-php-digest-bump: ls-remote network error (exit 128) → ::error:: + exit 1" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r ./scripts/workflow/land-php-digest-bump.sh" \
+    1 "::error::git ls-remote failed"
+
 # Happy path, HAS_CHANGES=true: opens a PR, dispatches the full-matrix
 # build against the branch, enables auto-merge. The regression guard —
 # it must NOT push straight to main.
