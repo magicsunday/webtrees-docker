@@ -34,6 +34,16 @@ runs:
                   echo "::error::Cannot derive COMPOSE_PROJECT_NAME from ${WORK_DIR}; basename normalises to empty string"
                   exit 1
               fi
+              # WEBTREES_HELPER_IMAGE routes the wizard's two internal
+              # helper calls (port-conflict probe + admin-password seed)
+              # through the same GHCR image the action already runs,
+              # so the helpers do not pull a second image from Docker
+              # Hub's anonymous-quota path. The outer `docker run` below
+              # uses docker's default `--pull=missing` to fetch the
+              # image when it is not already cached, and the wizard's
+              # inner `docker run` calls then resolve the same ref
+              # locally.
+              installer_image="ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}"
               # Word-splitting INSTALLER_ARGS is intentional — the input is a
               # space-separated argv list; quoting it would pass everything as
               # one giant arg. Single-quoted values inside the input survive
@@ -41,7 +51,8 @@ runs:
               # shellcheck disable=SC2086
               docker run --rm \
                   -e COMPOSE_PROJECT_NAME="${project_name}" \
+                  -e WEBTREES_HELPER_IMAGE="${installer_image}" \
                   -v "${WORK_DIR}:/work" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
-                  "ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}" \
+                  "${installer_image}" \
                   ${INSTALLER_ARGS}

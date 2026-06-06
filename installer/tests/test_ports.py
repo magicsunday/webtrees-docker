@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from webtrees_installer._alpine import ALPINE_BASE_IMAGE, HELPER_IMAGE_ENV_VAR
 from webtrees_installer.ports import PortStatus, probe_port
 
 
@@ -80,3 +81,56 @@ def test_probe_port_rejects_invalid_port(invalid: int) -> None:
     """Out-of-range ports raise ValueError before invoking docker."""
     with pytest.raises(ValueError, match="port"):
         probe_port(invalid)
+
+
+def test_probe_uses_alpine_pin_when_no_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset env var resolves the probe image to the canonical Alpine
+    pin AND keeps `--entrypoint=true` in place — the entrypoint
+    override is unconditional, not gated on the env-var path."""
+    monkeypatch.delenv(HELPER_IMAGE_ENV_VAR, raising=False)
+    with patch("webtrees_installer.ports.subprocess.run") as run:
+        run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        probe_port(8080)
+
+    argv = run.call_args.args[0]
+    assert ALPINE_BASE_IMAGE in argv
+    assert "--entrypoint=true" in argv
+
+
+def test_probe_respects_helper_image_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Override env var swaps the probe image in the docker-run argv."""
+    override = "ghcr.io/magicsunday/webtrees-installer:1.0.0"
+    monkeypatch.setenv(HELPER_IMAGE_ENV_VAR, override)
+    with patch("webtrees_installer.ports.subprocess.run") as run:
+        run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        probe_port(8080)
+
+    argv = run.call_args.args[0]
+    assert override in argv
+    # Any leftover alpine reference alongside an override would silently
+    # re-introduce the very Docker Hub pull the override is meant to skip.
+    assert ALPINE_BASE_IMAGE not in argv
+
+
+def test_probe_forces_true_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--entrypoint=true` must accompany the helper image so an image
+    that declares its own ENTRYPOINT (e.g. the installer image's
+    `python -m webtrees_installer`) does not consume the probe's
+    intended body and silently degrade to PortStatus.CHECK_FAILED."""
+    monkeypatch.setenv(HELPER_IMAGE_ENV_VAR, "ghcr.io/magicsunday/webtrees-installer:1.0.0")
+    with patch("webtrees_installer.ports.subprocess.run") as run:
+        run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        probe_port(8080)
+
+    argv = run.call_args.args[0]
+    assert "--entrypoint=true" in argv
+    # No trailing CMD — the probe relies on the forced entrypoint exiting
+    # immediately; appending `true` here would be a no-op for alpine but
+    # an unrecognised CLI arg for the installer image's argparse.
+    assert argv[-1] == "ghcr.io/magicsunday/webtrees-installer:1.0.0"
