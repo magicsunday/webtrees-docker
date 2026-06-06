@@ -310,7 +310,7 @@ stub git ':'
 stub gh 'echo "[]"'
 run_test \
     "batch-bump-webtrees-versions: whitespace-only NEW_VERSIONS → exit 0 cleanly" \
-    "NEW_VERSIONS=$'\n\n' GH_TOKEN=stub ./scripts/workflow/batch-bump-webtrees-versions.sh" \
+    "NEW_VERSIONS=$'\n\n' GH_TOKEN=stub GITHUB_REPOSITORY=o/r ./scripts/workflow/batch-bump-webtrees-versions.sh" \
     0 "No new versions to batch"
 
 # ──────────────────────────────────────────────────────────────────────
@@ -393,6 +393,254 @@ run_test \
     "render-make-help: no args → exit 1 + 'requires at least one Makefile'" \
     "./scripts/lib/render-make-help.sh" \
     1 "requires at least one Makefile"
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/workflow/land-php-digest-bump.sh
+#
+# Lands the probe step's `/tmp/new_digests` on `main` via a PR +
+# auto-merge (squash) instead of a direct `git push HEAD:main`, which
+# branch protection's required `ci-test aggregate` check rejects
+# (GH-166/167). Tests cover the env `:?` guards, the open-PR /
+# branch-history idempotency skips, and the dispatch ↔ auto-merge gate.
+# The deep git side-effect paths (orphan-delete recreate) mirror
+# batch-bump's "heavy to stub" carve-out and stay uncovered here.
+#
+# Happy-path tests run in a tmp working dir holding `dev/` so the
+# lockfile `mv` lands on a throwaway, and seed a `/tmp/new_digests`
+# the script hashes for its content-addressed branch name.
+# ──────────────────────────────────────────────────────────────────────
+
+land_dir=$(mktemp -d /tmp/wt-land-php.XXXXXX)
+trap 'rm -rf "$stub_dir" "$probe_dir" "$land_dir"' EXIT
+mkdir -p "$land_dir/dev" "$land_dir/scripts/workflow"
+cp "$repo_root/scripts/workflow/land-php-digest-bump.sh" "$land_dir/scripts/workflow/" 2>/dev/null || true
+
+land_setup() {
+    printf '8.4=sha256:aaa\n8.5=sha256:bbb\n' > /tmp/new_digests
+    printf '8.4=sha256:old\n8.5=sha256:old\n' > "$land_dir/dev/php_digests.lock"
+}
+
+# A git stub that fakes "branch does not exist on origin" (ls-remote
+# exit 2) and "staged changes present" (diff --cached --quiet exit 1)
+# so the happy paths flow through to commit/push without touching a
+# real repo. Single-quoted: $1/$* are the stub's own runtime args.
+# shellcheck disable=SC2016
+git_happy_stub='case "$1" in
+  ls-remote) exit 2 ;;
+  diff) exit 1 ;;
+  push) echo "git-push $*"; exit 0 ;;
+  *) exit 0 ;;
+esac'
+
+# Missing GH_TOKEN bails out before any git/gh work
+reset_stubs
+run_test \
+    "land-php-digest-bump: missing GH_TOKEN → bail with :? guard" \
+    "(unset GH_TOKEN; GITHUB_REPOSITORY=o/r ./scripts/workflow/land-php-digest-bump.sh)" \
+    1 "GH_TOKEN"
+
+# Missing GITHUB_REPOSITORY bails out
+reset_stubs
+run_test \
+    "land-php-digest-bump: missing GITHUB_REPOSITORY → bail with :? guard" \
+    "(unset GITHUB_REPOSITORY; GH_TOKEN=stub ./scripts/workflow/land-php-digest-bump.sh)" \
+    1 "GITHUB_REPOSITORY"
+
+# An open bot-authored php-digest auto-bump PR already exists → skip to
+# avoid a second conflicting lockfile PR.
+reset_stubs
+land_setup
+# shellcheck disable=SC2016
+stub git ':'
+# shellcheck disable=SC2016
+stub gh 'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "42 auto-bump/php-digests-abc — Update dev/php_digests.lock"; exit 0
+fi'
+run_test \
+    "land-php-digest-bump: open auto-bump PR exists → skip (exit 0)" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r ./scripts/workflow/land-php-digest-bump.sh" \
+    0 "skipping"
+
+# Branch already exists on origin WITH a PR (any state) → skip to
+# preserve PR history (closed-not-merged = maintainer rejection).
+reset_stubs
+land_setup
+# ls-remote --exit-code succeeds (branch exists); everything else no-op.
+# shellcheck disable=SC2016
+stub git 'case "$1" in ls-remote) exit 0 ;; *) exit 0 ;; esac'
+# shellcheck disable=SC2016
+stub gh 'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  for a in "$@"; do [ "$a" = "--state" ] && state=1; done
+  # global open-PR guard passes (empty); branch --head probe returns 1
+  if printf "%s\n" "$@" | grep -q -- "--head"; then echo 1; else echo ""; fi
+  exit 0
+fi'
+run_test \
+    "land-php-digest-bump: branch exists with PR history → skip (exit 0)" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r ./scripts/workflow/land-php-digest-bump.sh" \
+    0 "preserve PR history"
+
+# Happy path, HAS_CHANGES=true: opens a PR, dispatches the full-matrix
+# build against the branch, enables auto-merge. The regression guard —
+# it must NOT push straight to main.
+reset_stubs
+land_setup
+stub git "$git_happy_stub"
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "pr list") echo "" ;;
+  "pr create") echo "https://github.com/o/r/pull/7" ;;
+  "workflow run") echo "DISPATCHED $*" ;;
+  "pr merge") echo "MERGED $*" ;;
+  *) ;;
+esac'
+run_test \
+    "land-php-digest-bump: HAS_CHANGES=true → PR + dispatch + auto-merge" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r HAS_CHANGES=true ./scripts/workflow/land-php-digest-bump.sh" \
+    0 "Auto-merge (squash) enabled"
+
+# Happy path never pushes to main directly — assert the tokenised
+# HEAD:main push of the old design is gone.
+reset_stubs
+land_setup
+stub git "$git_happy_stub"
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "pr list") echo "" ;;
+  "pr create") echo "https://github.com/o/r/pull/7" ;;
+  "workflow run") echo "DISPATCHED $*" ;;
+  "pr merge") echo "MERGED $*" ;;
+  *) ;;
+esac'
+run_test \
+    "land-php-digest-bump: never pushes HEAD:main (regression guard)" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r HAS_CHANGES=true ./scripts/workflow/land-php-digest-bump.sh 2>&1 | { ! grep -q 'HEAD:main'; }" \
+    0 ""
+
+# Seed path, HAS_CHANGES=false: lands the new-minor seed via PR +
+# auto-merge but does NOT dispatch a rebuild (the minor-bump issue
+# gates the human review).
+reset_stubs
+land_setup
+stub git "$git_happy_stub"
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "pr list") echo "" ;;
+  "pr create") echo "https://github.com/o/r/pull/8" ;;
+  "workflow run") echo "SHOULD-NOT-DISPATCH $*"; exit 1 ;;
+  "pr merge") echo "MERGED $*" ;;
+  *) ;;
+esac'
+run_test \
+    "land-php-digest-bump: HAS_CHANGES=false → seed via PR, no dispatch" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r HAS_CHANGES=false ./scripts/workflow/land-php-digest-bump.sh" \
+    0 "Seed mode: skipping build dispatch"
+
+# Dispatch failure must leave auto-merge OFF and exit non-zero so
+# notify-on-failure fires (a merged-but-unbuilt lockfile is a
+# permanent registry hole).
+reset_stubs
+land_setup
+stub git "$git_happy_stub"
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "pr list") echo "" ;;
+  "pr create") echo "https://github.com/o/r/pull/9" ;;
+  "workflow run") exit 1 ;;
+  "pr merge") echo "MERGED $*" ;;
+  *) ;;
+esac'
+run_test \
+    "land-php-digest-bump: build dispatch failure → exit 1, no auto-merge" \
+    "cd $land_dir && GH_TOKEN=stub GITHUB_REPOSITORY=o/r HAS_CHANGES=true ./scripts/workflow/land-php-digest-bump.sh" \
+    1 "::error::build.yml dispatch failed"
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/workflow/notify-on-failure.sh
+#
+# Files a tracking issue for a failed run and (optionally) assigns it
+# to the Copilot agent. The fix the tests lock: an "agent not enabled"
+# assignment failure degrades to a notice (exit 0) so a failure
+# notification never turns its own job red, while a genuine token error
+# still hard-fails (exit 1). gh is stubbed to drive each branch.
+# ──────────────────────────────────────────────────────────────────────
+
+# All notify env vars present except the one under test.
+notify_env="WORKFLOW_NAME='Check for PHP updates' RUN_NUMBER=25 RUN_ID=999 RUN_URL=https://x/runs/999 EVENT_NAME=schedule REF_NAME=main GH_REPO=o/r GH_TOKEN=stub"
+
+# Missing WORKFLOW_NAME bails via :? guard
+reset_stubs
+run_test \
+    "notify-on-failure: missing WORKFLOW_NAME → bail with :? guard" \
+    "(unset WORKFLOW_NAME; RUN_NUMBER=25 RUN_ID=999 RUN_URL=x EVENT_NAME=schedule REF_NAME=main ./scripts/workflow/notify-on-failure.sh)" \
+    1 "WORKFLOW_NAME"
+
+# No COPILOT_PAT → file issue, skip assignment with a notice (exit 0)
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue create") echo "https://github.com/o/r/issues/1" ;;
+  "issue edit") echo "ERROR: should not assign without PAT" >&2; exit 99 ;;
+esac'
+run_test \
+    "notify-on-failure: no COPILOT_PAT → skip assignment with notice (exit 0)" \
+    "$notify_env ./scripts/workflow/notify-on-failure.sh" \
+    0 "skipping Copilot auto-assignment"
+
+# Copilot agent not enabled (replaceActorsForAssignable) → degrade to a
+# notice, exit 0 (the GH-166/167 regression guard).
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue create") echo "https://github.com/o/r/issues/1" ;;
+  "issue edit") echo "GraphQL: Copilot agent is not enabled in this repository. (replaceActorsForAssignable)" >&2; exit 1 ;;
+esac'
+run_test \
+    "notify-on-failure: agent not enabled → notice, exit 0 (no red notify job)" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    0 "is not enabled in this repository"
+
+# Genuine token misconfiguration → hard-fail (exit 1)
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue create") echo "https://github.com/o/r/issues/1" ;;
+  "issue edit") echo "HTTP 401: Bad credentials" >&2; exit 1 ;;
+esac'
+run_test \
+    "notify-on-failure: real token error → ::error:: + exit 1" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    1 "::error::Could not assign"
+
+# Transient `gh run view` failure must NOT abort before the issue is
+# filed — the notifier degrades to a placeholder and still creates the
+# tracking issue (no COPILOT_PAT → assignment skipped).
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "boom" >&2; exit 1 ;;
+  "issue create") echo "https://github.com/o/r/issues/1" ;;
+esac'
+run_test \
+    "notify-on-failure: gh run view failure → issue still filed (exit 0)" \
+    "$notify_env ./scripts/workflow/notify-on-failure.sh" \
+    0 "Issue created: https://github.com/o/r/issues/1"
+
+# Happy path: assignment succeeds → exit 0
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue create") echo "https://github.com/o/r/issues/1" ;;
+  "issue edit") exit 0 ;;
+esac'
+run_test \
+    "notify-on-failure: assignment succeeds → 'Assigned' + exit 0" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    0 "Assigned https://github.com/o/r/issues/1"
 
 # ──────────────────────────────────────────────────────────────────────
 # Summary

@@ -15,10 +15,25 @@ on:
         - cron: '30 12 * * *'
     workflow_dispatch:
 
+# Least privilege for the default GITHUB_TOKEN: the only GITHUB_TOKEN
+# step left is the new-minor scan filing issues (issues: write); the
+# checkout needs contents: read. The lockfile push, PR create/merge and
+# build dispatch all run under COPILOT_PAT (see the landing step), whose
+# own scopes govern them — so the former contents: write / actions:
+# write grants are dead and dropped.
 permissions:
-    contents: write
+    contents: read
     issues: write
-    actions: write
+
+# Serialise overlapping runs so a manual workflow_dispatch cannot race
+# the daily cron in the orphan-branch-delete window of
+# land-php-digest-bump.sh: two simultaneous runs on the same
+# content-hash branch could observe the same pre-`gh pr create` window
+# and one would force-delete the other's freshly pushed branch. Mirrors
+# check-versions.yml.
+concurrency:
+    group: check-php
+    cancel-in-progress: false
 
 jobs:
     check:
@@ -38,39 +53,23 @@ jobs:
                   set -euo pipefail
                   ./scripts/workflow/probe-php-digests.sh
 
-            - name: Update lockfile + dispatch rebuild
+            - name: Land lockfile bump via PR + auto-merge
               if: steps.digests.outputs.lockfile_dirty == 'true'
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # A repo-scoped PAT, NOT GITHUB_TOKEN. main's branch
+                  # protection requires the `ci-test aggregate` status check,
+                  # which a GITHUB_TOKEN push to main can never carry, so the
+                  # old direct push is declined (GH-166/167). Routing through a
+                  # PR fixes that — but a GITHUB_TOKEN-authored PR is blocked by
+                  # the "Actions may create PRs" org setting AND does not
+                  # trigger the pull_request CI the required check depends on.
+                  # A PAT push opens a PR whose CI actually runs, so auto-merge
+                  # can land it. Reuses the same secret as notify-on-failure.
+                  GH_TOKEN: ${{ secrets.COPILOT_PAT }}
                   HAS_CHANGES: ${{ steps.digests.outputs.changes != '' }}
               run: |
                   set -euo pipefail
-                  git config user.name 'github-actions[bot]'
-                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-                  mv /tmp/new_digests dev/php_digests.lock
-                  git add dev/php_digests.lock
-                  if [ "$HAS_CHANGES" = "true" ]; then
-                      git commit -m "Update dev/php_digests.lock for PHP patch-level rebuild"
-                  else
-                      git commit -m "Seed dev/php_digests.lock for new PHP minor"
-                  fi
-                  # Checkout runs with persist-credentials: false (zizmor
-                  # artipacked), so push over an explicit tokenised remote
-                  # rather than the no-longer-stored origin credential.
-                  git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
-                  # Only dispatch a rebuild on actual digest mutations; a
-                  # pure seed of a freshly-added minor must go through the
-                  # issue-only review path.
-                  if [ "$HAS_CHANGES" = "true" ]; then
-                      # Let a dispatch failure exit the job non-zero so
-                      # notify-on-failure picks it up. The previous
-                      # `|| echo "::warning"` swallowed transient GHA
-                      # API blips silently: the lockfile push made the
-                      # current digest the new baseline, so the next
-                      # cron tick saw `previous == current` and never
-                      # re-attempted the rebuild — a missed image bake.
-                      gh workflow run build.yml --ref main
-                  fi
+                  ./scripts/workflow/land-php-digest-bump.sh
 
             - name: Scan for new PHP minor
               env:
