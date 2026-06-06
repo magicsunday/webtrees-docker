@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
-from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+from webtrees_installer._alpine import get_helper_image
 from webtrees_installer._banner import (
     print_standalone_enforce_https_warning,
     print_standalone_http_security_note,
@@ -668,6 +668,15 @@ _COMPOSE_PROJECT_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9_-]*\Z")
 
 _DOCKER_PROBE_TIMEOUT_S = 10.0
 
+# `_write_admin_password_secret` issues three docker calls (volume
+# create / docker run seed / volume rm rollback). 30 s is generous for
+# the no-network paths (`docker volume`) and covers a slow daemon-side
+# container start for the seed; a wedged daemon is bounded rather than
+# hanging the interactive wizard indefinitely. Bigger than the probe
+# timeout because `docker run` includes container creation + the
+# subprocess-piped password write.
+_DOCKER_SEED_TIMEOUT_S = 30.0
+
 
 def _run_docker_probe(argv: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a docker CLI probe with a bounded timeout + OSError handling.
@@ -908,13 +917,14 @@ def _compose_project_name(work_dir: Path) -> str:
 
 
 def _extract_subprocess_detail(exc: Exception) -> str:
-    """Render a one-line diagnostic for both subprocess failure classes.
+    """Render a one-line diagnostic for every subprocess failure class.
 
     ``CalledProcessError`` carries the child's stderr; ``OSError``
     (binary missing, exec bit dropped, socket EACCES at connect)
-    carries ``strerror`` plus a ``filename``. Either way the caller
-    wants the most-specific available detail folded into the
-    PrereqError message without branching at every wrap site.
+    carries ``strerror`` plus a ``filename``; ``TimeoutExpired``
+    carries the deadline. Either way the caller wants the
+    most-specific available detail folded into the PrereqError
+    message without branching at every wrap site.
 
     Defensive about the stderr attribute's type: a future wrap site
     that drops ``text=True`` (or hands a custom wrapper a non-string
@@ -922,6 +932,11 @@ def _extract_subprocess_detail(exc: Exception) -> str:
     operator-facing message, or escape ``AttributeError`` past the
     PrereqError translation when ``.strip()`` is called on a non-str.
     """
+    if isinstance(exc, subprocess.TimeoutExpired):
+        # ``str(exc)`` formats the full docker argv plus the timeout —
+        # too verbose for an operator banner. The deadline alone is
+        # what makes timeouts diagnosable.
+        return f"timed out after {exc.timeout:g}s"
     stderr_raw = getattr(exc, "stderr", None)
     if isinstance(stderr_raw, bytes):
         stderr = stderr_raw.decode("utf-8", errors="replace").strip()
@@ -1118,42 +1133,79 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     and only generates a fresh password if the file is empty. By creating the
     project-scoped volume (`<project>_secrets`, where `<project>` mirrors
     compose's own project-name derivation) up-front and writing the password
-    through an ephemeral alpine container, the init step finds the file
-    already populated and leaves it alone — which means the password the
-    wizard shows in the banner is the one the bootstrap hook will use.
+    through a short-lived helper container (image resolved via
+    `_alpine.get_helper_image()`), the init step finds the file already
+    populated and leaves it alone — which means the password the wizard
+    shows in the banner is the one the bootstrap hook will use.
     """
     volume = f"{_compose_project_name(work_dir)}_secrets"
 
-    subprocess.run(
-        ["docker", "volume", "create", volume],
-        check=True, capture_output=True, text=True,
-    )
+    try:
+        subprocess.run(
+            ["docker", "volume", "create", volume],
+            check=True, capture_output=True, text=True,
+            timeout=_DOCKER_SEED_TIMEOUT_S,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        # No volume exists yet (or it exists but the daemon cannot list
+        # it), so there is nothing to roll back — just surface a clean
+        # error instead of a raw subprocess traceback. The OSError band
+        # mirrors `_list_surviving_volumes` / `_wipe_volumes` so a missing
+        # docker binary / socket EACCES at this call surfaces the same
+        # way the rest of the file already handles it.
+        raise PrereqError(
+            f"failed to create secrets volume {volume}: {_extract_subprocess_detail(exc)}"
+        ) from exc
+
     try:
         subprocess.run(
             [
                 "docker", "run", "--rm", "-i",
+                # `--pull=missing` pulls the helper image only when it
+                # is not already on the host daemon. The launcher path
+                # and the CI matrix pre-pull the helper, so this is a
+                # no-op there; direct `python -m webtrees_installer`
+                # users get a transparent first-run pull instead of an
+                # opaque `no such image` failure. The bounded
+                # subprocess timeout caps any pull-induced hang.
                 "--pull=missing", "--quiet",
+                # `--entrypoint=sh` overrides any ENTRYPOINT the helper
+                # image declares (e.g. the installer image when
+                # WEBTREES_HELPER_IMAGE points at it). Without it the
+                # trailing `-ec …` arrive as CLI args to the image's
+                # entrypoint binary, the seed never runs, and the
+                # password stays empty on a half-created volume.
+                "--entrypoint=sh",
                 "-v", f"{volume}:/secrets",
-                ALPINE_BASE_IMAGE,
-                "sh", "-ec",
+                get_helper_image(),
+                "-ec",
                 "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
             ],
             input=password,
             check=True, capture_output=True, text=True,
+            timeout=_DOCKER_SEED_TIMEOUT_S,
         )
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         # Pre-seeding into the volume failed; the volume itself was either
         # just created or already existed but is now in an indeterminate
-        # state (alpine may have partially written the file). Drop it so
-        # the next run starts clean, then re-raise as PrereqError so the
-        # CLI surfaces a clean message instead of a Python traceback.
-        subprocess.run(
-            ["docker", "volume", "rm", "-f", volume],
-            check=False, capture_output=True, text=True,
-        )
-        stderr = (exc.stderr or "").strip() or "<no stderr>"
+        # state (the helper may have partially written the file). Drop it
+        # so the next run starts clean, then re-raise as PrereqError so the
+        # CLI surfaces a clean message instead of a Python traceback. The
+        # rollback is best-effort: if the daemon is wedged enough that the
+        # seed timed out, the rollback will likely time out too — swallow
+        # that secondary failure (and a missing docker binary / EACCES
+        # via OSError) so the operator gets the ORIGINAL error rather
+        # than a confusing exception from the cleanup path.
+        try:
+            subprocess.run(
+                ["docker", "volume", "rm", "-f", volume],
+                check=False, capture_output=True, text=True,
+                timeout=_DOCKER_SEED_TIMEOUT_S,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
         raise PrereqError(
-            f"failed to pre-seed admin password into {volume}: {stderr}"
+            f"failed to pre-seed admin password into {volume}: {_extract_subprocess_detail(exc)}"
         ) from exc
 
 

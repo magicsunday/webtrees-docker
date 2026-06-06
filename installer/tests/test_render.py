@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+from webtrees_installer._alpine import ALPINE_BASE_IMAGE, HELPER_IMAGE_ENV_VAR
 from webtrees_installer.render import (
     RenderInput,
     render_files,
@@ -91,6 +91,25 @@ def test_render_traefik_uses_canonical_alpine_pin(tmp_path: Path, catalog: Catal
         generated_at=datetime(2026, 5, 12, 12, 0, 0),
     )
     render_files(input_model=inp, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    assert compose["services"]["init"]["image"] == ALPINE_BASE_IMAGE
+
+
+def test_render_ignores_helper_image_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    standalone_core: RenderInput,
+) -> None:
+    """The helper-image override applies only to the wizard's own
+    short-lived docker-run helpers — the rendered compose.yaml init
+    service that end users see must keep pinning the canonical Alpine
+    image. A future refactor that wires render.py through
+    `get_helper_image()` would silently propagate a CI-only image into
+    every end-user compose.yaml, where it may not exist on disk."""
+    monkeypatch.setenv(HELPER_IMAGE_ENV_VAR, "ghcr.io/magicsunday/webtrees-installer:1.0.0")
+
+    render_files(input_model=standalone_core, target_dir=tmp_path)
     compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
 
     assert compose["services"]["init"]["image"] == ALPINE_BASE_IMAGE

@@ -339,10 +339,21 @@ installer_args=(
 # launch. The installer image ships as a rolling :latest tag; docker's
 # default --pull=missing would otherwise reuse whatever copy the user
 # pulled the first time and silently shadow later bug-fix releases.
+# The wizard reuses an already-pulled image for its internal port-probe
+# and admin-password seed instead of pulling a separate Alpine layer
+# from Docker Hub. Default to the installer image (guaranteed on disk
+# by `--pull=always` below), but honour a pre-existing operator export
+# so a power user can point both helpers at their own throwaway image.
+#
+# Resolved into a local variable rather than mutating the caller's
+# environment so a `readonly WEBTREES_HELPER_IMAGE=` in shell init does
+# not abort the launcher (mirrors the HOST_LAN_IP guard above).
+helper_image="${WEBTREES_HELPER_IMAGE:-$INSTALLER_IMAGE}"
 exec docker run --rm --pull=always "${tty_flags[@]}" \
     -e WORK_DIR="$PWD" \
     -e COMPOSE_PROJECT_NAME \
     -e HOST_LAN_IP \
+    -e WEBTREES_HELPER_IMAGE="$helper_image" \
     -v "$PWD:/work" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     "$INSTALLER_IMAGE" "${installer_args[@]}"

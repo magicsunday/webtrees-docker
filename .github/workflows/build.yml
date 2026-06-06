@@ -601,6 +601,13 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p "${SMOKE_DIR}"
+                  # WEBTREES_HELPER_IMAGE routes the wizard's internal
+                  # port-probe and admin-seed helpers through the
+                  # already-pulled installer image so the matrix does
+                  # not hammer Docker Hub's unauthenticated quota. The
+                  # composite action at .github/actions/installer-run/
+                  # applies the same setting on the default-path cells.
+                  installer_image="ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}"
                   if [ "${EDITION}" = "dev" ]; then
                       # Use the workspace that actions/checkout placed at
                       # $GITHUB_WORKSPACE — a fresh `git clone` would always
@@ -617,9 +624,10 @@ jobs:
                       # can cover it once the matrix budget allows.
                       docker run --rm \
                           -e WORK_DIR="${SMOKE_DIR}/repo" \
+                          -e WEBTREES_HELPER_IMAGE="${installer_image}" \
                           -v "${SMOKE_DIR}/repo:/work" \
                           -v /var/run/docker.sock:/var/run/docker.sock \
-                          "ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}" \
+                          "${installer_image}" \
                           --mode dev --non-interactive --force --no-up \
                           --proxy standalone --port "${SMOKE_PORT}" --pma-port 50011 \
                           --dev-domain "webtrees.localhost:${SMOKE_PORT}" \
@@ -641,9 +649,10 @@ jobs:
                       # `<project>_secrets` docker volume on the runner that
                       # the cell never tears down. Keep --no-admin here.
                       docker run --rm \
+                          -e WEBTREES_HELPER_IMAGE="${installer_image}" \
                           -v "${SMOKE_DIR}:/work" \
                           -v /var/run/docker.sock:/var/run/docker.sock \
-                          "ghcr.io/magicsunday/webtrees-installer:${INSTALLER_TAG}" \
+                          "${installer_image}" \
                           --non-interactive --force --no-up --no-admin \
                           --edition full --demo --demo-seed 42 \
                           --proxy standalone --port "${SMOKE_PORT}"
