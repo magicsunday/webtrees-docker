@@ -30,6 +30,8 @@ jobs:
             installer_tag: ${{ steps.set.outputs.installer_tag }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
 
             - name: License drift guard
               run: |
@@ -129,6 +131,8 @@ jobs:
                     - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
             - uses: ./.github/actions/ghcr-login
               with:
@@ -203,6 +207,8 @@ jobs:
             # else in this job reads repo content. Do NOT remove it
             # thinking it is unused.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/ghcr-login
               with:
                   username: ${{ github.actor }}
@@ -286,6 +292,8 @@ jobs:
                     - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
             - uses: ./.github/actions/ghcr-login
               with:
@@ -347,6 +355,8 @@ jobs:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/ghcr-login
               with:
                   username: ${{ github.actor }}
@@ -416,6 +426,8 @@ jobs:
                     - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
             - uses: ./.github/actions/ghcr-login
               with:
@@ -453,6 +465,8 @@ jobs:
             packages: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/ghcr-login
               with:
                   username: ${{ github.actor }}
@@ -507,6 +521,8 @@ jobs:
                     - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
             - uses: ./.github/actions/ghcr-login
@@ -535,6 +551,8 @@ jobs:
             packages: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/ghcr-login
               with:
                   username: ${{ github.actor }}
@@ -594,6 +612,8 @@ jobs:
             EDITION: ${{ matrix.edition }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
 
             - name: Run installer (non-interactive)
               env:
@@ -787,6 +807,8 @@ jobs:
             INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
 
             - name: Prepare work-dir
               run: mkdir -p "${E2E_DIR}"
@@ -883,6 +905,8 @@ jobs:
             issues: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/notify-on-failure
               with:
                   copilot-pat: ${{ secrets.COPILOT_PAT }}

@@ -56,6 +56,8 @@ jobs:
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
 
             - name: Find releases newer than the tracked max
               id: find
@@ -116,6 +118,8 @@ jobs:
             issues: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
             - uses: ./.github/actions/notify-on-failure
               with:
                   copilot-pat: ${{ secrets.COPILOT_PAT }}
