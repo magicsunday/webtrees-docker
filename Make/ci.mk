@@ -145,13 +145,22 @@ ci-yamllint: .logo ## Lints workflow + compose YAML files.
 		-d "{extends: default, rules: {line-length: {max: 200, level: warning}, document-start: disable, truthy: {check-keys: false}, comments: {min-spaces-from-content: 1}}}" \
 		.github/workflows/ compose.yaml compose.pma.yaml compose.traefik.yaml compose.publish.yaml compose.development.yaml
 
+# $(call lockstep,<label>,<script>) — the recipe every ci-*-lockstep
+# target shares: a blue banner line then the checker invocation against
+# the repo root. Defined once here (its only call site) so a banner-style
+# change is a one-line edit instead of touching all 16 targets, and a new
+# lockstep is a single $(call) line. Each target keeps its own name, help
+# text and .logo dependency; only the label and script name vary.
+define lockstep
+echo -e "${FBLUE}▶ $(1)${FRESET}"
+./scripts/lockstep/$(2) "$(CURDIR)"
+endef
+
 ci-alpine-lockstep: .logo ## Asserts every `alpine:` reference matches the central pin.
-	echo -e "${FBLUE}▶ alpine lockstep${FRESET}"
-	./scripts/lockstep/check-alpine-pin.sh "$(CURDIR)"
+	$(call lockstep,alpine lockstep,check-alpine-pin.sh)
 
 ci-images-lockstep: .logo ## Asserts Make/images.mk and scripts/lib/images.env carry the same CI_IMAGE_* pin set.
-	echo -e "${FBLUE}▶ ci-image-pin lockstep${FRESET}"
-	./scripts/lockstep/check-ci-images.sh "$(CURDIR)"
+	$(call lockstep,ci-image-pin lockstep,check-ci-images.sh)
 
 ci-shellcheck: .logo ## Lints every tracked shell script.
 	echo -e "${FBLUE}▶ shellcheck${FRESET}"
@@ -172,60 +181,46 @@ ci-shellcheck: .logo ## Lints every tracked shell script.
 		printf '%s\n' "$$files" | xargs -d '\n' $(CI_RUN_SHELLCHK) -x
 
 ci-readme-badge-lockstep: .logo ## Asserts README webtrees/PHP badge values cover every unique entry in dev/versions.json.
-	echo -e "${FBLUE}▶ README badge lockstep${FRESET}"
-	./scripts/lockstep/check-readme-badges.sh "$(CURDIR)"
+	$(call lockstep,README badge lockstep,check-readme-badges.sh)
 
 ci-php-versions-lockstep: .logo ## Asserts dev/versions.json has exactly one row per supported PHP minor per webtrees minor.
-	echo -e "${FBLUE}▶ PHP versions lockstep${FRESET}"
-	./scripts/lockstep/check-php-versions.sh "$(CURDIR)"
+	$(call lockstep,PHP versions lockstep,check-php-versions.sh)
 
 ci-nginx-tag-derivation-lockstep: .logo ## Asserts dev/nginx-version.json .tag equals `<nginx_base>-r<config_revision>`.
-	echo -e "${FBLUE}▶ nginx tag derivation lockstep${FRESET}"
-	./scripts/lockstep/check-nginx-tag-derivation.sh "$(CURDIR)"
+	$(call lockstep,nginx tag derivation lockstep,check-nginx-tag-derivation.sh)
 
 ci-php-digests-lockstep: .logo ## Asserts dev/php_digests.lock key set matches dev/php-versions.json .supported.
-	echo -e "${FBLUE}▶ php digests lockstep${FRESET}"
-	./scripts/lockstep/check-php-digests-lockstep.sh "$(CURDIR)"
+	$(call lockstep,php digests lockstep,check-php-digests-lockstep.sh)
 
 ci-versions-latest-semver-max-lockstep: .logo ## Asserts dev/versions.json 'latest' tag sits on the semver-max webtrees row.
-	echo -e "${FBLUE}▶ versions 'latest' semver-max lockstep${FRESET}"
-	./scripts/lockstep/check-versions-latest-semver-max.sh "$(CURDIR)"
+	$(call lockstep,versions 'latest' semver-max lockstep,check-versions-latest-semver-max.sh)
 
 ci-env-dist-pins-lockstep: .logo ## Asserts .env.dist WEBTREES_VERSION / WEBTREES_NGINX_VERSION / NGINX_CONFIG_REVISION / PHP_VERSION mirror dev/.
-	echo -e "${FBLUE}▶ .env.dist pins lockstep${FRESET}"
-	./scripts/lockstep/check-env-dist-pins.sh "$(CURDIR)"
+	$(call lockstep,.env.dist pins lockstep,check-env-dist-pins.sh)
 
 ci-dockerfile-arg-defaults-lockstep: .logo ## Asserts every `ARG <key>=<default>` in Dockerfile matches .env.dist's mirror of dev/.
-	echo -e "${FBLUE}▶ Dockerfile ARG defaults lockstep${FRESET}"
-	./scripts/lockstep/check-dockerfile-arg-defaults.sh "$(CURDIR)"
+	$(call lockstep,Dockerfile ARG defaults lockstep,check-dockerfile-arg-defaults.sh)
 
 ci-composer-patches-lockstep: .logo ## Asserts setup/composer-core.json and composer-full.json carry identical extra.patches blocks.
-	echo -e "${FBLUE}▶ composer patches lockstep${FRESET}"
-	./scripts/lockstep/check-composer-patches-lockstep.sh "$(CURDIR)"
+	$(call lockstep,composer patches lockstep,check-composer-patches-lockstep.sh)
 
 ci-patches-apply-lockstep: .logo ## Asserts setup/patches/*.patch applies cleanly to every webtrees version in dev/versions.json.
-	echo -e "${FBLUE}▶ patches apply lockstep${FRESET}"
-	./scripts/lockstep/check-patches-apply.sh "$(CURDIR)"
+	$(call lockstep,patches apply lockstep,check-patches-apply.sh)
 
 ci-portainer-templates-lockstep: .logo ## Asserts templates/portainer/{compose.yaml,.env.example} mirror a fresh render of the installer Jinja sources.
-	echo -e "${FBLUE}▶ portainer templates lockstep${FRESET}"
-	./scripts/lockstep/check-portainer-templates.sh "$(CURDIR)"
+	$(call lockstep,portainer templates lockstep,check-portainer-templates.sh)
 
 ci-port-default-lockstep: .logo ## Asserts _DEFAULT_PORT / _FALLBACK_PORT mirrors agree across every documented site.
-	echo -e "${FBLUE}▶ port-default lockstep${FRESET}"
-	./scripts/lockstep/check-port-defaults.sh "$(CURDIR)"
+	$(call lockstep,port-default lockstep,check-port-defaults.sh)
 
 ci-healthcheck-lockstep: .logo ## Asserts root compose.yaml's nginx start_period mirrors the installer templates.
-	echo -e "${FBLUE}▶ healthcheck lockstep${FRESET}"
-	./scripts/lockstep/check-healthcheck-start-period.sh "$(CURDIR)"
+	$(call lockstep,healthcheck lockstep,check-healthcheck-start-period.sh)
 
 ci-tls-verify-lockstep: .logo ## Asserts no TLS-verify bypass flags appear in executable repo files; deny-list and rationale in scripts/lockstep/check-tls-verify.sh.
-	echo -e "${FBLUE}▶ TLS-verify lockstep${FRESET}"
-	./scripts/lockstep/check-tls-verify.sh "$(CURDIR)"
+	$(call lockstep,TLS-verify lockstep,check-tls-verify.sh)
 
 ci-diy-env-vars-lockstep: .logo ## Asserts every env var named in docs/diy.md also appears in docs/env-vars.md.
-	echo -e "${FBLUE}▶ DIY env-vars lockstep${FRESET}"
-	./scripts/lockstep/check-diy-env-vars.sh "$(CURDIR)"
+	$(call lockstep,DIY env-vars lockstep,check-diy-env-vars.sh)
 
 ci-host-lan-ip-detect-tests: .logo ## Regression tests for install's HOST_LAN_IP detection block.
 	echo -e "${FBLUE}▶ host-lan-ip-detect tests${FRESET}"
