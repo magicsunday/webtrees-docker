@@ -25,6 +25,10 @@ from webtrees_installer._banner import (
     print_standalone_http_url_lan_only,
     print_what_next_section,
 )
+from webtrees_installer._byod_invariants import (
+    FIELD_NAMES,
+    external_db_host_error,
+)
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._io import atomic_write
 from webtrees_installer._term import Term
@@ -46,7 +50,7 @@ class DevArgs:
     app_port: int | None
     pma_port: int | None
 
-    mariadb_host: str
+    external_db_host: str
     mariadb_database: str
     mariadb_user: str
     mariadb_password: str
@@ -135,7 +139,10 @@ def render_dev_env(
         "php_version": php_entry.php,
         "webtrees_version": php_entry.webtrees,
         "nginx_tag": catalog.nginx_tag,
-        "mariadb_host": args.mariadb_host,
+        # Template key stays MARIADB_HOST (the env var webtrees reads);
+        # only the DevArgs field was renamed to external_db_host so the
+        # external-db invariant shares vocabulary with flow / render.
+        "mariadb_host": args.external_db_host,
         "mariadb_database": args.mariadb_database,
         "mariadb_user": args.mariadb_user,
         "mariadb_password": args.mariadb_password,
@@ -173,8 +180,13 @@ def _validate(args: DevArgs) -> None:
         raise ValueError("traefik proxy_mode requires non-empty dev_domain")
     if args.proxy_mode == "standalone" and (args.app_port is None or args.pma_port is None):
         raise ValueError("standalone proxy_mode requires app_port and pma_port")
-    if args.use_external_db and not args.mariadb_host:
-        raise ValueError("use_external_db=True requires mariadb_host")
+    host_error = external_db_host_error(
+        use_external_db=args.use_external_db,
+        host=args.external_db_host,
+        naming=FIELD_NAMES,
+    )
+    if host_error is not None:
+        raise ValueError(host_error)
     if not args.host_work_dir:
         raise ValueError("host_work_dir must be a non-empty host-side path")
 
@@ -258,13 +270,13 @@ def collect_dev_inputs(
     )
 
     if use_external_db:
-        mariadb_host = ask_text(
+        external_db_host = ask_text(
             "External MariaDB host (network name or DNS)",
             default=existing.get("MARIADB_HOST", "external-db.local") or "external-db.local",
             stdin=stdin, stdout=stdout,
         )
     else:
-        mariadb_host = "db"
+        external_db_host = "db"
 
     mariadb_root_password = ask_text(
         "MariaDB root password",
@@ -294,7 +306,7 @@ def collect_dev_inputs(
         dev_domain=dev_domain,
         app_port=app_port,
         pma_port=pma_port,
-        mariadb_host=mariadb_host,
+        external_db_host=external_db_host,
         mariadb_database=mariadb_database,
         mariadb_user=mariadb_user,
         mariadb_password=mariadb_password,

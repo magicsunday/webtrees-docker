@@ -20,6 +20,13 @@ from webtrees_installer._banner import (
     print_standalone_http_url_lines,
     print_what_next_section,
 )
+from webtrees_installer._byod_invariants import (
+    CLI_FLAGS,
+    external_db_db_data_path_conflict_error,
+    external_db_host_error,
+    external_db_password_file_error,
+    reuse_volumes_conflict_error,
+)
 from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._db_probe import probe_external_db
 from webtrees_installer._docker import run_docker
@@ -441,15 +448,26 @@ def _validate_external_db_inputs(args: StandaloneArgs) -> None:
     with its own single-line fix so the operator does not have to bounce
     between docs and shell history to figure out what is wrong.
     """
-    if not args.external_db_host:
-        raise PromptError(
-            "--use-external-db requires --external-db-host <hostname-or-ip>"
-        )
-    if not args.external_db_password_file:
-        raise PromptError(
-            "--use-external-db requires --external-db-password-file <path>; "
-            "the file gets bind-mounted into phpfpm read-only"
-        )
+    host_error = external_db_host_error(
+        use_external_db=args.use_external_db,
+        host=args.external_db_host,
+        naming=CLI_FLAGS,
+    )
+    if host_error is not None:
+        raise PromptError(host_error)
+    password_file_error = external_db_password_file_error(
+        use_external_db=args.use_external_db,
+        password_file=args.external_db_password_file,
+        naming=CLI_FLAGS,
+    )
+    if password_file_error is not None:
+        raise PromptError(password_file_error)
+    # The two shared invariant checks above have rejected an empty host /
+    # password-file path; narrow the Optional[str] for the flow-only
+    # regex / FS checks below without a defensive fallback so the contract
+    # is explicit (mirrors the assert at the probe_external_db call site).
+    assert args.external_db_host is not None
+    assert args.external_db_password_file is not None
     if not _EXTERNAL_DB_HOST_RE.match(args.external_db_host):
         raise PromptError(
             f"--external-db-host contains characters that corrupt .env "
@@ -579,13 +597,13 @@ def _validate_byod_bind_paths(args: StandaloneArgs) -> None:
     a PromptError (exit-code 2) with the correct flag names rather than
     a ValueError that bypasses the wizard's error channel.
     """
-    if args.use_external_db and args.db_data_path is not None:
-        raise PromptError(
-            "--db-data-path is incompatible with --use-external-db: "
-            "the bundled `db` service is dropped, so there is nowhere "
-            "to bind-mount the path. Drop --db-data-path and point "
-            "phpfpm at your existing DB via --external-db-host."
-        )
+    db_data_path_error = external_db_db_data_path_conflict_error(
+        use_external_db=args.use_external_db,
+        db_data_path=args.db_data_path is not None,
+        naming=CLI_FLAGS,
+    )
+    if db_data_path_error is not None:
+        raise PromptError(db_data_path_error)
     for label, value in (
         ("--db-data-path", args.db_data_path),
         ("--media-path", args.media_path),
@@ -721,20 +739,17 @@ def _validate_byod_reuse_volumes(args: StandaloneArgs) -> None:
             f"{project!r}. Allowed: lowercase a-z 0-9 _ -, cannot start "
             f"with _ or -."
         )
-    # Mutual exclusion: render._validate also catches this but the flow
-    # layer's PromptError gives the operator the actionable flag names
-    # in the exit-code-2 channel.
-    conflicts = [
-        ("--use-external-db", args.use_external_db),
-        ("--db-data-path", args.db_data_path is not None),
-        ("--media-path", args.media_path is not None),
-    ]
-    active = [label for label, flag in conflicts if flag]
-    if active:
-        raise PromptError(
-            f"--reuse-volumes is incompatible with {', '.join(active)}; "
-            f"pick exactly one BYOD pattern per install."
-        )
+    # Mutual exclusion: render._validate also catches this via the same
+    # shared predicate, but the flow layer's PromptError gives the
+    # operator the actionable flag names in the exit-code-2 channel.
+    reuse_error = reuse_volumes_conflict_error(
+        use_external_db=args.use_external_db,
+        db_data_path=args.db_data_path is not None,
+        media_path=args.media_path is not None,
+        naming=CLI_FLAGS,
+    )
+    if reuse_error is not None:
+        raise PromptError(reuse_error)
     # All three volumes (database, media, secrets) must exist — the
     # `secrets` volume carries the original install's
     # mariadb_root_password / mariadb_password files; without it the

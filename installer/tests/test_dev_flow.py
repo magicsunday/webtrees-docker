@@ -40,7 +40,7 @@ def _args(**overrides) -> DevArgs:
         dev_domain="webtrees.localhost:50010",
         app_port=50010,
         pma_port=50011,
-        mariadb_host="db",
+        external_db_host="db",
         mariadb_database="webtrees",
         mariadb_user="webtrees",
         mariadb_password="devpw",
@@ -131,7 +131,7 @@ def test_render_dev_env_traefik_drops_app_port(tmp_path: Path, catalog: Catalog)
 
 
 def test_render_dev_env_external_db_appends_compose_file(tmp_path: Path, catalog: Catalog) -> None:
-    args = _args(work_dir=tmp_path, use_external_db=True, mariadb_host="external-db.local")
+    args = _args(work_dir=tmp_path, use_external_db=True, external_db_host="external-db.local")
     render_dev_env(args, catalog=catalog, target_dir=tmp_path,
                    generated_at=datetime(2026, 5, 12, 12, 0, 0))
 
@@ -168,7 +168,7 @@ def test_collect_dev_inputs_standalone_default_path() -> None:
     assert args.dev_domain == "192.168.1.50:50010"
     assert args.use_existing_db is False
     assert args.use_external_db is False
-    assert args.mariadb_host == "db"
+    assert args.external_db_host == "db"
     assert args.local_user_id == 1000
     assert args.local_user_name == "dev"
 
@@ -193,7 +193,7 @@ def test_collect_dev_inputs_traefik_uses_dev_domain() -> None:
 
 
 def test_collect_dev_inputs_external_db_asks_host() -> None:
-    """use_external_db=Y triggers the mariadb_host prompt."""
+    """use_external_db=Y triggers the external-db host prompt."""
     # Standalone, defaults for ports + domain, default no on existing-db,
     # YES on external-db, host=external-db.local, then 4x db creds.
     stdin = StringIO(
@@ -201,7 +201,7 @@ def test_collect_dev_inputs_external_db_asks_host() -> None:
         "\n\n\n"                        # app/pma/dev_domain defaults
         "\n"                            # use_existing_db default N
         "y\n"                           # use_external_db Y
-        "external-db.local\n"           # mariadb_host
+        "external-db.local\n"           # external_db_host
         "rootpw\nwt\nwt_user\nwt_pw\n"  # creds
     )
     stdout = StringIO()
@@ -212,7 +212,7 @@ def test_collect_dev_inputs_external_db_asks_host() -> None:
         stdin=stdin, stdout=stdout,
     )
     assert args.use_external_db is True
-    assert args.mariadb_host == "external-db.local"
+    assert args.external_db_host == "external-db.local"
 
 
 def test_collect_dev_inputs_uses_existing_env_values() -> None:

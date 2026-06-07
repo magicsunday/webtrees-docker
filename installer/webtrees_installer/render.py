@@ -9,6 +9,13 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from webtrees_installer._alpine import ALPINE_BASE_IMAGE
+from webtrees_installer._byod_invariants import (
+    FIELD_NAMES,
+    external_db_db_data_path_conflict_error,
+    external_db_host_error,
+    external_db_password_file_error,
+    reuse_volumes_conflict_error,
+)
 from webtrees_installer._io import atomic_write
 from webtrees_installer.versions import Catalog
 
@@ -174,46 +181,52 @@ def _validate(input_model: RenderInput) -> None:
     # External-db invariants: the flow layer's _validate_external_db_inputs
     # rejects every realistic failure mode (missing host, missing /
     # malformed password file, identifier shell-escape, port range) with
-    # operator-actionable PromptError messages. The two ValueError checks
-    # below are a thin safety net for callers that bypass the flow (direct
+    # operator-actionable PromptError messages. The two checks below are a
+    # thin safety net for callers that bypass the flow (direct
     # render_files() invocations from tests / scripts) — they catch the
     # two unrecoverable invariants that would otherwise emit a broken
     # compose.yaml: empty host (no MARIADB_HOST resolution) and empty
     # password-file path (the EXTERNAL_DB_PASSWORD_FILE:?... compose
     # guard in compose.standalone.j2 catches it at up-time, but failing
-    # at render time is cheaper).
-    if input_model.use_external_db:
-        if not input_model.external_db_host:
-            raise ValueError("use_external_db=True requires external_db_host")
-        if not input_model.external_db_password_file:
-            raise ValueError(
-                "use_external_db=True requires external_db_password_file"
-            )
-        # --db-data-path bind-mounts the bundled `db:` service's
-        # /var/lib/mysql. With use_external_db=True there is no `db:`
-        # service to mount into, so the two flags are mutually exclusive.
-        if input_model.db_data_path:
-            raise ValueError(
-                "use_external_db=True is incompatible with db_data_path: "
-                "the bundled db service is dropped, so there is nowhere to "
-                "bind-mount the path. Use --external-db-host to point at "
-                "your existing DB instead."
-            )
+    # at render time is cheaper). The predicates are shared with the flow
+    # layer via _byod_invariants; only the field-shaped wording differs.
+    host_error = external_db_host_error(
+        use_external_db=input_model.use_external_db,
+        host=input_model.external_db_host,
+        naming=FIELD_NAMES,
+    )
+    if host_error is not None:
+        raise ValueError(host_error)
+    password_file_error = external_db_password_file_error(
+        use_external_db=input_model.use_external_db,
+        password_file=input_model.external_db_password_file,
+        naming=FIELD_NAMES,
+    )
+    if password_file_error is not None:
+        raise ValueError(password_file_error)
+    # --db-data-path bind-mounts the bundled `db:` service's
+    # /var/lib/mysql. With use_external_db=True there is no `db:`
+    # service to mount into, so the two flags are mutually exclusive.
+    # Shared with the flow layer's _validate_byod_bind_paths via the same
+    # predicate; only the conflict-label vocabulary differs.
+    db_data_path_error = external_db_db_data_path_conflict_error(
+        use_external_db=input_model.use_external_db,
+        db_data_path=bool(input_model.db_data_path),
+        naming=FIELD_NAMES,
+    )
+    if db_data_path_error is not None:
+        raise ValueError(db_data_path_error)
     # reuse_volumes_project is the operator's "pick up an existing
     # compose project's named volumes" shortcut; mixing it with the
     # other BYOD shapes confuses both layers and produces a compose
     # that compose itself rejects (cannot both `external: true` and
     # carry `driver_opts`). One-of-three discipline.
     if input_model.reuse_volumes_project:
-        conflicts = [
-            ("use_external_db", input_model.use_external_db),
-            ("db_data_path", bool(input_model.db_data_path)),
-            ("media_path", bool(input_model.media_path)),
-        ]
-        active_conflicts = [name for name, flag in conflicts if flag]
-        if active_conflicts:
-            raise ValueError(
-                f"reuse_volumes_project is incompatible with "
-                f"{', '.join(active_conflicts)}; "
-                f"pick exactly one BYOD pattern per install."
-            )
+        reuse_error = reuse_volumes_conflict_error(
+            use_external_db=input_model.use_external_db,
+            db_data_path=bool(input_model.db_data_path),
+            media_path=bool(input_model.media_path),
+            naming=FIELD_NAMES,
+        )
+        if reuse_error is not None:
+            raise ValueError(reuse_error)

@@ -325,7 +325,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             dev_domain=args.dev_domain or "",
             app_port=args.app_port,
             pma_port=args.pma_port,
-            mariadb_host=args.external_db_host or "db",
+            external_db_host=args.external_db_host or "db",
             mariadb_database=args.mariadb_database or "webtrees",
             mariadb_user=args.mariadb_user or "webtrees",
             mariadb_password=args.mariadb_password or "",
