@@ -69,6 +69,27 @@ def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) ->
     assert "APP_PORT=8080" in env
 
 
+def test_render_enforce_https_is_lockstepped_across_services(
+    tmp_path: Path, standalone_core: RenderInput
+) -> None:
+    """phpfpm and nginx must read the SAME ENFORCE_HTTPS default.
+
+    The line is emitted from one shared `enforce_https_env_line` macro
+    precisely so the two can't drift: a stack that redirected to https
+    at the nginx edge while webtrees still emitted insecure cookies (or
+    vice versa) would be a silent security gap. Pin both to the same
+    runtime-defaulted value.
+    """
+    render_files(input_model=standalone_core, target_dir=tmp_path)
+    compose = yaml.safe_load((tmp_path / "compose.yaml").read_text())
+
+    phpfpm_env = compose["services"]["phpfpm"]["environment"]
+    nginx_env = compose["services"]["nginx"]["environment"]
+
+    assert phpfpm_env["ENFORCE_HTTPS"] == "${ENFORCE_HTTPS:-FALSE}"
+    assert nginx_env["ENFORCE_HTTPS"] == phpfpm_env["ENFORCE_HTTPS"]
+
+
 def test_render_standalone_uses_canonical_alpine_pin(tmp_path: Path, standalone_core: RenderInput) -> None:
     """Standalone init service must pin the canonical Alpine image."""
     render_files(input_model=standalone_core, target_dir=tmp_path)

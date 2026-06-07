@@ -11,9 +11,22 @@
    time and re-adding it at call time keeps both surfaces honest.
 -#}
 
+{# The ENFORCE_HTTPS env line is read by BOTH services — phpfpm (the
+   HSTS / cookie-secure flags webtrees emits) and nginx (the 301
+   redirect) — and the two MUST agree on the `${ENFORCE_HTTPS:-FALSE}`
+   default. Drift would let a stack redirect-to-https at the edge while
+   webtrees still emits insecure cookies (or vice versa). Emitting the
+   line from one macro keeps the phpfpm and nginx sites lockstepped by
+   construction rather than by review. Single line, so callers place it
+   at the target column directly; no indent() needed. #}
+{%- macro enforce_https_env_line() -%}
+ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
+{%- endmacro -%}
+
+
 {%- macro phpfpm_environment(use_external_db, db_type, webtrees_version, pretty_urls, admin_bootstrap, admin_user, admin_email) -%}
 ENVIRONMENT: production
-ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
+{{ enforce_https_env_line() }}
 WEBTREES_VERSION: "{{ webtrees_version }}"
 WEBTREES_AUTO_SEED: "true"
 {%- if db_type == "sqlite" %}

@@ -134,7 +134,7 @@ services:
                 condition: service_healthy
         restart: unless-stopped
         environment:
-            ENFORCE_HTTPS: "${ENFORCE_HTTPS:-FALSE}"
+            {{ m.enforce_https_env_line() }}
         ports:
             - "${APP_PORT:-{{ app_port }}}:80"
         {{ m.nginx_healthcheck() | indent(8) }}
