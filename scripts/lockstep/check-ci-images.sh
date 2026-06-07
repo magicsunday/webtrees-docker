@@ -6,10 +6,9 @@
 # build with the exact divergence rather than the operator
 # discovering it via a half-bumped CI run weeks later.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 mk=Make/images.mk
 env=scripts/lib/images.env

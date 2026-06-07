@@ -17,15 +17,11 @@
 # where <minor> matches the strict X.Y shape (`^[1-9][0-9]*\.[0-9]+$`)
 # also enforced by check-php-versions.sh.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
 # shellcheck source=scripts/lib/php-versions-lib.sh
 source "$(dirname "$0")/../lib/php-versions-lib.sh"
+lockstep_init "$@"
 
 lock_file="dev/php_digests.lock"
 [ -f "$lock_file" ] || {
@@ -33,10 +29,7 @@ lock_file="dev/php_digests.lock"
     exit 1
 }
 
-ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/php-versions.json is not parseable JSON" >&2
-    exit 1
-}
+assert_jq_parseable "$repo_root" php-versions.json
 
 # Schema-shape gate before the union extraction so a pre-migration
 # flat-array `.supported` (or any other malformed shape) fails with a

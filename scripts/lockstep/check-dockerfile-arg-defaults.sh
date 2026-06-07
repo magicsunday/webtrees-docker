@@ -15,10 +15,9 @@
 #   NGINX_BASE           <- .env.dist's WEBTREES_NGINX_VERSION prefix (before `-r`)
 #   NGINX_CONFIG_REVISION <- .env.dist NGINX_CONFIG_REVISION
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 env_dist=".env.dist"
 dockerfile="Dockerfile"

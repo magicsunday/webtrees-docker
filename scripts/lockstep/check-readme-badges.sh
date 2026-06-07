@@ -25,10 +25,9 @@
 # `docker run failed` instead of an actionable `empty pin extraction`
 # error.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 # Fail loud if README.md is missing entirely. Without this guard, the
 # downstream `grep ... README.md` inside extract_msgs would fail with
@@ -40,13 +39,7 @@ cd "$repo_root"
     exit 1
 }
 
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
-
-ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/versions.json is not parseable JSON" >&2
-    exit 1
-}
+assert_jq_parseable "$repo_root" versions.json
 
 # Expected sets — sorted-unique stripped strings from versions.json.
 # The `gsub` mirrors `_extract_unique`'s `.strip()` in the Python

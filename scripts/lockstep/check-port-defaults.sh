@@ -7,10 +7,9 @@
 # every file that must carry the same literal; this target enforces
 # the discipline programmatically.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 pair=$(./scripts/lockstep/parse-port-defaults.sh)
 default_port=${pair%:*}

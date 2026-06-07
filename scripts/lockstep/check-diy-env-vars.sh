@@ -17,10 +17,9 @@
 #
 # Failure-path test in `tests/test-lockstep.sh` injects a bogus var.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 [ -f docs/diy.md ] || {
     echo "::error::docs/diy.md not found" >&2

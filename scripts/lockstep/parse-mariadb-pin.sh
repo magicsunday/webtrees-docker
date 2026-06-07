@@ -11,9 +11,10 @@
 # Exit 1 with an actionable `::error::` annotation if the canonical
 # site cannot be parsed.
 
-set -euo pipefail
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
-repo_root=${1:-$(pwd)}
 canonical="${repo_root}/installer/webtrees_installer/templates/compose.standalone.j2"
 
 [ -f "$canonical" ] || {

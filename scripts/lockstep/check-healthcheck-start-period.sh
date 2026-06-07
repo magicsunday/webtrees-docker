@@ -25,10 +25,9 @@
 # yq). compose.yaml (dev stack) and templates/portainer/compose.yaml
 # remain hand-maintained YAML and are parsed with yq.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 yq_image="mikefarah/yq:latest"
 

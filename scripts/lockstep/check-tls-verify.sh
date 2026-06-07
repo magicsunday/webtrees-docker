@@ -23,10 +23,9 @@
 # violations and asserts this script exits non-zero with the expected
 # annotation.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 # Boundary group accepted after a `--flag` token: whitespace, EOL, `=`,
 # one of the quote/comma/bracket chars a YAML / JSON / shell-array

@@ -16,18 +16,11 @@
 # which is a different invariant. Only the catch-all `"latest"` is
 # guarded.
 
-set -euo pipefail
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
-
-ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/versions.json is not parseable JSON" >&2
-    exit 1
-}
+assert_jq_parseable "$repo_root" versions.json
 
 # Highest webtrees version by major.minor.patch — sort -V handles
 # numeric-aware comparison the same way semver does for `X.Y.Z` shapes.

@@ -13,13 +13,9 @@
 # MUST match byte-for-byte across all four manifests. Invoked by
 # `make ci-composer-patches-lockstep`.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 manifests=(
     setup/composer-core-2.1.json

@@ -14,10 +14,9 @@
 # Network-dependent — skipped when CHECK_PATCHES_APPLY=0 is set (the
 # offline-CI escape hatch).
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 if [ "${CHECK_PATCHES_APPLY:-1}" = "0" ]; then
     echo "  CHECK_PATCHES_APPLY=0 — skipping patches-apply lockstep (offline mode)"
@@ -28,9 +27,6 @@ if ! command -v git >/dev/null 2>&1; then
     echo "::error::git not on PATH — required for patches-apply lockstep" >&2
     exit 1
 fi
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
 
 versions=$(ci_run_jq "$repo_root" \
     -r '[.[].webtrees] | unique | .[]' versions.json) || {

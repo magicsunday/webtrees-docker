@@ -385,6 +385,27 @@ assert_lockstep_fails \
     "ci-readme-badge-lockstep: unparseable versions.json fails with actionable message" \
     ci-readme-badge-lockstep \
     'is not parseable JSON'
+
+# GH-151: the consolidated assert_jq_parseable helper (scripts/lib/lockstep.sh)
+# attaches jq's OWN stderr to the annotation — the open-coded probes it
+# replaced swallowed that diagnostic with `>/dev/null 2>&1`, leaving the
+# operator only "not parseable" with no hint WHERE. Reuse the broken
+# versions.json still in place from the assertion above and require a
+# non-empty detail after the `… JSON: ` marker. The `[^[:space:]]` anchor
+# is robust to jq's exact wording (which varies by image version) while
+# still failing loud if a future refactor drops the stderr forwarding.
+jq_detail_name="ci-readme-badge-lockstep: unparseable JSON annotation forwards jq's diagnostic"
+jq_detail_out=$(cd "$worktree" && make ci-readme-badge-lockstep 2>&1 >/dev/null) || true
+if printf '%s\n' "$jq_detail_out" | grep -qE 'is not parseable JSON: [^[:space:]]'; then
+    echo "PASS  $jq_detail_name"
+    pass=$((pass + 1))
+    results+=("PASS  $jq_detail_name")
+else
+    echo "FAIL  $jq_detail_name: annotation carries no jq detail after the marker"
+    printf '%s\n' "$jq_detail_out" | tail -5 | sed 's/^/        /'
+    fail=$((fail + 1))
+    results+=("FAIL  $jq_detail_name")
+fi
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
@@ -958,6 +979,83 @@ assert_parser_fails \
     "parse-alpine-pin: non-alpine image rejected" \
     'ALPINE_BASE_IMAGE = "debian:bookworm"' \
     "Could not parse ALPINE_BASE_IMAGE"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
+# scripts/lockstep/parse-mariadb-pin.sh — relative repo_root contract
+# ──────────────────────────────────────────────────────────────────────
+# scripts/lib/lockstep.sh — lockstep_init canonicalises repo_root
+# ──────────────────────────────────────────────────────────────────────
+# GH-151: lockstep_init cd's into repo_root and re-reads it via pwd so the
+# global `repo_root` is ABSOLUTE. This is load-bearing for a RELATIVE `$1`,
+# because consumers use `$repo_root` in two cwd-sensitive ways that a bare
+# `cd` does NOT cover:
+#   (a) `${repo_root}/…` file reads after the cd (e.g. parse-mariadb-pin.sh),
+#   (b) docker bind mounts `-v ${repo_root}/dev` inside ci_run_jq, whose
+#       source path docker resolves against the ORIGINAL cwd, not the cd'd one.
+# Every production caller (the Make `lockstep` macro, check-mariadb.yml) passes
+# an absolute root, so the bug is invisible there; these two cases pin the
+# relative-arg contract by invoking from a different CWD with a relative root.
+# Both go RED if the canonicalising `repo_root=$(pwd)` is dropped from
+# lockstep_init.
+
+# (a) file-read path — parse-mariadb-pin.sh reads `${repo_root}/installer/…`.
+echo "Setting up: parse-mariadb-pin with a relative repo_root arg from a different CWD"
+mariadb_name="lockstep_init: relative root resolves a \${repo_root}/… file read (parse-mariadb-pin)"
+mariadb_abs=$(cd "$worktree" && ./scripts/lockstep/parse-mariadb-pin.sh 2>/dev/null) || true
+mariadb_rel=$(cd "$worktree_parent" && ./lockstep/scripts/lockstep/parse-mariadb-pin.sh lockstep 2>/dev/null) || true
+if [ -n "$mariadb_abs" ] && [ "$mariadb_rel" = "$mariadb_abs" ]; then
+    echo "PASS  $mariadb_name"
+    pass=$((pass + 1))
+    results+=("PASS  $mariadb_name")
+else
+    echo "FAIL  $mariadb_name: absolute='$mariadb_abs' relative='$mariadb_rel' (expected equal and non-empty)"
+    fail=$((fail + 1))
+    results+=("FAIL  $mariadb_name")
+fi
+restore_worktree
+
+# (a') CDPATH hardening — lockstep_init does `cd "$repo_root" >/dev/null`, so an
+# exported CDPATH that resolves the relative arg cannot echo the resolved path
+# onto a parser's single-value stdout. Exporting `CDPATH=.` makes `cd lockstep`
+# resolve via CDPATH (and, without the redirect, print the path). RED if the
+# `>/dev/null` is dropped: stdout would carry the echoed path before the pin.
+echo "Setting up: parse-mariadb-pin with CDPATH exported (stdout must stay clean)"
+cdpath_name="lockstep_init: exported CDPATH does not pollute a parser's stdout (parse-mariadb-pin)"
+cdpath_ref=$(cd "$worktree" && ./scripts/lockstep/parse-mariadb-pin.sh 2>/dev/null) || true
+cdpath_out=$(cd "$worktree_parent" && CDPATH=. ./lockstep/scripts/lockstep/parse-mariadb-pin.sh lockstep 2>/dev/null) || true
+if [ -n "$cdpath_ref" ] && [ "$cdpath_out" = "$cdpath_ref" ]; then
+    echo "PASS  $cdpath_name"
+    pass=$((pass + 1))
+    results+=("PASS  $cdpath_name")
+else
+    echo "FAIL  $cdpath_name: clean='$cdpath_ref' with-CDPATH='$cdpath_out' (expected equal, single value)"
+    fail=$((fail + 1))
+    results+=("FAIL  $cdpath_name")
+fi
+restore_worktree
+
+# (b) docker-mount path — a jq consumer mounts `-v ${repo_root}/dev`.
+# check-versions-latest-semver-max.sh is the cheapest jq consumer (no clone,
+# no render). Run it with a relative root from the parent dir; without
+# canonicalisation the docker mount source resolves to <parent>/lockstep/dev
+# from the cd'd cwd, fails, and the recipe exits non-zero.
+echo "Setting up: jq-consumer (ci-versions-latest-semver-max) with a relative repo_root arg from a different CWD"
+jqroot_name="lockstep_init: relative root resolves the ci_run_jq docker mount (jq consumer)"
+set +e
+jqroot_out=$(cd "$worktree_parent" && ./lockstep/scripts/lockstep/check-versions-latest-semver-max.sh lockstep 2>&1)
+jqroot_code=$?
+set -e
+if [ "$jqroot_code" -eq 0 ]; then
+    echo "PASS  $jqroot_name"
+    pass=$((pass + 1))
+    results+=("PASS  $jqroot_name")
+else
+    echo "FAIL  $jqroot_name: exited $jqroot_code (expected 0)"
+    printf '%s\n' "$jqroot_out" | tail -5 | sed 's/^/        /'
+    fail=$((fail + 1))
+    results+=("FAIL  $jqroot_name")
+fi
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────

@@ -35,25 +35,14 @@
 # (`ci_validate_php_supported_shape`) so all four `.supported`
 # consumers gate on the same invariants.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
 # shellcheck source=scripts/lib/php-versions-lib.sh
 source "$(dirname "$0")/../lib/php-versions-lib.sh"
+lockstep_init "$@"
 
-ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/versions.json is not parseable JSON" >&2
-    exit 1
-}
-
-ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/php-versions.json is not parseable JSON" >&2
-    exit 1
-}
+assert_jq_parseable "$repo_root" versions.json
+assert_jq_parseable "$repo_root" php-versions.json
 
 ci_validate_php_supported_shape "$repo_root"
 

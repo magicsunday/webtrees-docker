@@ -24,10 +24,9 @@
 # _alpine.py doesn't break this recipe; tests/test-lockstep.sh
 # exercises the failure paths.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 pinned=$(./scripts/lockstep/parse-alpine-pin.sh)
 echo "  canonical pin: $pinned"

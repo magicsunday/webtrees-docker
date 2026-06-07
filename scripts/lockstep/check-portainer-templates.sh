@@ -24,10 +24,9 @@
 # docker container — skipped when CHECK_PORTAINER_TEMPLATES=0 is set
 # (the offline-CI escape hatch).
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
 if [ "${CHECK_PORTAINER_TEMPLATES:-1}" = "0" ]; then
     echo "  CHECK_PORTAINER_TEMPLATES=0 — skipping portainer-templates lockstep (offline mode)" >&2

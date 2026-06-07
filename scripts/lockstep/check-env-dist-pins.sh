@@ -17,15 +17,11 @@
 # survives `.supported` drift: dropping 8.3 from `.supported` leaves
 # `.env.dist`'s documented default pointing at an unsupported minor.
 
-set -euo pipefail
-
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
 # shellcheck source=scripts/lib/php-versions-lib.sh
 source "$(dirname "$0")/../lib/php-versions-lib.sh"
+lockstep_init "$@"
 
 env_dist=".env.dist"
 [ -f "$env_dist" ] || {
@@ -60,18 +56,9 @@ env_nginx_rev=$(read_pin NGINX_CONFIG_REVISION)
 env_nginx_base=$(read_pin NGINX_BASE)
 env_php=$(read_pin PHP_VERSION)
 
-ci_run_jq "$repo_root" empty versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/versions.json is not parseable JSON" >&2
-    exit 1
-}
-ci_run_jq "$repo_root" empty nginx-version.json >/dev/null 2>&1 || {
-    echo "::error::dev/nginx-version.json is not parseable JSON" >&2
-    exit 1
-}
-ci_run_jq "$repo_root" empty php-versions.json >/dev/null 2>&1 || {
-    echo "::error::dev/php-versions.json is not parseable JSON" >&2
-    exit 1
-}
+assert_jq_parseable "$repo_root" versions.json
+assert_jq_parseable "$repo_root" nginx-version.json
+assert_jq_parseable "$repo_root" php-versions.json
 
 # Schema-shape gate before the union extraction so a pre-migration
 # flat-array `.supported` (or any other malformed shape) fails with

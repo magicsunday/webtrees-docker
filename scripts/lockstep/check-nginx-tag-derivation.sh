@@ -12,18 +12,11 @@
 # the source-of-truth pair. This guard re-derives the value and fails
 # loud if the cached form disagrees.
 
-set -euo pipefail
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+lockstep_init "$@"
 
-repo_root=${1:-$(pwd)}
-cd "$repo_root"
-
-# shellcheck source=scripts/lib/images.env
-source "$(dirname "$0")/../lib/images.env"
-
-ci_run_jq "$repo_root" empty nginx-version.json >/dev/null 2>&1 || {
-    echo "::error::dev/nginx-version.json is not parseable JSON" >&2
-    exit 1
-}
+assert_jq_parseable "$repo_root" nginx-version.json
 
 # Pull all three fields in one jq call so any missing key surfaces with
 # a single error rather than three independent ones. The `// "<missing>"`
