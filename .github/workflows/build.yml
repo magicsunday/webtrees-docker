@@ -38,6 +38,7 @@ jobs:
             nginx_tag: ${{ steps.set.outputs.nginx_tag }}
             nginx_config_revision: ${{ steps.set.outputs.nginx_config_revision }}
             installer_tag: ${{ steps.set.outputs.installer_tag }}
+            platforms: ${{ steps.set.outputs.platforms }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -107,6 +108,22 @@ jobs:
                   echo "nginx_tag=${nginx_tag}" >> "$GITHUB_OUTPUT"
                   echo "nginx_config_revision=${nginx_config_revision}" >> "$GITHUB_OUTPUT"
                   echo "installer_tag=${installer_tag}" >> "$GITHUB_OUTPUT"
+                  # Single source of truth for the build platform matrix.
+                  # build-php / build-php-full / build-nginx / build-installer
+                  # and smoke-test all derive strategy.matrix.platform from
+                  # this via fromJson(needs.matrix.outputs.platforms), so a
+                  # third arch is one entry HERE instead of five edits. Per
+                  # entry:
+                  #   runner — GHA runs-on: label (native host arch).
+                  #   docker — buildx --platform value (smoke ignores it).
+                  #   arch   — tag suffix on the per-arch image AND the cache
+                  #            scope (so amd64 cache doesn't evict arm64).
+                  # Still NOT coupled by tooling: the manifest-* imagetools-
+                  # create invocations hardcode the matching `${base}-<arch>`
+                  # source suffixes, so a third arch also needs a source line
+                  # there — drift surfaces only at runtime as a missing image.
+                  platforms='[{"runner":"ubuntu-latest","docker":"linux/amd64","arch":"amd64"},{"runner":"ubuntu-24.04-arm","docker":"linux/arm64","arch":"arm64"}]'
+                  echo "platforms=${platforms}" >> "$GITHUB_OUTPUT"
 
     build-php:
         name: php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
@@ -124,21 +141,10 @@ jobs:
             fail-fast: false
             matrix:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
-                # Platform-matrix shape used by every build-* and smoke-test
-                # job in this workflow:
-                #   runner — GHA runs-on: label (native host arch).
-                #   docker — buildx --platform value.
-                #   arch   — tag suffix on the per-arch image AND the
-                #            cache scope (so amd64 cache doesn't evict
-                #            arm64 cache).
-                # Adding a third arch (e.g. linux/arm/v7) needs an entry
-                # here AND a matching `${base}-<arch>` source in the
-                # corresponding manifest-* imagetools-create invocation —
-                # those two surfaces are not coupled by tooling, drift
-                # is detectable only at runtime as a missing-image error.
-                platform:
-                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
-                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
+                # Platform matrix from the single source of truth in the
+                # matrix job (the `platforms` output). See that emit for the
+                # runner/docker/arch shape and the third-arch coupling note.
+                platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -297,9 +303,7 @@ jobs:
                 # Platform matrix — see build-php for the shape, the
                 # runner/docker/arch field semantics, and the manifest-*
                 # coupling.
-                platform:
-                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
-                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
+                platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -431,9 +435,7 @@ jobs:
             matrix:
                 # Platform matrix — see build-php for the shape and the
                 # manifest-* per-arch coupling.
-                platform:
-                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
-                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
+                platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -526,9 +528,7 @@ jobs:
             matrix:
                 # Platform matrix — see build-php for the shape and the
                 # manifest-* per-arch coupling.
-                platform:
-                    - {runner: ubuntu-latest, docker: linux/amd64, arch: amd64}
-                    - {runner: ubuntu-24.04-arm, docker: linux/arm64, arch: arm64}
+                platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -605,12 +605,10 @@ jobs:
             matrix:
                 edition: [core, full, demo, dev]
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
-                # Platform-matrix subset — smoke only needs `runner` + `arch`
-                # (no buildx invocation here). See build-php for the full
-                # shape and the manifest-* coupling.
-                platform:
-                    - {runner: ubuntu-latest, arch: amd64}
-                    - {runner: ubuntu-24.04-arm, arch: arm64}
+                # Reuses the shared platform SSOT
+                # (needs.matrix.outputs.platforms); smoke only reads runner +
+                # arch, so the docker key on each entry rides along unused.
+                platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         # The smoke-test runs on a fresh ubuntu-latest VM per matrix cell, so
         # /tmp/smoke is naturally isolated; the matrix-derived suffix is
         # belt-and-braces for any future migration to self-hosted runners
