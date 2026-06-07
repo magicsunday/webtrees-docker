@@ -49,7 +49,11 @@ set -euo pipefail
 : "${EVENT_NAME:?EVENT_NAME env var is required}"
 : "${REF_NAME:?REF_NAME env var is required}"
 
-title="CI failure: ${WORKFLOW_NAME}"
+# The title prefix is a fixed literal shared with the dedup probe's
+# server-side search below — keep them in lockstep (a rename here must
+# update the search phrase too).
+title_prefix='CI failure'
+title="${title_prefix}: ${WORKFLOW_NAME}"
 # `gh run view` is network I/O; a transient failure (5xx, rate limit,
 # run not yet queryable) must NOT abort before the issue is filed —
 # otherwise this notifier swallows its own purpose AND turns its own job
@@ -77,15 +81,23 @@ BODY_END
 # Probe for an already-open tracking issue with the same stable title
 # before filing (GH-174). OPEN-only on purpose: a CLOSED issue means the
 # failure was resolved, so a fresh recurrence deserves a new issue rather
-# than resurrecting a closed one. The quoted `in:title "<phrase>"` search
-# narrows server-side (the title's colon is literal inside quotes, not a
-# `qualifier:` token); the exact-title jq post-filter via `env.GH174_TITLE`
-# then rejects a longer title that merely CONTAINS the phrase (another
-# workflow whose name extends this one). A probe failure is FATAL — a
-# flaky `gh issue list` must not be misread as "no open issue" and
-# silently re-file a duplicate.
+# than resurrecting a closed one.
+#
+# The server-side search narrows on the CONSTANT title prefix only — it
+# deliberately does NOT interpolate WORKFLOW_NAME, so no character in the
+# workflow name (a quote, a colon) can break the query syntax. GitHub
+# search does not honour `\"` as an escaped quote (a `"… \" …"` phrase
+# just matches nothing), so escaping the title into the phrase would
+# regress to a silent miss → duplicate; keeping the title out of the query
+# entirely is the robust fix. `--limit 100` covers a worst-case transition
+# backlog so the open issue is never paged out of the result set. The
+# exact-title jq post-filter via `env.GH174_TITLE` (quote-safe) is what
+# actually selects the right issue, rejecting any sibling whose title
+# merely shares the prefix. A probe failure is FATAL — a flaky `gh issue
+# list` must not be misread as "no open issue" and silently re-file a
+# duplicate.
 if ! existing_number=$(GH174_TITLE="$title" gh issue list \
-        --state open --search "in:title \"${title}\"" --json number,title \
+        --state open --search "in:title \"${title_prefix}\"" --limit 100 --json number,title \
         --jq 'map(select(.title == env.GH174_TITLE)) | first | .number // empty'); then
     echo "::error::gh issue list failed probing for an open '$title' issue" >&2
     exit 1
