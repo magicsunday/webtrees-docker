@@ -15,17 +15,37 @@ import subprocess
 from pathlib import Path
 
 
-def run_docker(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    """Run ``docker <args>`` in ``cwd`` and return the CompletedProcess.
+def run_docker(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool = False,
+    timeout: float | None = None,
+    input: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``docker <args>`` and return the CompletedProcess.
 
-    ``capture_output=True`` so callers can echo stderr to the user;
-    ``check=False`` so a non-zero exit is a normal return value rather
-    than a Python exception. Text mode so stdout/stderr are ``str``.
+    ``capture_output=True`` and text mode are always on so callers can
+    echo stdout/stderr to the user as ``str``. The remaining behaviour is
+    parameterised so every docker shell-out in the package routes through
+    here instead of open-coding ``subprocess.run(["docker", …])``:
+
+    ``cwd``      Directory to run in (``None`` = the current process cwd,
+                 for daemon-scope commands like ``volume ls`` that need no
+                 project dir).
+    ``check``    ``True`` raises ``CalledProcessError`` on a non-zero exit;
+                 the default ``False`` returns it so the caller can branch
+                 on ``returncode`` + ``stderr``.
+    ``timeout``  Seconds before a wedged daemon raises ``TimeoutExpired``.
+    ``input``    String fed to the command's stdin (e.g. a secret piped
+                 into a ``docker run -i`` helper).
     """
     return subprocess.run(
         ["docker", *args],
         cwd=cwd,
         capture_output=True,
         text=True,
-        check=False,
+        check=check,
+        timeout=timeout,
+        input=input,
     )

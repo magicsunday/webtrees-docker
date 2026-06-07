@@ -15,6 +15,9 @@
 
 set -o errexit -o nounset -o pipefail
 
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+
 file="${1:-installer/webtrees_installer/_alpine.py}"
 
 [ -f "$file" ] || {
@@ -27,18 +30,14 @@ file="${1:-installer/webtrees_installer/_alpine.py}"
 #   ALPINE_BASE_IMAGE: Final[str] = "alpine:3.23"
 #       ALPINE_BASE_IMAGE = 'alpine:3.23'
 #
-# The extractor is anchored on the literal `alpine:X.Y[.Z]` shape inside
-# quotes — anything else (unquoted RHS, non-alpine image, truncated value)
-# yields empty stdout from sed's -n + /p, which the empty-string check
-# below converts into a clear `::error::` annotation.
-#
-# `|| true` swallows grep's no-match exit so the explicit empty-string
-# check still runs and emits a diagnostic rather than `set -e` aborting
-# with no output.
-pin=$(grep -E '^[[:space:]]*ALPINE_BASE_IMAGE([[:space:]]*:[^=]+)?[[:space:]]*=' "$file" \
-    | head -n 1 \
-    | sed -nE 's/^[^=]*=[[:space:]]*["'\'']([[:space:]]*alpine:[0-9]+\.[0-9]+(\.[0-9]+)?[[:space:]]*)["'\''].*/\1/p' \
-    || true)
+# parse_python_constant returns the matched assignment line (empty on no
+# match — its internal `|| true` keeps `set -e` from aborting). The sed
+# then pins the value to the literal `alpine:X.Y[.Z]` shape inside
+# quotes — anything else (unquoted RHS, non-alpine image, truncated
+# value) yields empty stdout from sed's -n + /p, which the empty-string
+# check below converts into a clear `::error::` annotation.
+pin=$(parse_python_constant "$file" ALPINE_BASE_IMAGE \
+    | sed -nE 's/^[^=]*=[[:space:]]*["'\'']([[:space:]]*alpine:[0-9]+\.[0-9]+(\.[0-9]+)?[[:space:]]*)["'\''].*/\1/p')
 # Strip any whitespace the quoted value carried.
 pin=$(printf '%s' "$pin" | tr -d '[:space:]')
 

@@ -17,6 +17,9 @@
 
 set -o errexit -o nounset -o pipefail
 
+# shellcheck source=scripts/lib/lockstep.sh
+source "$(dirname "$0")/../lib/lockstep.sh"
+
 file="${1:-installer/webtrees_installer/flow.py}"
 
 [ -f "$file" ] || {
@@ -31,10 +34,11 @@ file="${1:-installer/webtrees_installer/flow.py}"
 # Same shape for _FALLBACK_PORT.
 extract() {
     local symbol="$1"
-    grep -E "^[[:space:]]*${symbol}([[:space:]]*:[^=]+)?[[:space:]]*=" "$file" \
-        | head -n 1 \
-        | sed -nE 's/^[^=]*=[[:space:]]*([0-9]+).*/\1/p' \
-        || true
+    # parse_python_constant emits the matched assignment line (empty on no
+    # match, its own `|| true` absorbing grep's exit); the sed pins the
+    # integer RHS.
+    parse_python_constant "$file" "$symbol" \
+        | sed -nE 's/^[^=]*=[[:space:]]*([0-9]+).*/\1/p'
 }
 
 default_port=$(extract "_DEFAULT_PORT")

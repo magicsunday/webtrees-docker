@@ -1221,6 +1221,32 @@ assert_lockstep_passes \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-notify-needs-lockstep (issue #154)
+# ──────────────────────────────────────────────────────────────────────
+
+# Append a new top-level build.yml job that is NOT in notify-on-failure's
+# needs: list — the exact drift the check guards (a build job added
+# without wiring it into the failure-notification fan-in). The job is a
+# minimal valid stanza placed after notify-on-failure; the check parses
+# job keys + the inline needs: array, so it does not depend on full-YAML
+# validity of the injected block.
+echo "Setting up: inject an unwired top-level job into build.yml"
+printf '\n    bogus-job:\n        runs-on: ubuntu-latest\n        steps:\n            - run: "true"\n' \
+    >> "$worktree/.github/workflows/build.yml"
+assert_lockstep_fails \
+    "ci-notify-needs-lockstep: unwired build job flagged" \
+    "ci-notify-needs-lockstep" \
+    "bogus-job"
+restore_worktree
+
+# Positive control: the unmodified workflow passes (catches a future
+# parser weakening that drops all job names and vacuously passes).
+assert_lockstep_passes \
+    "ci-notify-needs-lockstep: clean tree passes" \
+    "ci-notify-needs-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # ci-nginx-tag-derivation-lockstep
 # ──────────────────────────────────────────────────────────────────────
 

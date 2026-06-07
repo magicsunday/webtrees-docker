@@ -822,6 +822,35 @@ run_test \
     0 "skipping"
 
 # ──────────────────────────────────────────────────────────────────────
+# scripts/bump/bump-mariadb.sh + bump-nginx.sh (operator docker wrappers)
+# ──────────────────────────────────────────────────────────────────────
+
+# Both wrappers mount the repo root at /app and run their Python bump
+# from there, so the `-v` source MUST be the repo top — the directory
+# that holds installer/webtrees_installer — not the scripts/ subdir the
+# wrapper lives two levels under. Grouping the scripts into scripts/bump/
+# (GH-121) added a directory level; a wrapper still walking a single `..`
+# mounts scripts/, where the container can neither load the .py nor see
+# the installer templates. Stub docker to inspect the -v source and
+# assert it actually contains the installer tree.
+# shellcheck disable=SC2016
+_bump_mount_probe='src=""; while [ $# -gt 0 ]; do if [ "$1" = "-v" ]; then src="${2%%:*}"; fi; shift; done; if [ -d "$src/installer/webtrees_installer" ]; then echo MOUNT_OK; else echo "MOUNT_BAD=$src"; fi'
+
+reset_stubs
+stub docker "$_bump_mount_probe"
+run_test \
+    "bump-mariadb.sh: mounts the repo root (not scripts/) at /app" \
+    "./scripts/bump/bump-mariadb.sh 11.9" \
+    0 "MOUNT_OK"
+
+reset_stubs
+stub docker "$_bump_mount_probe"
+run_test \
+    "bump-nginx.sh: mounts the repo root (not scripts/) at /app" \
+    "./scripts/bump/bump-nginx.sh 1.32" \
+    0 "MOUNT_OK"
+
+# ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
 

@@ -85,3 +85,22 @@ assert_jq_parseable() {
         exit 1
     fi
 }
+
+# Print the first assignment line for a top-level Python constant <symbol>
+# in <file>, tolerating leading indentation and an optional `: Type`
+# annotation between the name and the `=` (e.g. `X = 1`, `X: int = 1`,
+# `    X: Final[str] = "…"`). The whole matched line is emitted so the
+# caller applies its own value extraction (a quoted-string sed, an
+# integer sed, …) against a known assignment shape.
+#
+# Empty stdout (no such constant found) is passed through rather than
+# failing: the trailing `|| true` swallows grep's no-match exit so the
+# caller's own emptiness check raises the actionable `::error::` instead
+# of `set -e` aborting with no diagnostic. Consolidates the shared anchor
+# regex of parse-alpine-pin.sh and parse-port-defaults.sh.
+parse_python_constant() {
+    local file=$1 symbol=$2
+    grep -E "^[[:space:]]*${symbol}([[:space:]]*:[^=]+)?[[:space:]]*=" "$file" \
+        | head -n 1 \
+        || true
+}

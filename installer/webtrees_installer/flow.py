@@ -699,21 +699,20 @@ _DOCKER_SEED_TIMEOUT_S = 30.0
 def _run_docker_probe(argv: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a docker CLI probe with a bounded timeout + OSError handling.
 
-    A daemon that wedges (deadlocked grpc, slow snapshotter) otherwise
-    blocks the installer indefinitely; a missing docker binary leaks a
-    bare FileNotFoundError past the exit-code-2 PromptError channel.
-    Both surfaces translate to operator-actionable PromptErrors here.
+    ``argv`` is the docker subcommand WITHOUT the leading ``docker`` token
+    (run_docker prepends it). A daemon that wedges (deadlocked grpc, slow
+    snapshotter) otherwise blocks the installer indefinitely; a missing
+    docker binary leaks a bare FileNotFoundError past the exit-code-2
+    PromptError channel. Both surfaces translate to operator-actionable
+    PromptErrors here.
     """
     try:
-        return subprocess.run(
-            argv, capture_output=True, text=True,
-            timeout=_DOCKER_PROBE_TIMEOUT_S,
-        )
+        return run_docker(argv, timeout=_DOCKER_PROBE_TIMEOUT_S)
     except subprocess.TimeoutExpired as exc:
         raise PromptError(
             f"docker daemon did not respond within "
             f"{_DOCKER_PROBE_TIMEOUT_S:g}s while running "
-            f"{' '.join(argv)}. Check `docker info` and retry."
+            f"docker {' '.join(argv)}. Check `docker info` and retry."
         ) from exc
     except OSError as exc:
         raise PromptError(
@@ -758,7 +757,7 @@ def _validate_byod_reuse_volumes(args: StandaloneArgs) -> None:
     for suffix in ("database", "media", "secrets"):
         volume_name = f"{project}_{suffix}"
         probe = _run_docker_probe(
-            ["docker", "volume", "inspect", volume_name],
+            ["volume", "inspect", volume_name],
         )
         if probe.returncode != 0:
             stderr = probe.stderr.strip()
@@ -781,7 +780,7 @@ def _validate_byod_reuse_volumes(args: StandaloneArgs) -> None:
         # a running container. Two engines (the original install +
         # this new one) on the same DB datadir corrupts InnoDB.
         in_use = _run_docker_probe(
-            ["docker", "ps",
+            ["ps",
              "--filter", f"volume={volume_name}",
              "--format", "{{.Names}}"],
         )
@@ -993,13 +992,13 @@ def _list_surviving_volumes(work_dir: Path) -> list[str]:
     except PrereqError:
         return []
     try:
-        result = subprocess.run(
+        result = run_docker(
             [
-                "docker", "volume", "ls",
+                "volume", "ls",
                 "--filter", f"name=^{project}_",
                 "--format", "{{.Name}}",
             ],
-            check=True, capture_output=True, text=True,
+            check=True,
         )
     except (subprocess.CalledProcessError, OSError) as exc:
         # Catch both classes of failure:
@@ -1035,9 +1034,9 @@ def _wipe_volumes(volumes: list[str]) -> None:
     failures: list[tuple[str, str]] = []
     for volume in volumes:
         try:
-            subprocess.run(
-                ["docker", "volume", "rm", "-f", volume],
-                check=True, capture_output=True, text=True,
+            run_docker(
+                ["volume", "rm", "-f", volume],
+                check=True,
             )
         except (subprocess.CalledProcessError, OSError) as exc:
             # Common case: the volume is still mounted by another stack
@@ -1156,9 +1155,9 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
     volume = f"{_compose_project_name(work_dir)}_secrets"
 
     try:
-        subprocess.run(
-            ["docker", "volume", "create", volume],
-            check=True, capture_output=True, text=True,
+        run_docker(
+            ["volume", "create", volume],
+            check=True,
             timeout=_DOCKER_SEED_TIMEOUT_S,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
@@ -1173,9 +1172,9 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
         ) from exc
 
     try:
-        subprocess.run(
+        run_docker(
             [
-                "docker", "run", "--rm", "-i",
+                "run", "--rm", "-i",
                 # `--pull=missing` pulls the helper image only when it
                 # is not already on the host daemon. The launcher path
                 # and the CI matrix pre-pull the helper, so this is a
@@ -1197,7 +1196,7 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
                 "umask 077 && cat > /secrets/wt_admin_password && chmod 444 /secrets/wt_admin_password",
             ],
             input=password,
-            check=True, capture_output=True, text=True,
+            check=True,
             timeout=_DOCKER_SEED_TIMEOUT_S,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
@@ -1212,9 +1211,9 @@ def _write_admin_password_secret(*, work_dir: Path, password: str) -> None:
         # via OSError) so the operator gets the ORIGINAL error rather
         # than a confusing exception from the cleanup path.
         try:
-            subprocess.run(
-                ["docker", "volume", "rm", "-f", volume],
-                check=False, capture_output=True, text=True,
+            run_docker(
+                ["volume", "rm", "-f", volume],
+                check=False,
                 timeout=_DOCKER_SEED_TIMEOUT_S,
             )
         except (subprocess.TimeoutExpired, OSError):
