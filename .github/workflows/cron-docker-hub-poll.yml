@@ -8,6 +8,14 @@ name: Cron Docker Hub poll (reusable)
 #
 # check-php and check-versions are NOT callers — they have different
 # scan shapes (digest probe / GitHub releases) and stay bespoke.
+#
+# notify-on-failure keys its tracking issue on the workflow title alone
+# (`CI failure: <github.workflow>`; GH-174 dropped the per-run suffix to
+# dedup standing failures). For a `workflow_call` reusable, `github.workflow`
+# resolves to the CALLER's top-level `name:`, so each caller MUST keep a
+# distinct `name:` — two callers sharing a name would converge on ONE
+# tracking issue and cross-file each other's recurrence comments. The
+# three callers (Alpine / MariaDB / nginx) are distinct today; keep them so.
 
 on:
     workflow_call:

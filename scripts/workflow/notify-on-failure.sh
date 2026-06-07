@@ -11,8 +11,8 @@
 #
 # Required env vars (the composite action sets all of these from the
 # github context):
-#   WORKFLOW_NAME  Name of the failed workflow.
-#   RUN_NUMBER     Per-workflow run counter (issue title).
+#   WORKFLOW_NAME  Name of the failed workflow (the stable dedup title).
+#   RUN_NUMBER     Per-workflow run counter (issue/comment body only).
 #   RUN_ID         Run id (gh run view + run URL).
 #   RUN_URL        Web URL of the failed run (issue body).
 #   EVENT_NAME     Triggering event (issue body).
@@ -25,9 +25,17 @@
 #                (the default GITHUB_TOKEN cannot assign bot accounts).
 #                Unset → skip the assignment with a notice.
 #
+# Dedup (GH-174): the issue title is keyed on WORKFLOW_NAME alone — the
+# per-run counter lives in the body, not the title. Before filing, an
+# OPEN issue with the same title is probed; if one exists the run appends
+# a recurrence comment instead of opening a duplicate. A standing daily
+# failure (e.g. a wedged auto-bump PR that the GH-171 stuck-PR valve
+# fails every cron tick) therefore converges on ONE tracking issue rather
+# than storming the tracker with one new issue per run.
+#
 # Exit codes:
-#   0  Issue filed (assigned, assignment skipped, or assignment
-#      degraded because the Copilot agent is not enabled).
+#   0  Issue filed or commented (assigned, assignment skipped, or
+#      assignment degraded because the Copilot agent is not enabled).
 #   1  Hard failure: gh issue create broke, or the assignment failed
 #      with a genuine token misconfiguration (wrong scope / expired) —
 #      NOT the environmental "agent not enabled" case.
@@ -41,7 +49,7 @@ set -euo pipefail
 : "${EVENT_NAME:?EVENT_NAME env var is required}"
 : "${REF_NAME:?REF_NAME env var is required}"
 
-title="CI failure: ${WORKFLOW_NAME} (run ${RUN_NUMBER})"
+title="CI failure: ${WORKFLOW_NAME}"
 # `gh run view` is network I/O; a transient failure (5xx, rate limit,
 # run not yet queryable) must NOT abort before the issue is filed —
 # otherwise this notifier swallows its own purpose AND turns its own job
@@ -55,7 +63,7 @@ failed_jobs=$(gh run view "${RUN_ID}" --json jobs \
 # leading whitespace — the same output the YAML block scalar produced
 # after its common-indent strip.
 body=$(cat <<BODY_END
-Workflow **${WORKFLOW_NAME}** failed. Triggered by \`${EVENT_NAME}\` on \`${REF_NAME}\`.
+Workflow **${WORKFLOW_NAME}** failed (run ${RUN_NUMBER}). Triggered by \`${EVENT_NAME}\` on \`${REF_NAME}\`.
 
 Run: ${RUN_URL}
 
@@ -65,6 +73,33 @@ ${failed_jobs}
 Reproduce locally or inspect the run logs above. Close this issue when the underlying failure is fixed.
 BODY_END
 )
+
+# Probe for an already-open tracking issue with the same stable title
+# before filing (GH-174). OPEN-only on purpose: a CLOSED issue means the
+# failure was resolved, so a fresh recurrence deserves a new issue rather
+# than resurrecting a closed one. The quoted `in:title "<phrase>"` search
+# narrows server-side (the title's colon is literal inside quotes, not a
+# `qualifier:` token); the exact-title jq post-filter via `env.GH174_TITLE`
+# then rejects a longer title that merely CONTAINS the phrase (another
+# workflow whose name extends this one). A probe failure is FATAL — a
+# flaky `gh issue list` must not be misread as "no open issue" and
+# silently re-file a duplicate.
+if ! existing_number=$(GH174_TITLE="$title" gh issue list \
+        --state open --search "in:title \"${title}\"" --json number,title \
+        --jq 'map(select(.title == env.GH174_TITLE)) | first | .number // empty'); then
+    echo "::error::gh issue list failed probing for an open '$title' issue" >&2
+    exit 1
+fi
+
+if [ -n "$existing_number" ]; then
+    # Standing failure: the tracking issue is already open (and already
+    # triaged/assigned on creation). Append a recurrence comment and stop
+    # — no duplicate issue, no re-assignment.
+    comment_url=$(gh issue comment "$existing_number" --body "$body")
+    echo "Commented on existing issue #${existing_number}: $comment_url"
+    exit 0
+fi
+
 issue_url=$(gh issue create --title "$title" --body "$body")
 echo "Issue created: $issue_url"
 

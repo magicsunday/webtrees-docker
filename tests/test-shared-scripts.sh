@@ -596,6 +596,7 @@ reset_stubs
 # shellcheck disable=SC2016
 stub gh 'case "$1 $2" in
   "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "" ;;
   "issue create") echo "https://github.com/o/r/issues/1" ;;
   "issue edit") echo "ERROR: should not assign without PAT" >&2; exit 99 ;;
 esac'
@@ -610,6 +611,7 @@ reset_stubs
 # shellcheck disable=SC2016
 stub gh 'case "$1 $2" in
   "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "" ;;
   "issue create") echo "https://github.com/o/r/issues/1" ;;
   "issue edit") echo "GraphQL: Copilot agent is not enabled in this repository. (replaceActorsForAssignable)" >&2; exit 1 ;;
 esac'
@@ -623,6 +625,7 @@ reset_stubs
 # shellcheck disable=SC2016
 stub gh 'case "$1 $2" in
   "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "" ;;
   "issue create") echo "https://github.com/o/r/issues/1" ;;
   "issue edit") echo "HTTP 401: Bad credentials" >&2; exit 1 ;;
 esac'
@@ -638,6 +641,7 @@ reset_stubs
 # shellcheck disable=SC2016
 stub gh 'case "$1 $2" in
   "run view") echo "boom" >&2; exit 1 ;;
+  "issue list") echo "" ;;
   "issue create") echo "https://github.com/o/r/issues/1" ;;
 esac'
 run_test \
@@ -650,6 +654,7 @@ reset_stubs
 # shellcheck disable=SC2016
 stub gh 'case "$1 $2" in
   "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "" ;;
   "issue create") echo "https://github.com/o/r/issues/1" ;;
   "issue edit") exit 0 ;;
 esac'
@@ -657,6 +662,82 @@ run_test \
     "notify-on-failure: assignment succeeds → 'Assigned' + exit 0" \
     "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
     0 "Assigned https://github.com/o/r/issues/1"
+
+# GH-174: dedup standing failures. The title no longer embeds `run N`,
+# so the open-issue probe keys on a STABLE title. A standing daily
+# failure must converge on ONE open tracking issue — commented on, never
+# re-created. The stub is stateful: run 1 finds no open issue (so it
+# files one and drops a marker), run 2 sees the marker (an open issue
+# now exists) and must COMMENT, never call `issue create` a second time.
+# Two consecutive runs are driven; `issue create` aborts loud if hit
+# twice, proving the dedup holds.
+reset_stubs
+issue_marker="$stub_dir/.gh-issue-open"
+# shellcheck disable=SC2016
+stub gh "case \"\$1 \$2\" in
+  'run view') echo '- check: https://x/job/1' ;;
+  'issue list') if [ -f '$issue_marker' ]; then echo 42; fi ;;
+  'issue create') if [ -f '$issue_marker' ]; then echo '::error::duplicate issue create' >&2; exit 99; fi; touch '$issue_marker'; echo 'https://github.com/o/r/issues/42' ;;
+  'issue comment') echo 'https://github.com/o/r/issues/42#issuecomment-1' ;;
+  'issue edit') exit 0 ;;
+esac"
+run_test \
+    "notify-on-failure: standing failure → 2nd run comments, no duplicate (exit 0)" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh >/dev/null && $notify_env RUN_NUMBER=26 COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    0 "Commented on existing issue #42"
+
+# GH-174: the comment path stops BEFORE the Copilot assignment block — a
+# recurrence on an already-open, already-triaged issue must not re-file
+# AND must not re-assign. Issue is open from the start (probe returns 42);
+# both `issue create` and `issue edit` abort loud so a regression that
+# fell through either is caught. COPILOT_PAT is set to prove the
+# assignment block is skipped by the comment-path `exit 0`, not by a
+# missing PAT.
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "42" ;;
+  "issue comment") echo "https://github.com/o/r/issues/42#issuecomment-1" ;;
+  "issue create") echo "::error::standing failure must not re-file" >&2; exit 99 ;;
+  "issue edit") echo "::error::comment path must not re-assign" >&2; exit 99 ;;
+esac'
+run_test \
+    "notify-on-failure: open issue → comment only, no create + no re-assign (exit 0)" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    0 "Commented on existing issue #42"
+
+# GH-174: transient single failure with no open issue → file a fresh one
+# (the create path is preserved). The probe returns empty; commenting on
+# a non-existent issue must never happen.
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "" ;;
+  "issue create") echo "https://github.com/o/r/issues/7" ;;
+  "issue comment") echo "::error::must not comment when no open issue" >&2; exit 99 ;;
+  "issue edit") exit 0 ;;
+esac'
+run_test \
+    "notify-on-failure: no open issue → create fresh, no comment (exit 0)" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    0 "Issue created: https://github.com/o/r/issues/7"
+
+# GH-174: the open-issue probe is fatal on a flaky `gh issue list` — a
+# transient API error must NOT be misread as "no open issue" and silently
+# re-file a duplicate.
+reset_stubs
+# shellcheck disable=SC2016
+stub gh 'case "$1 $2" in
+  "run view") echo "- check: https://x/job/1" ;;
+  "issue list") echo "boom" >&2; exit 1 ;;
+  "issue create") echo "::error::must not create after a failed probe" >&2; exit 99 ;;
+esac'
+run_test \
+    "notify-on-failure: issue-list probe failure → ::error:: + exit 1" \
+    "$notify_env COPILOT_PAT=pat ./scripts/workflow/notify-on-failure.sh" \
+    1 "::error::gh issue list failed"
 
 # ──────────────────────────────────────────────────────────────────────
 # scripts/lib/auto-bump-lib.sh
