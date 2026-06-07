@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "$0")/.." && pwd)
+repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 
 exec docker run --rm \
     --user "$(id -u):$(id -g)" \
