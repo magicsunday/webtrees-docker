@@ -42,7 +42,7 @@ COMPOSE_BIN := $(shell \
 		echo "echo 'Error: Docker Compose v2 not available' && exit 1"; \
 	fi)
 
-.PHONY: .logo help up down restart logs pull shell cli backup restore switch-https switch-http
+.PHONY: .logo help up down restart logs pull shell cli backup restore switch-enforce-https switch-https switch-http
 
 # Match the dev Makefile's ASCII logo. The heredoc-style printf keeps
 # the file self-contained — the install dir has no `Make/helper/`
@@ -128,39 +128,38 @@ restore: .logo  ## Restore a database dump produced by 'make backup'. Usage: mak
 	@gunzip -c "$$FILE" | $(COMPOSE_BIN) exec -T db sh -c \
 		'mariadb --user="$$MARIADB_USER" --password="$$(cat "$$MARIADB_PASSWORD_FILE")" "$$MARIADB_DATABASE"'
 
-# switch-https / switch-http flip ENFORCE_HTTPS in .env, then restart
-# the two services that read it (nginx for the 301 redirect, phpfpm
-# for the HSTS / cookie-secure flags webtrees emits). Volumes survive
-# the restart so user data + config.ini.php + media stay untouched.
-# Both targets are idempotent — running switch-https twice is a no-op.
+# switch-enforce-https flips ENFORCE_HTTPS in .env, then restarts the
+# two services that read it (nginx for the 301 redirect, phpfpm for the
+# HSTS / cookie-secure flags webtrees emits). Volumes survive the
+# restart so user data + config.ini.php + media stay untouched.
+# Idempotent — running it twice with the same VALUE is a no-op.
+# switch-https / switch-http are thin aliases pinning VALUE to TRUE /
+# FALSE.
 #
 # The sed rewrite preserves the line position and handles three
 # starting shapes (`ENFORCE_HTTPS=TRUE`, `ENFORCE_HTTPS=FALSE`, missing
 # from the file). On the missing-from-file path we append rather than
 # fail — the entrypoint already defaults to disabled when the var is
 # absent, so appending makes the new value durable across restarts.
-switch-https: .logo  ## Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm.
+switch-enforce-https: .logo  ## Flip ENFORCE_HTTPS to VALUE (TRUE|FALSE) and restart nginx + phpfpm.
+	@if [ "$(VALUE)" != "TRUE" ] && [ "$(VALUE)" != "FALSE" ]; then \
+		echo "${FRED}switch-enforce-https:${FRESET} VALUE must be TRUE or FALSE (got '$(VALUE)')" >&2; \
+		exit 1; \
+	fi
 	@if [ ! -f .env ]; then \
-		echo "${FRED}switch-https:${FRESET} .env not found; run from your install directory" >&2; \
+		echo "${FRED}switch-enforce-https:${FRESET} .env not found; run from your install directory" >&2; \
 		exit 1; \
 	fi
 	@if grep -qE '^ENFORCE_HTTPS=' .env; then \
-		sed -i -E 's|^ENFORCE_HTTPS=.*|ENFORCE_HTTPS=TRUE|' .env; \
+		sed -i -E 's|^ENFORCE_HTTPS=.*|ENFORCE_HTTPS=$(VALUE)|' .env; \
 	else \
-		echo "ENFORCE_HTTPS=TRUE" >> .env; \
+		echo "ENFORCE_HTTPS=$(VALUE)" >> .env; \
 	fi
-	@echo -e "${FBLUE}▶ ENFORCE_HTTPS=TRUE; restarting nginx + phpfpm${FRESET}"
+	@echo -e "${FBLUE}▶ ENFORCE_HTTPS=$(VALUE); restarting nginx + phpfpm${FRESET}"
 	$(COMPOSE_BIN) up -d --force-recreate --no-deps nginx phpfpm
 
-switch-http: .logo  ## Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm.
-	@if [ ! -f .env ]; then \
-		echo "${FRED}switch-http:${FRESET} .env not found; run from your install directory" >&2; \
-		exit 1; \
-	fi
-	@if grep -qE '^ENFORCE_HTTPS=' .env; then \
-		sed -i -E 's|^ENFORCE_HTTPS=.*|ENFORCE_HTTPS=FALSE|' .env; \
-	else \
-		echo "ENFORCE_HTTPS=FALSE" >> .env; \
-	fi
-	@echo -e "${FBLUE}▶ ENFORCE_HTTPS=FALSE; restarting nginx + phpfpm${FRESET}"
-	$(COMPOSE_BIN) up -d --force-recreate --no-deps nginx phpfpm
+switch-https: ## Flip ENFORCE_HTTPS=TRUE and restart nginx + phpfpm.
+	@$(MAKE) switch-enforce-https VALUE=TRUE
+
+switch-http: ## Flip ENFORCE_HTTPS=FALSE and restart nginx + phpfpm.
+	@$(MAKE) switch-enforce-https VALUE=FALSE

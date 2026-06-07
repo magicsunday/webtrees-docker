@@ -674,10 +674,12 @@ def test_render_writes_makefile_with_lifecycle_targets(
     assert "restore:" in body
     assert "make restore FILE=" in body
 
-    # switch-https / switch-http (#45) toggle ENFORCE_HTTPS and restart
-    # the two services that read it. Verify both target headers + the
-    # canonical env-var rewrite are present so a refactor that drops
-    # `sed -i -E 's|^ENFORCE_HTTPS=.*|...|'` regresses loudly.
+    # switch-enforce-https (#45/#154) toggles ENFORCE_HTTPS and restarts
+    # the two services that read it; switch-https / switch-http are thin
+    # aliases pinning VALUE. Verify the parameterised target, both alias
+    # headers, and the canonical env-var rewrite are present so a refactor
+    # that drops `sed -i -E 's|^ENFORCE_HTTPS=.*|...|'` regresses loudly.
+    assert "switch-enforce-https:" in body
     assert "switch-https:" in body
     assert "switch-http:" in body
     assert "ENFORCE_HTTPS=TRUE" in body
@@ -784,15 +786,16 @@ def test_render_makefile_cli_and_restore_have_usage_guards(
     # Counting only the continuation form (`exit 1; \`) is unambiguous:
     # plain `exit 1;` is a substring of the continuation, so a substring
     # count would double-count and pass loosely. Five guards in total:
-    # cli-ARGS, restore-FILE-empty, restore-FILE-missing,
-    # switch-https-no-env, switch-http-no-env.
+    # cli-ARGS, restore-FILE-empty, restore-FILE-missing, and the two in
+    # the consolidated switch-enforce-https target (VALUE not TRUE/FALSE,
+    # .env missing).
     guard_count = sum(
         1 for line in body.splitlines() if line.rstrip().endswith("exit 1; \\")
     )
     assert guard_count == 5, (
         "expected exactly five `exit 1; \\` guard lines "
         "(cli ARGS, restore FILE empty, restore FILE missing, "
-        "switch-https/http .env missing); "
+        "switch-enforce-https VALUE-invalid, switch-enforce-https .env missing); "
         f"got {guard_count}"
     )
 
@@ -826,9 +829,11 @@ def test_render_makefile_switch_flips_env(
         else:
             env_file.write_text(f"WEBTREES_VERSION=2.2.6\nENFORCE_HTTPS={starting}\n")
 
-        # Run the .env-rewrite half of the target. The recipe is short
-        # enough that an inline re-statement matches the Makefile source
-        # byte-for-byte; if Makefile.j2's regex tightens, sync this too.
+        # Run the .env-rewrite half of the target. The source recipe
+        # parameterises the value as `ENFORCE_HTTPS=$(VALUE)`, which make
+        # expands to exactly this target_value at run time — so this
+        # inline re-statement reproduces the effective rewrite. If
+        # Makefile.j2's regex tightens, sync this too.
         result = subprocess.run(
             ["bash", "-c", f"""
                 set -euo pipefail
