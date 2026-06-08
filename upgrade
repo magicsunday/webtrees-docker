@@ -59,6 +59,21 @@ if [ "$#" -eq 0 ]; then
     set -- --non-interactive --no-admin --edition full --proxy standalone --port 28080
 fi
 
+# Fetch the installer launcher BEFORE the destructive volume drop. The
+# `docker volume rm` below is irreversible; if the re-install fetch then
+# failed (transient GitHub/CDN outage, proxy), the operator would be left
+# with the app volume gone AND the stack down with nothing re-rendered.
+# Pulling the script up-front means a network blip aborts here, while the
+# stack is still intact, instead of mid-teardown. The image pull itself
+# stays guarded by install's own `docker run --pull=always`.
+echo "→ Fetching installer launcher..."
+installer_script=$(mktemp)
+trap 'rm -f "$installer_script"' EXIT
+if ! curl -fsSL "$INSTALLER_REMOTE" -o "$installer_script"; then
+    echo "failed to fetch the installer from $INSTALLER_REMOTE; aborting before touching any volume so your stack stays intact" >&2
+    exit 1
+fi
+
 echo "→ Stopping existing stack..."
 docker compose down
 
@@ -66,4 +81,4 @@ echo "→ Removing ${COMPOSE_PROJECT_NAME}_app volume so the new image re-seeds 
 docker volume rm -f "${COMPOSE_PROJECT_NAME}_app"
 
 echo "→ Re-running install with --force..."
-curl -fsSL "$INSTALLER_REMOTE" | bash -s -- "$@" --force
+bash "$installer_script" "$@" --force

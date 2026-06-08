@@ -23,12 +23,12 @@
 # volume and race on `pip install -e .` writes under `make -jN`.
 .NOTPARALLEL: ci-test
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-cache-ignore-error-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-cache-ignore-error-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-launchers-tests ci-host-lan-ip-detect-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test`. Makefile targets cannot contain `:` in their names, so the
 # recipe is `ci-test`; both are interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-cache-ignore-error-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-cache-ignore-error-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-launchers-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -257,6 +257,17 @@ ci-shared-scripts-tests: .logo ## Failure-path tests for the workflow-shared scr
 	# after grep, the `// empty` jq guard, a `[ -n ... ] || exit 1`
 	# self-test, or the ALLOW_MISSING_PIN downgrade would ship green.
 	./tests/test-shared-scripts.sh
+
+ci-launchers-tests: .logo ## Behaviour tests for the root operator launchers (install/upgrade/switch + scripts/configuration).
+	echo -e "${FBLUE}▶ operator-launcher tests${FRESET}"
+	# Pins the GH-114 fixes: scripts/configuration's sed-escaping +
+	# required-var validation, the composer-* APP_DIR guard, upgrade's
+	# fetch-before-destroy ordering, and switch's env_value parser parity
+	# (CRLF / quotes / export-prefix) + edition persistence. A regression
+	# in any of these — e.g. dropping the escape, re-hard-coding
+	# `--edition full`, or moving the volume drop ahead of the fetch —
+	# fails a test here instead of silently mis-serving operators.
+	./tests/test-launchers.sh
 
 ci-hadolint: .logo ## Lints the Dockerfiles.
 	echo -e "${FBLUE}▶ hadolint (Dockerfile)${FRESET}"

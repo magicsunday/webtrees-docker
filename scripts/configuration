@@ -32,6 +32,8 @@ validate_environment() {
         "MARIADB_DATABASE"
         "DEV_DOMAIN"
         "ENFORCE_HTTPS"
+        "WEBTREES_TABLE_PREFIX"
+        "WEBTREES_REWRITE_URLS"
     )
 
     local var
@@ -62,6 +64,27 @@ validate_ids() {
     return 0
 }
 
+# Write a `key="value";` line into the webtrees config via sed. The value
+# is escaped for the `s///` replacement: backslash FIRST (so it is not
+# double-escaped), then the `/` delimiter and `&` (sed's whole-match
+# back-reference). Without this a value containing any of them — DB
+# passwords routinely carry `/`, `&` or `\` — either aborts sed with
+# `unknown option to 's'` (leaving config.ini.php half-seeded under
+# `set -o errexit`) or silently substitutes the wrong text. Previously
+# only base_url hand-escaped its slashes; the DB fields did not.
+apply_config_value() {
+    local key="$1" value="$2" file="$3" escaped
+    escaped="${value//\\/\\\\}"
+    escaped="${escaped//\//\\/}"
+    escaped="${escaped//&/\\&}"
+    # Anchor the key at line start: the template writes each key at column
+    # 0, so `^${key}=` cannot over-match a different line that merely
+    # embeds `${key}=` in its value, nor a longer key of which this one is
+    # a prefix. Keeps the substitution single-line and collision-proof if
+    # the upstream config template ever gains a derived/colliding key.
+    sed -i "s/^${key}=.*/${key}=\"${escaped}\";/" "${file}"
+}
+
 # Webtrees configuration
 setup_configuration() {
     log_success "Setting up webtrees configuration file"
@@ -83,7 +106,7 @@ setup_configuration() {
         "dbuser=${MARIADB_USER}"
         "dbpass=${MARIADB_PASSWORD}"
         "dbname=${MARIADB_DATABASE}"
-        "base_url=${url_scheme}:\\/\\/${DEV_DOMAIN}"
+        "base_url=${url_scheme}://${DEV_DOMAIN}"
         "tblpfx=${WEBTREES_TABLE_PREFIX}"
         "rewrite_urls=${WEBTREES_REWRITE_URLS}"
     )
@@ -92,7 +115,7 @@ setup_configuration() {
     for entry in "${config_entries[@]}"; do
         key="${entry%%=*}"
         value="${entry#*=}"
-        sed -i "s/${key}=.*/${key}=\"${value}\";/" "${CONFIG_FILE}"
+        apply_config_value "${key}" "${value}" "${CONFIG_FILE}"
     done
 
     cd - > /dev/null || exit 1

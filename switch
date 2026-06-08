@@ -55,7 +55,12 @@ esac
 
 # Detect current mode from .env if present
 current="standalone"
-if [ -f .env ] && grep -q "^ENVIRONMENT=development$" .env 2>/dev/null; then
+# Tolerate surrounding whitespace and a trailing CR so an editor-saved
+# `.env` (trailing space, CRLF) doesn't defeat the match and misreport
+# the current mode — which would skip the switch (or the dev→standalone
+# data-loss warning) entirely.
+if [ -f .env ] \
+    && grep -qE "^[[:space:]]*ENVIRONMENT[[:space:]]*=[[:space:]]*development[[:space:]]*$" .env 2>/dev/null; then
     current="dev"
 fi
 
@@ -78,13 +83,35 @@ fi
 # not blow them away. Each variable has a sensible default if the .env
 # is silent on it (first-time install path).
 env_value() {
-    local v
-    [ -f .env ] || { echo "$2"; return; }
-    v=$(grep "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"')
+    local key="$1" default="$2" line v
+    [ -f .env ] || { printf '%s\n' "$default"; return; }
+    # Match `KEY=`, `export KEY=` and optional spaces around `=`, taking
+    # the last assignment (later wins, mirroring env-file load order).
+    # Then: strip a trailing CR (CRLF .env files saved on Windows), trim
+    # surrounding whitespace, and remove a SINGLE matched leading+trailing
+    # quote pair only. The old `tr -d '"'` deleted EVERY quote byte and
+    # left CR / whitespace in place, so a value the Python wizard parsed
+    # (it `.strip()`s and quote-aware-parses) silently diverged here —
+    # round-tripping DB credentials through `switch` could mangle them and
+    # break auth against the reused database volume.
+    # `|| line=""` keeps a no-match non-fatal: grep exits 1 on no match,
+    # pipefail propagates it, and a bare `env_value KEY default` call
+    # (outside a `$(...)` that masks errexit) would otherwise abort the
+    # script here before the default-fallback on the next line runs.
+    line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" .env 2>/dev/null | tail -1) || line=""
+    [ -n "$line" ] || { printf '%s\n' "$default"; return; }
+    v=${line#*=}
+    v=${v%$'\r'}
+    v="${v#"${v%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    case "$v" in
+        \"*\") v=${v#\"}; v=${v%\"} ;;
+        \'*\') v=${v#\'}; v=${v%\'} ;;
+    esac
     if [ -n "$v" ]; then
-        echo "$v"
+        printf '%s\n' "$v"
     else
-        echo "$2"
+        printf '%s\n' "$default"
     fi
 }
 
@@ -96,6 +123,10 @@ mariadb_root=$(env_value MARIADB_ROOT_PASSWORD rootpw)
 mariadb_db=$(env_value MARIADB_DATABASE webtrees)
 mariadb_user=$(env_value MARIADB_USER webtrees)
 mariadb_pw=$(env_value MARIADB_PASSWORD devpw)
+# Persisted edition (core | full), preserved across the switch so a
+# `core` install is not silently re-rendered onto the `full` image.
+# Defaults to `full` for .env files predating the EDITION key.
+edition=$(env_value EDITION full)
 
 if [ -f compose.yaml ]; then
     echo "→ Stopping existing $current stack..."
@@ -128,15 +159,17 @@ echo "→ Switching $current → $target..."
 
 if [ "$target" = "standalone" ]; then
     # Standalone mode — bundled image, no admin pre-set (use webtrees own
-    # setup wizard on first visit). Port preserved.
+    # setup wizard on first visit). Port + edition preserved.
     exec ./install --non-interactive --no-admin --force \
-        --edition full --proxy standalone --port "$port"
+        --edition "$edition" --proxy standalone --port "$port"
 fi
 
 # Dev mode — pass through every dev-flow flag so the new .env carries
-# the same creds and ports as the old one.
+# the same creds and ports as the old one. --edition is persisted-only
+# in dev (the dev stack builds from source); it rides along so a later
+# `./switch standalone` restores the operator's edition.
 exec ./install --mode dev --non-interactive --force \
-    --proxy standalone --port "$port" --pma-port "$pma_port" \
+    --edition "$edition" --proxy standalone --port "$port" --pma-port "$pma_port" \
     --dev-domain "$dev_domain" \
     --mariadb-root-password "$mariadb_root" \
     --mariadb-database "$mariadb_db" \
