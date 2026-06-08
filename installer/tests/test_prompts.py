@@ -52,6 +52,58 @@ def test_ask_text_required_rejects_empty() -> None:
         )
 
 
+def test_ask_text_secret_does_not_echo_default() -> None:
+    """A secret-valued default must never be rendered into the visible prompt."""
+    stdout = StringIO()
+    ask_text(
+        "MariaDB root password",
+        default="s3cr3t-existing-pw",
+        secret=True,
+        stdin=StringIO("\n"),
+        stdout=stdout,
+    )
+    assert "s3cr3t-existing-pw" not in stdout.getvalue()
+
+
+def test_ask_text_secret_still_applies_default_on_empty() -> None:
+    """Suppressing the echo must not drop the default: empty input keeps it."""
+    answer = ask_text(
+        "MariaDB root password",
+        default="s3cr3t-existing-pw",
+        secret=True,
+        stdin=StringIO("\n"),
+        stdout=StringIO(),
+    )
+    assert answer == "s3cr3t-existing-pw"
+
+
+def test_ask_text_secret_signals_a_retained_value_without_revealing_it() -> None:
+    """With a non-empty secret default, the prompt hints that a value is kept."""
+    stdout = StringIO()
+    ask_text(
+        "MariaDB root password",
+        default="s3cr3t-existing-pw",
+        secret=True,
+        stdin=StringIO("new-pw\n"),
+        stdout=stdout,
+    )
+    assert "keep current" in stdout.getvalue()
+
+
+def test_ask_text_secret_with_empty_default_emits_no_suffix() -> None:
+    """No current secret → no `keep current` hint, and obviously no leak."""
+    stdout = StringIO()
+    answer = ask_text(
+        "MariaDB root password",
+        default="",
+        secret=True,
+        stdin=StringIO("chosen-pw\n"),
+        stdout=stdout,
+    )
+    assert answer == "chosen-pw"
+    assert "keep current" not in stdout.getvalue()
+
+
 def test_ask_choice_returns_label_for_index_input() -> None:
     choices = [
         Choice("core", "Core (plain Webtrees)"),

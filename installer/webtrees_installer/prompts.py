@@ -51,10 +51,18 @@ def ask_text(
     *,
     default: str | None,
     value: str | None = None,
+    secret: bool = False,
     stdin: IO[str] | None = None,
     stdout: IO[str] | None = None,
 ) -> str:
-    """Read a free-form string answer. `value` overrides the prompt entirely."""
+    """Read a free-form string answer. `value` overrides the prompt entirely.
+
+    When `secret` is set the default is never rendered into the visible
+    prompt — echoing a retained password (e.g. one read back from an
+    existing `.env`) would leak it to the terminal and any captured log.
+    A non-empty secret default is still applied on an empty reply; the
+    prompt only signals that a value is kept, without revealing it.
+    """
     if value is not None:
         if not value:
             raise PromptError(f"{question}: required")
@@ -63,7 +71,10 @@ def ask_text(
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
 
-    suffix = f" [{default}]" if default is not None else ""
+    if secret:
+        suffix = " [keep current]" if default else ""
+    else:
+        suffix = f" [{default}]" if default is not None else ""
     print(f"{question}{suffix}: ", end="", file=stdout, flush=True)
     reply = stdin.readline().strip()
 

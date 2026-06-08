@@ -314,6 +314,7 @@ def collect_dev_inputs(
     mariadb_root_password = ask_text(
         "MariaDB root password",
         default=existing.get("MARIADB_ROOT_PASSWORD", ""),
+        secret=True,
         stdin=stdin, stdout=stdout,
     )
     mariadb_database = ask_text(
@@ -329,6 +330,7 @@ def collect_dev_inputs(
     mariadb_password = ask_text(
         "MariaDB user password",
         default=existing.get("MARIADB_PASSWORD", ""),
+        secret=True,
         stdin=stdin, stdout=stdout,
     )
 

@@ -242,6 +242,9 @@ def test_collect_dev_inputs_uses_existing_env_values() -> None:
     assert args.app_port == 55555
     assert args.mariadb_password == "old-secret"
     assert args.mariadb_user == "old_user"
+    # The retained password is reused as the default but must never be
+    # echoed back to the terminal (clear-text-logging leak).
+    assert "old-secret" not in stdout.getvalue()
 
 
 def test_collect_dev_inputs_preserves_existing_enforce_https_true() -> None:
