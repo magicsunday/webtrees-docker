@@ -13,6 +13,18 @@ on:
         - cron: '15 12 * * *'
     workflow_dispatch:
 
+# A reusable-workflow caller's top-level permissions cap what the called
+# workflow's jobs can request (the repo's default GITHUB_TOKEN is
+# read-only). cron-docker-hub-poll.yml's jobs need issues: write (file the
+# bump issue) and actions: write (dispatch the rebuild); a job-level grant
+# in the reusable workflow cannot exceed this cap, so without the block the
+# call is rejected at startup (startup_failure, no logs). Restores the set
+# the standalone poller carried before the GH-140 consolidation.
+permissions:
+    contents: read
+    issues: write
+    actions: write
+
 jobs:
     check:
         uses: ./.github/workflows/cron-docker-hub-poll.yml
