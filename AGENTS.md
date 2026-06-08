@@ -27,7 +27,7 @@ conventions, audit-loop discipline) live in
 | `Dockerfile` | Multi-stage build for `php` / `php-full` / `nginx` (stages: `webtrees-build`, `webtrees-build-full`, `php-base`, `php-build`, `php-build-full`, `build-box`, `nginx-build`) |
 | `rootfs/` | Files baked into the runtime images at build time |
 | `compose.yaml` + `compose.*.yaml` | Base + override chain; the wizard picks subsets per mode |
-| `setup/` | Composer manifests (`composer-core.json` / `composer-full.json`) + patch files |
+| `setup/` | Composer manifests (version-scoped `composer-core-<major.minor>.json` / `composer-full-<major.minor>.json`, selected by `WEBTREES_VERSION`) + patch files |
 | `dev/versions.json` | PHP × webtrees matrix the build workflow expands |
 | `dev/php-versions.json` | Single source of truth for supported PHP minors; `.supported` drives the auto-bump fan-out and is enforced against `versions.json` rows by `ci-php-versions-lockstep` |
 | `dev/nginx-version.json` | Canonical nginx pin (`nginx_base`, `config_revision`, `tag`); enforced across 5 mirror sites by `installer/tests/test_nginx_tag_lockstep.py` |

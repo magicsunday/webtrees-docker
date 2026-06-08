@@ -76,5 +76,9 @@ networks:
         # Specify that this is an external network (not created by this compose file)
         external: true
         # Use the database hostname as the network name
-        # This should match the network name where your external database is running
-        name: ${MARIADB_HOST}
+        # This should match the network name where your external database is running.
+        # Required (`:?`): an empty MARIADB_HOST would otherwise drop the `name:`
+        # key entirely, making `docker compose up` fail late with the opaque
+        # "network database declared as external, but could not be found" — so
+        # fail fast at config time with a clear message instead.
+        name: ${MARIADB_HOST:?external mode (compose.external.yaml) requires MARIADB_HOST to be set to the external DB network name}

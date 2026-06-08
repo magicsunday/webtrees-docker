@@ -1,7 +1,8 @@
 ####################
 # WEBTREES BUILD   #
 ####################
-# Throwaway stage that composer-installs webtrees from setup/composer-core.json,
+# Throwaway stage that composer-installs webtrees from the version-scoped
+# setup/composer-core-<major.minor>.json manifest (selected by WEBTREES_VERSION),
 # applies the upgrade-lock patch via cweagans/composer-patches, and prepares
 # the public/ + html→public layout the entrypoint copies into /var/www.
 ARG PHP_VERSION=8.3
@@ -30,9 +31,11 @@ ARG NGINX_BASE=1.30
 # silently and break this build.
 FROM composer:2 AS webtrees-build
 
-# pipefail catches `find … | grep -q .` failures in the RUN below; without
-# it, a broken find with empty output would let the negated grep guard
-# silently pass and ship an unintended file layout.
+# pipefail is retained as a safety net should a piped command be added to the
+# RUN below (and to satisfy DL4006 if so). The patches/ stray-file guard
+# deliberately avoids `find … | grep -q`, which lies on the failure path
+# under pipefail (the `grep -q` consumer SIGPIPE-kills find and the leading
+# `!` inverts the signal back to success) — see its capture-then-test below.
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 # Re-declare with a default so an empty --build-arg from compose does not
@@ -121,7 +124,13 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
             ;; \
     esac \
  # Reject stray files in patches/ — only .patch files should land there.
- && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
+ # Capture-then-test rather than `find … | grep -q`: under `pipefail` the
+ # `grep -q` consumer closes the pipe on its first match and SIGPIPE-kills
+ # find once its output overflows the pipe buffer, and the leading `!` would
+ # then invert that non-zero exit back to success — passing the guard with
+ # stray files present. Asserting on the captured list keeps no live pipe.
+ && stray_files="$(find patches -mindepth 1 -type f ! -name '*.patch')" \
+ && { [ -z "${stray_files}" ] || { echo "stray non-patch files in patches/: ${stray_files}" >&2; exit 1; }; } \
  # composer install --prefer-dist pulls fisharebest/webtrees from packagist,
  # which strips resources/lang/<locale>/messages.po via .gitattributes
  # export-ignore. Without those files webtrees' SetupWizard fatals on the
@@ -233,7 +242,11 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
                 vendor/fisharebest/webtrees/app/Services/ModuleService.php \
             ;; \
     esac \
- && ! find patches -mindepth 1 -type f ! -name '*.patch' | grep -q . \
+ # Reject stray files in patches/ — only .patch files should land there.
+ # Capture-then-test (see the webtrees-build stage for the pipefail/SIGPIPE
+ # rationale): `find … | grep -q` lies on the failure path here.
+ && stray_files="$(find patches -mindepth 1 -type f ! -name '*.patch')" \
+ && { [ -z "${stray_files}" ] || { echo "stray non-patch files in patches/: ${stray_files}" >&2; exit 1; }; } \
  # Verify Magic-Sunday charts landed in the version-appropriate location.
  # The 2.1.x manifest allows `magicsunday/webtrees-module-installer-plugin`
  # (no VendorModuleService patch exists for 2.1 core), so the plugin
@@ -312,8 +325,8 @@ RUN apk update && \
 ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
 # Install required PHP extensions.
-# pdo_sqlite is included even though the default compose uses MariaDB — keeps
-# the SQLite variant from Cluster B as an env-var-only switch later.
+# pdo_sqlite is installed alongside pdo_mysql so a future SQLite backend can
+# be selected purely via env var without an image rebuild.
 RUN chmod +x /usr/local/bin/install-php-extensions && \
     install-php-extensions \
         apcu \

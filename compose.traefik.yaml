@@ -30,8 +30,12 @@ services:
             # Connect to the external Traefik network
             - traefik
 
-    # Configure phpMyAdmin for Traefik integration. compose.pma.yaml does
-    # not publish a host port, so no override needed here.
+    # Configure phpMyAdmin for Traefik integration. This pma router REQUIRES
+    # compose.pma.yaml (which gives pma its image) to be present in the
+    # COMPOSE_FILE chain — otherwise compose rejects the whole project with
+    # "service pma has neither an image nor a build context". compose.pma.yaml
+    # publishes no host port, so Traefik is the only ingress and no override
+    # is needed here. phpMyAdmin keeps its own DB-credential login.
     pma:
         labels:
             # Enable Traefik for this container
