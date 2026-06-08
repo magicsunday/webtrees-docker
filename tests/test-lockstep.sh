@@ -1271,6 +1271,19 @@ assert_lockstep_passes \
     "ci-cron-poll-perms-lockstep"
 restore_worktree
 
+# Parser tolerates a trailing inline comment on a grant line (a #182
+# review finding): `actions: write  # note` is valid YAML and must still
+# register the scope, else the check would false-fail the caller. Without
+# the `(#.*)?$` tolerance the commented line is missed and the caller
+# reads as under-granting.
+echo "Setting up: append an inline comment to check-nginx.yml's actions: write"
+sed -i 's/^    actions: write$/    actions: write  # inline note/' \
+    "$worktree/.github/workflows/check-nginx.yml"
+assert_lockstep_passes \
+    "ci-cron-poll-perms-lockstep: inline comment on a grant still parses" \
+    "ci-cron-poll-perms-lockstep"
+restore_worktree
+
 # ──────────────────────────────────────────────────────────────────────
 # ci-nginx-tag-derivation-lockstep
 # ──────────────────────────────────────────────────────────────────────

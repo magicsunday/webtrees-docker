@@ -46,10 +46,10 @@ perm_writes() {
         in_perm {
             if ($0 ~ /^[ ]*$/) { next }
             if (ind($0) <= base) { in_perm = 0; next }
-            if ($0 ~ /:[ ]*write[ ]*$/) {
+            if ($0 ~ /:[ ]*write[ ]*(#.*)?$/) {
                 key = $0
                 sub(/^[ ]*/, "", key)
-                sub(/:[ ]*write[ ]*$/, "", key)
+                sub(/:[ ]*write[ ]*(#.*)?$/, "", key)
                 print key
             }
         }
