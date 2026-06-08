@@ -1299,6 +1299,43 @@ assert_lockstep_fails \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-cache-ignore-error-lockstep (GH-187)
+# ──────────────────────────────────────────────────────────────────────
+
+# Append an indented `cache-to: type=gha` entry WITHOUT ignore-error=true
+# — the exact regression the check guards: a build step (existing or
+# newly added) whose cache export would turn a backend 5xx into a hard
+# build failure. The grep-based check matches on the key shape, not full
+# YAML validity, so a bare appended line is a faithful stand-in.
+echo "Setting up: inject a 'cache-to: type=gha' entry missing ignore-error=true"
+printf '\n                  cache-to: type=gha,mode=max,scope=bogus\n' \
+    >> "$worktree/.github/workflows/build.yml"
+assert_lockstep_fails \
+    "ci-cache-ignore-error-lockstep: cache-to without ignore-error=true flagged" \
+    "ci-cache-ignore-error-lockstep" \
+    "missing 'ignore-error=true'"
+restore_worktree
+
+# Positive control: the unmodified workflow passes (catches a future
+# parser weakening that finds zero entries and vacuously passes).
+assert_lockstep_passes \
+    "ci-cache-ignore-error-lockstep: clean tree passes" \
+    "ci-cache-ignore-error-lockstep"
+restore_worktree
+
+# Negative control: a PROSE mention of `cache-to: type=gha` in a comment
+# (the canonical doc block in build.yml is exactly this) must NOT be
+# counted — otherwise the documentation would trip its own guard. The
+# leading-whitespace-then-key anchor excludes the `# … ` comment form.
+echo "Setting up: inject a comment mentioning 'cache-to: type=gha' (must NOT flag)"
+printf '\n                  # see cache-to: type=gha note above\n' \
+    >> "$worktree/.github/workflows/build.yml"
+assert_lockstep_passes \
+    "ci-cache-ignore-error-lockstep: prose mention not counted" \
+    "ci-cache-ignore-error-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # ci-nginx-tag-derivation-lockstep
 # ──────────────────────────────────────────────────────────────────────
 
