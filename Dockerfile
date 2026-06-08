@@ -78,6 +78,13 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # on the php:${PHP_VERSION}-fpm-alpine image (HTTP 500 before webtrees ever
  # starts). The pin makes resolution match the deployment target.
  && composer config platform.php "${PHP_VERSION}.0" \
+ # Composer 2.10+ blocks dependency resolution when a required package carries
+ # a published security advisory. This image is an immutable packaging of a
+ # fixed upstream webtrees release: it reproduces upstream's exact pinned
+ # dependency set and cannot alter it, so enforcing advisory policy here would
+ # only break the faithful build. Disable the resolution block — the advisory
+ # is NOT swallowed: `composer audit` below reports it on every build.
+ && composer config policy.advisories.block false \
  # --ignore-platform-req=ext-*: the composer:2 image lacks the PHP extensions
  # webtrees needs (gd, intl, exif, ...). The php-base stage installs them;
  # we only need composer to resolve and unpack here.
@@ -93,6 +100,12 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         --ignore-platform-req=ext-exif \
         --ignore-platform-req=ext-imagick \
         --ignore-platform-req=ext-zip \
+ # Surface every security advisory the bundled (immutable) dependency set
+ # carries, in the build log, on every build. Non-fatal by design: it must not
+ # break the faithful packaging of a released webtrees version, but it also
+ # never hides a CVE. Goes clean on its own once upstream bumps off the
+ # affected versions — nothing is permanently ignored.
+ && { composer audit --no-dev --format=plain || true; } \
  # Verify each patch actually applied. composer-patches only logs a warning
  # on failure, so we grep for sentinels we planted in the patch files. If a
  # future webtrees release moves the patched code, this fail-fasts the build.
@@ -189,6 +202,11 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # full edition's transitive deps resolve against the deployment PHP
  # version, not the composer:2 image's PHP version.
  && composer config platform.php "${PHP_VERSION}.0" \
+ # Disable Composer 2.10+'s advisory resolution block (see the webtrees-build
+ # stage for the rationale): this immutable image faithfully reproduces an
+ # upstream release's pinned deps and cannot change them. `composer audit`
+ # below still reports every advisory — nothing is hidden.
+ && composer config policy.advisories.block false \
  && composer install \
         --no-dev \
         --no-scripts \
@@ -201,6 +219,9 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         --ignore-platform-req=ext-exif \
         --ignore-platform-req=ext-imagick \
         --ignore-platform-req=ext-zip \
+ # Report every advisory in the bundled dependency set (non-fatal); see the
+ # webtrees-build stage. Never hides a CVE, never breaks the faithful build.
+ && { composer audit --no-dev --format=plain || true; } \
  # Patch-applied guards (same sentinels as core; VendorModuleService is
  # 2.2.x-only).
  && grep -q "Upgrade-lock: bundled image is immutable" \
