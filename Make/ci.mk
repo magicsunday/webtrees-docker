@@ -39,7 +39,7 @@ ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make hel
 	# starts shelling out to a tool not yet on this list, extend both the
 	# loop below AND the table in docs/developing.md in lockstep.
 	missing=""; \
-		for tool in docker bash git cat grep sed find xargs sort head tail wc tr printf cp mkdir mktemp column; do \
+		for tool in docker bash git cat grep sed awk find xargs sort comm head tail wc tr printf cp mkdir mktemp column; do \
 			command -v "$$tool" >/dev/null 2>&1 || missing="$$missing $$tool"; \
 		done; \
 		if [ -n "$$missing" ]; then \

@@ -33,7 +33,8 @@ of `make` targets drive those containers with host-side coreutils:
 |---|---|
 | `docker` | Every CI target and the dev stack itself. |
 | `bash`, `git` | `ci-shellcheck`, `ci-alpine-lockstep`, `ci-lockstep-tests`, the bundled scripts under `tests/` and `scripts/`. |
-| `cat`, `grep`, `sed`, `find`, `xargs`, `sort`, `head`, `tail`, `wc`, `tr`, `printf`, `cp`, `mkdir`, `mktemp`, `column` | GNU coreutils as shipped on Linux/macOS/WSL — driven by the same Make recipes, `make help`'s own pipeline, and the bundled shell scripts. |
+| `cat`, `grep`, `sed`, `find`, `xargs`, `sort`, `comm`, `head`, `tail`, `wc`, `tr`, `printf`, `cp`, `mkdir`, `mktemp`, `column` | GNU coreutils as shipped on Linux/macOS/WSL — driven by the same Make recipes, `make help`'s own pipeline, and the bundled shell scripts. |
+| `awk` | The lockstep checkers that parse workflow / markdown structure (`ci-notify-needs-lockstep`, `ci-cron-poll-perms-lockstep`, and others). POSIX awk; gawk / mawk both work. |
 | `gh` (optional) | Auto-detected by the root Makefile to set `COMPOSER_AUTH`; without it, composer's anonymous rate limit applies. |
 | `jq` (optional) | Not required — every recipe runs it in a `ghcr.io/jqlang/jq:latest` container. Handy on the host for inspecting `dev/versions.json` by hand. |
 
