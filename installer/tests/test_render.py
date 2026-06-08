@@ -67,6 +67,10 @@ def test_render_standalone_core(tmp_path: Path, standalone_core: RenderInput) ->
     assert any("8080" in p for p in nginx_ports)
 
     assert "APP_PORT=8080" in env
+    # The standalone .env persists the edition: this is the exact line
+    # `./switch standalone` reads back to restore the operator's choice, so
+    # a template edit dropping it must not pass silently.
+    assert "EDITION=core" in env
 
 
 def test_render_enforce_https_is_lockstepped_across_services(

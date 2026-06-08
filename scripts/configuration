@@ -74,6 +74,16 @@ validate_ids() {
 # only base_url hand-escaped its slashes; the DB fields did not.
 apply_config_value() {
     local key="$1" value="$2" file="$3" escaped
+    # A literal newline would make the single-line `s///` command
+    # unterminated and abort sed mid-loop (half-seeded config under
+    # errexit). The shipped values (DB host/port/user/pass/name, domain,
+    # prefix, bool) are all single-line, so this only fires on a
+    # genuinely malformed input — fail loud with a clear message rather
+    # than the cryptic `unterminated 's' command`.
+    if [[ "${value}" == *$'\n'* ]]; then
+        log_error "Refusing to write a multi-line value for ${key}"
+        exit 1
+    fi
     escaped="${value//\\/\\\\}"
     escaped="${escaped//\//\\/}"
     escaped="${escaped//&/\\&}"

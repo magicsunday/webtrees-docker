@@ -182,12 +182,32 @@ wd=$(new_workdir)
 echo "" > "$wd/docker_calls.log"
 stub_into "$wd/stub" docker "echo \"\$*\" >> '$wd/docker_calls.log'"
 # curl -o <file>: write a harmless installer that proves it ran.
+# shellcheck disable=SC2016
+# $#/$1/$2/$out are the stub's OWN runtime positional args, not values to
+# expand when the stub body is written.
 stub_into "$wd/stub" curl 'out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done; printf "echo INSTALL_RAN\n" > "$out"'
 out=$(cd "$wd" && PATH="$wd/stub:$PATH" INSTALLER_REMOTE='https://example/install' \
     "$repo_root/upgrade" 2>&1) && rc=0 || rc=$?
 check "upgrade: happy path runs the fetched installer" "$rc" 0 "INSTALL_RAN"
 out=$(cat "$wd/docker_calls.log")
 check "upgrade: happy path does drop the app volume" 0 0 "volume rm"
+
+# Fetch succeeds but `docker compose down` fails → errexit aborts BEFORE
+# the destructive volume rm, leaving the app volume intact.
+wd=$(new_workdir)
+: > "$wd/compose.yaml"
+echo "" > "$wd/docker_calls.log"
+# shellcheck disable=SC2016
+# $*/$1/$2/$#/$out below are the stubs' OWN runtime args; only $wd is
+# interpolated (via the concatenated double-quoted segment).
+stub_into "$wd/stub" docker 'echo "$*" >> '"$wd"'/docker_calls.log; if [ "$1" = compose ] && [ "$2" = down ]; then exit 1; fi; exit 0'
+# shellcheck disable=SC2016
+stub_into "$wd/stub" curl 'out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done; printf "echo INSTALL_RAN\n" > "$out"'
+out=$(cd "$wd" && PATH="$wd/stub:$PATH" INSTALLER_REMOTE='https://example/install' \
+    "$repo_root/upgrade" 2>&1) && rc=0 || rc=$?
+check "upgrade: compose-down failure aborts the run" "$rc" 1
+out=$(cat "$wd/docker_calls.log")
+check_absent "upgrade: down failure never reaches 'docker volume rm'" 0 0 "volume rm"
 
 # ──────────────────────────────────────────────────────────────────────
 # switch: env_value parser parity + edition persistence (GH-114 E, F)
@@ -233,6 +253,17 @@ check "switch: env_value tolerates export-prefix and spaced equals" "$rc" 0 \
 out=$(switch_dev_flags $'EDITION=core\n') && rc=0 || rc=$?
 check "switch: dev install inherits the persisted edition (core)" "$rc" 0 \
     "--edition core"
+
+# An empty persisted EDITION must fall back to the `full` default — never
+# reach `./install --edition ""`, which argparse rejects AFTER teardown.
+out=$(switch_dev_flags $'EDITION=\n') && rc=0 || rc=$?
+check "switch: empty EDITION falls back to --edition full" "$rc" 0 "--edition full"
+
+# A garbage (non-core/full) persisted token is coerced to full, not passed
+# verbatim (which argparse would reject with exit 2 after `compose down`).
+out=$(switch_dev_flags $'EDITION=nonsense\n') && rc=0 || rc=$?
+check "switch: invalid EDITION token coerced to full" "$rc" 0 "--edition full"
+check_absent "switch: invalid EDITION not passed verbatim" 0 0 "--edition nonsense"
 
 # The headline regression: a CORE dev install switched back to standalone
 # must restore core, not the hard-coded full.

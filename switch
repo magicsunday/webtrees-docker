@@ -127,6 +127,15 @@ mariadb_pw=$(env_value MARIADB_PASSWORD devpw)
 # `core` install is not silently re-rendered onto the `full` image.
 # Defaults to `full` for .env files predating the EDITION key.
 edition=$(env_value EDITION full)
+# argparse only accepts core|full. Coerce any other persisted token (an
+# empty value already defaults via env_value; a hand-edited garbage value
+# would otherwise reach `./install --edition <garbage>` and abort with
+# exit 2 AFTER `docker compose down` has torn the stack down — the exact
+# stack-down-nothing-rendered failure the upgrade ordering fix prevents).
+case "$edition" in
+    core|full) ;;
+    *) edition=full ;;
+esac
 
 if [ -f compose.yaml ]; then
     echo "→ Stopping existing $current stack..."

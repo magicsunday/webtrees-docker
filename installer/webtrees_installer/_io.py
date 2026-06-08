@@ -38,6 +38,11 @@ def atomic_write_all(files: list[tuple[Path, str]]) -> None:
     no POSIX primitive prevents without a transactional filesystem. It is
     the practical minimum, and the only honest guarantee the renderers can
     make about their multi-file output.
+
+    A failure during the staging loop (e.g. ENOSPC writing the 2nd temp)
+    leaves already-written ``*.tmp`` orphans on disk but never a
+    half-swapped real file — no ``replace`` has run yet. The orphans are
+    benign (compose never reads ``*.tmp``; the next run overwrites them).
     """
     staged: list[tuple[Path, Path]] = []
     for path, content in files:
