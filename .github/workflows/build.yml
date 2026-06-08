@@ -40,7 +40,7 @@ jobs:
             installer_tag: ${{ steps.set.outputs.installer_tag }}
             platforms: ${{ steps.set.outputs.platforms }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
 
@@ -146,7 +146,7 @@ jobs:
                 # runner/docker/arch shape and the third-arch coupling note.
                 platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -222,7 +222,7 @@ jobs:
             # action `./.github/actions/ghcr-login` resolves; nothing
             # else in this job reads repo content. Do NOT remove it
             # thinking it is unused.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: ./.github/actions/ghcr-login
@@ -305,7 +305,7 @@ jobs:
                 # coupling.
                 platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -368,7 +368,7 @@ jobs:
             matrix:
                 entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: ./.github/actions/ghcr-login
@@ -437,7 +437,7 @@ jobs:
                 # manifest-* per-arch coupling.
                 platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -476,7 +476,7 @@ jobs:
             contents: read
             packages: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: ./.github/actions/ghcr-login
@@ -530,7 +530,7 @@ jobs:
                 # manifest-* per-arch coupling.
                 platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -560,7 +560,7 @@ jobs:
             contents: read
             packages: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: ./.github/actions/ghcr-login
@@ -619,7 +619,7 @@ jobs:
             SMOKE_PORT: 18080
             EDITION: ${{ matrix.edition }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
 
@@ -814,7 +814,7 @@ jobs:
             E2E_PORT: 18181
             INSTALLER_TAG: ${{ needs.matrix.outputs.installer_tag }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
 
@@ -912,7 +912,7 @@ jobs:
         permissions:
             issues: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             - uses: ./.github/actions/notify-on-failure
