@@ -12,6 +12,7 @@ import pytest
 from webtrees_installer.dev_flow import (
     DevArgs,
     HostInfo,
+    _host_without_port,
     build_compose_chain,
     collect_dev_inputs,
     render_dev_env,
@@ -36,6 +37,7 @@ def _args(**overrides) -> DevArgs:
     defaults = dict(
         work_dir=None,
         interactive=False,
+        edition="full",
         proxy_mode="standalone",
         dev_domain="webtrees.localhost:50010",
         app_port=50010,
@@ -141,10 +143,17 @@ def test_render_dev_env_external_db_appends_compose_file(tmp_path: Path, catalog
 
 
 def test_render_dev_env_rejects_traefik_without_domain(tmp_path: Path, catalog: Catalog) -> None:
-    """Traefik mode demands a non-empty dev_domain."""
+    """Traefik mode demands a non-empty dev_domain.
+
+    Raised as PromptError (not a bare ValueError) so a non-interactive run
+    missing the flag exits 2 via the CLI translator instead of escaping as
+    an uncaught traceback (exit 1).
+    """
+    from webtrees_installer.prompts import PromptError
+
     args = _args(work_dir=tmp_path, proxy_mode="traefik", dev_domain="",
                  app_port=None, pma_port=None)
-    with pytest.raises(ValueError, match="dev_domain"):
+    with pytest.raises(PromptError, match="dev_domain"):
         render_dev_env(args, catalog=catalog, target_dir=tmp_path,
                        generated_at=datetime(2026, 5, 12, 12, 0, 0))
 
@@ -600,9 +609,11 @@ def test_render_dev_env_quotes_work_dir(tmp_path: Path, catalog: Catalog) -> Non
 
 
 def test_render_dev_env_rejects_empty_host_work_dir(tmp_path: Path, catalog: Catalog) -> None:
-    """Empty host_work_dir surfaces a ValueError, never writes the .env."""
+    """Empty host_work_dir surfaces a PromptError, never writes the .env."""
+    from webtrees_installer.prompts import PromptError
+
     args = _args(work_dir=tmp_path, host_work_dir="")
-    with pytest.raises(ValueError, match="host_work_dir"):
+    with pytest.raises(PromptError, match="host_work_dir"):
         render_dev_env(args, catalog=catalog, target_dir=tmp_path,
                        generated_at=datetime(2026, 5, 12, 12, 0, 0))
 
@@ -757,3 +768,92 @@ def test_print_dev_banner_emits_lan_url_when_host_lan_ip_set() -> None:
     assert "http://192.168.178.25:" in text
     # dev_domain URL still present
     assert "http://webtrees.localhost:50010/" in text
+
+
+# ──────────────────────────────────────────────────────────────────────
+# _host_without_port (phpMyAdmin URL host derivation)
+# ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("192.168.1.50:50010", "192.168.1.50"),
+        ("webtrees.localhost:50010", "webtrees.localhost"),
+        ("webtrees.example.org", "webtrees.example.org"),
+        ("[fd00::1]:50010", "[fd00::1]"),
+        ("[fd00::1]", "[fd00::1]"),
+        ("fd00::1", "fd00::1"),  # bracket-less IPv6: best-effort, left intact
+    ],
+)
+def test_host_without_port(value: str, expected: str) -> None:
+    assert _host_without_port(value) == expected
+
+
+def test_dev_banner_phpmyadmin_url_handles_ipv6(catalog: Catalog) -> None:
+    """An IPv6 dev_domain must not be split into '[fd00' for the PMA URL."""
+    from webtrees_installer.dev_flow import _print_dev_banner
+
+    out = StringIO()
+    _print_dev_banner(
+        stdout=out,
+        args=_args(proxy_mode="standalone", dev_domain="[fd00::1]:50010", pma_port=50011),
+    )
+    assert "phpMyAdmin URL: http://[fd00::1]:50011/" in out.getvalue()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Exit-code contract: missing required dev input → PromptError (→ exit 2)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_render_dev_env_rejects_standalone_without_ports(
+    tmp_path: Path, catalog: Catalog
+) -> None:
+    """`--mode dev --non-interactive --proxy standalone` without ports must
+    surface a PromptError, not a bare ValueError that escapes as a
+    traceback (exit 1 instead of the documented exit 2)."""
+    from webtrees_installer.prompts import PromptError
+
+    args = _args(work_dir=tmp_path, proxy_mode="standalone", app_port=None, pma_port=None)
+    with pytest.raises(PromptError, match="app_port and pma_port"):
+        render_dev_env(args, catalog=catalog, target_dir=tmp_path,
+                       generated_at=datetime(2026, 5, 12, 12, 0, 0))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# EDITION persistence (GH-114 F: survive a ./switch dev round-trip)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_render_dev_env_persists_edition(tmp_path: Path, catalog: Catalog) -> None:
+    """The dev .env carries EDITION so `./switch standalone` can restore it."""
+    args = _args(work_dir=tmp_path, edition="core")
+    render_dev_env(args, catalog=catalog, target_dir=tmp_path,
+                   generated_at=datetime(2026, 5, 12, 12, 0, 0))
+    env_text = (tmp_path / ".env").read_text()
+    assert "EDITION=core" in env_text
+
+
+def test_collect_dev_inputs_carries_existing_edition_forward() -> None:
+    """A prior .env's EDITION is preserved (not reset) through the dev flow."""
+    stdin = StringIO("\n" * 16)
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={"EDITION": "core"},
+        host_info=_HOST,
+        stdin=stdin, stdout=StringIO(),
+    )
+    assert args.edition == "core"
+
+
+def test_collect_dev_inputs_defaults_edition_to_full_when_absent() -> None:
+    """No prior EDITION (fresh dev install) defaults to full."""
+    stdin = StringIO("\n" * 16)
+    args = collect_dev_inputs(
+        work_dir=Path("/work"), force=False,
+        existing={},
+        host_info=_HOST,
+        stdin=stdin, stdout=StringIO(),
+    )
+    assert args.edition == "full"

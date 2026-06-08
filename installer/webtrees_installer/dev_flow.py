@@ -37,12 +37,38 @@ from webtrees_installer.prompts import PromptError, ask_text, ask_yesno
 from webtrees_installer.versions import Catalog, load_catalog
 
 
+def _host_without_port(value: str) -> str:
+    """Return the host part of a ``host:port`` / ``[ipv6]:port`` / bare-host value.
+
+    The phpMyAdmin banner re-derives the host from the formatted
+    ``dev_domain``. A naive ``split(':')[0]`` yields ``[fd00`` for an
+    IPv6 literal and mangles a ``scheme://host`` form; this strips only a
+    trailing ``:port`` and is bracket-aware for IPv6.
+    """
+    if value.startswith("["):
+        end = value.find("]")
+        if end != -1:
+            return value[: end + 1]
+    if value.count(":") == 1:
+        return value.rsplit(":", 1)[0]
+    return value
+
+
 @dataclass(frozen=True)
 class DevArgs:
     """All inputs the dev flow needs from the CLI layer."""
 
     work_dir: Path | None
     interactive: bool
+
+    # Persisted only. The dev stack builds webtrees from the module-dev
+    # source, so the running container ignores the image edition — but the
+    # operator's standalone edition choice (core vs full) must survive a
+    # `./switch dev` → `./switch standalone` round-trip, which overwrites
+    # the standalone .env with the dev one. Carrying EDITION through the
+    # dev .env is the only durable place to keep it, so `switch` can read
+    # it back instead of hard-coding `--edition full`.
+    edition: str
 
     proxy_mode: str
     dev_domain: str
@@ -129,6 +155,7 @@ def render_dev_env(
     context = {
         "installer_version": catalog.installer_version,
         "generated_at": generated_at.isoformat(),
+        "edition": args.edition,
         "compose_file_chain": build_compose_chain(
             proxy_mode=args.proxy_mode, use_external_db=args.use_external_db,
         ),
@@ -176,19 +203,25 @@ def _validate(args: DevArgs) -> None:
     # invokes it; calling it here once keeps the check authoritative
     # without duplicating the message string.
     build_compose_chain(proxy_mode=args.proxy_mode, use_external_db=args.use_external_db)
+    # These four are operator-supplied-input failures: a non-interactive
+    # dev run that omits a required flag must exit 2 (the documented
+    # missing-input path), not escape _run_with_exit_codes as an uncaught
+    # ValueError → traceback + exit 1. PromptError is the type the CLI
+    # exit-code translator maps to 2, matching the legacy-.env APP_PORT
+    # path already covered by test_dev_flow.
     if args.proxy_mode == "traefik" and not args.dev_domain:
-        raise ValueError("traefik proxy_mode requires non-empty dev_domain")
+        raise PromptError("traefik proxy_mode requires non-empty dev_domain")
     if args.proxy_mode == "standalone" and (args.app_port is None or args.pma_port is None):
-        raise ValueError("standalone proxy_mode requires app_port and pma_port")
+        raise PromptError("standalone proxy_mode requires app_port and pma_port")
     host_error = external_db_host_error(
         use_external_db=args.use_external_db,
         host=args.external_db_host,
         naming=FIELD_NAMES,
     )
     if host_error is not None:
-        raise ValueError(host_error)
+        raise PromptError(host_error)
     if not args.host_work_dir:
-        raise ValueError("host_work_dir must be a non-empty host-side path")
+        raise PromptError("host_work_dir must be a non-empty host-side path")
 
 
 def collect_dev_inputs(
@@ -302,6 +335,9 @@ def collect_dev_inputs(
     return DevArgs(
         work_dir=work_dir,
         interactive=True,
+        # Not prompted in dev mode; carried forward from the prior .env so
+        # a later `./switch standalone` restores the operator's edition.
+        edition=existing.get("EDITION") or "full",
         proxy_mode=proxy_mode,
         dev_domain=dev_domain,
         app_port=app_port,
@@ -399,6 +435,10 @@ def run_dev(
         work_dir=work_dir,
         interactive=args.interactive,
         force=args.force,
+        # Dev mode only writes .env; it stays on the repo's committed
+        # compose.yaml, so the default (compose.yaml, .env) guard would
+        # falsely flag the always-present repo compose.yaml as a conflict.
+        names=(".env",),
         stdin=stdin, stdout=stdout,
     ):
         if stdout:
@@ -595,7 +635,7 @@ def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:
             # shared dev VM / Wi-Fi gets it explicitly.
             print_standalone_http_security_note(stdout=stdout, term=term)
         print(
-            f"{term.info('•')} phpMyAdmin URL: http://{args.dev_domain.split(':')[0]}:{args.pma_port}/",
+            f"{term.info('•')} phpMyAdmin URL: http://{_host_without_port(args.dev_domain)}:{args.pma_port}/",
             file=stdout,
         )
     else:

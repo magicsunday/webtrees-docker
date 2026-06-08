@@ -134,6 +134,27 @@ def test_confirm_overwrite_prompts_when_compose_exists_yes(tmp_path: Path) -> No
     assert answer is True
 
 
+def test_confirm_overwrite_names_scopes_conflict_to_written_files(tmp_path: Path) -> None:
+    """The dev flow writes only .env, so a present compose.yaml it does NOT
+    write must not count as a conflict (names=('.env',)). Otherwise the
+    always-present repo compose.yaml would falsely block a first dev
+    install. With no .env yet, the guard proceeds even non-interactively
+    without --force."""
+    (tmp_path / "compose.yaml").write_text("# repo compose, not written by dev flow")
+    assert confirm_overwrite(
+        work_dir=tmp_path, interactive=False, force=False, names=(".env",)
+    ) is True
+
+
+def test_confirm_overwrite_names_still_flags_a_written_file(tmp_path: Path) -> None:
+    """An existing .env DOES conflict when .env is in the written set."""
+    (tmp_path / ".env").write_text("X=1")
+    with pytest.raises(PrereqError, match=r"--force"):
+        confirm_overwrite(
+            work_dir=tmp_path, interactive=False, force=False, names=(".env",)
+        )
+
+
 def test_confirm_overwrite_noninteractive_without_force(tmp_path: Path) -> None:
     """Non-interactive + conflict + no force flag → PrereqError."""
     (tmp_path / "compose.yaml").write_text("# existing")

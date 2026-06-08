@@ -122,18 +122,25 @@ def confirm_overwrite(
     work_dir: Path,
     interactive: bool,
     force: bool = False,
+    names: tuple[str, ...] = ("compose.yaml", ".env"),
     stdin: IO[str] | None = None,
     stdout: IO[str] | None = None,
 ) -> bool:
-    """Check /work for existing compose.yaml / .env and confirm overwrite.
+    """Check /work for existing target files and confirm overwrite.
 
     Returns True if the wizard may proceed with writing, False otherwise.
     Raises PrereqError in non-interactive mode when a conflict exists and
     --force was not passed.
+
+    ``names`` is the set of files the caller actually writes, so the guard
+    never reports a conflict on a file it will not touch. The standalone
+    flow writes compose.yaml + .env (the default); the dev flow writes only
+    ``.env`` (it stays on the repo's committed compose.yaml) and passes
+    ``names=(".env",)`` — otherwise the always-present repo compose.yaml
+    would falsely block a first dev install and the prompt would imply it
+    is about to be clobbered.
     """
-    conflicts = [
-        name for name in ("compose.yaml", ".env") if (work_dir / name).exists()
-    ]
+    conflicts = [name for name in names if (work_dir / name).exists()]
     if not conflicts:
         return True
     if not interactive:

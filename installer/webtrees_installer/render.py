@@ -16,7 +16,7 @@ from webtrees_installer._byod_invariants import (
     external_db_password_file_error,
     reuse_volumes_conflict_error,
 )
-from webtrees_installer._io import atomic_write
+from webtrees_installer._io import atomic_write_all
 from webtrees_installer.versions import Catalog
 
 
@@ -83,13 +83,17 @@ _VALID_DB_TYPES = {"mariadb", "sqlite"}
 
 
 def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
-    """Write compose.yaml + .env into target_dir based on input_model.
+    """Write compose.yaml + .env + Makefile into target_dir from input_model.
 
-    The renderer prepares both texts first, then commits each via a
-    temp-file + ``Path.replace`` swap so an interrupted run cannot leave
-    the user with a half-written compose.yaml while the .env still points
-    at the previous run's image tags. ``target_dir`` is created if it
-    does not exist; both files land at mode 0644.
+    The renderer prepares all three texts first, then commits them via
+    ``atomic_write_all``: every temp file is written before any swap, and
+    the ``Path.replace`` swaps then run back-to-back. An interrupted run
+    therefore never leaves a half-written individual file, and the window
+    in which compose.yaml could be new while .env still points at the
+    previous run's image tags is shrunk to the gap between bare rename(2)
+    syscalls (it cannot be fully closed without a transactional
+    filesystem — see ``atomic_write_all``). ``target_dir`` is created if it
+    does not exist; all files land at mode 0644.
     """
     _validate(input_model)
 
@@ -149,9 +153,13 @@ def render_files(*, input_model: RenderInput, target_dir: Path) -> None:
             f"target_dir {target_dir} exists but is not a directory"
         )
     target_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write(target_dir / "compose.yaml", compose_text)
-    atomic_write(target_dir / ".env", env_text)
-    atomic_write(target_dir / "Makefile", makefile_text)
+    atomic_write_all(
+        [
+            (target_dir / "compose.yaml", compose_text),
+            (target_dir / ".env", env_text),
+            (target_dir / "Makefile", makefile_text),
+        ]
+    )
 
 
 def _validate(input_model: RenderInput) -> None:

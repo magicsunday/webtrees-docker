@@ -321,6 +321,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         dev_args = DevArgs(
             work_dir=args.work_dir,
             interactive=not args.non_interactive,
+            # Persisted into the dev .env so a `./switch standalone` later
+            # restores the operator's edition instead of defaulting to
+            # full. The dev stack itself ignores it (builds from source).
+            edition=args.edition or "full",
             proxy_mode=args.proxy_mode or "standalone",
             dev_domain=args.dev_domain or "",
             app_port=args.app_port,
@@ -400,9 +404,13 @@ def _validate_mode_compatibility(args: argparse.Namespace) -> None:
 
     Today's policy is selective, not symmetric. Most standalone-only flags
     (``--demo``, ``--demo-seed``, ``--admin-user``, ``--admin-email``,
-    ``--no-admin``, ``--edition``, ``--domain``) are silently dropped when
-    ``--mode dev`` is passed: the dev flow does not read them and no
-    operator-facing harm follows from ignoring them. Same direction the
+    ``--no-admin``, ``--domain``) are silently dropped when ``--mode dev``
+    is passed: the dev flow does not read them and no operator-facing harm
+    follows from ignoring them. ``--edition`` is the exception among these:
+    the dev stack ignores it at runtime (it builds webtrees from source),
+    but the value is persisted into the dev .env so a later
+    ``./switch standalone`` restores the operator's edition instead of
+    silently resetting it to full. Same direction the
     other way — dev-only flags (``--pma-port``, ``--dev-domain``,
     ``--mariadb-*``, ``--use-existing-db``, ``--local-user-*``,
     ``--work-dir-host``) pass through silently in standalone mode
