@@ -61,6 +61,11 @@ on:
                 description: 'PAT used by the notify-on-failure issue creator.'
                 required: true
 
+# Reusable-workflow token is capped by each caller's top-level block (see
+# scripts/lockstep/check-cron-poll-caller-perms.sh); this empty floor just
+# makes the default explicit — both jobs declare their own scopes below.
+permissions: {}
+
 jobs:
     check:
         runs-on: ubuntu-latest

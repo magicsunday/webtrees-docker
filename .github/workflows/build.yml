@@ -24,6 +24,13 @@ on:
         tags:
             - 'v*'
 
+# Least-privilege floor for the default GITHUB_TOKEN. The build/manifest/
+# scan/notify jobs that push to GHCR or file issues declare their own
+# wider blocks; the read-only jobs (matrix, smoke-test, demo-import-e2e)
+# only check out and pull public images, so this floor is all they need.
+permissions:
+    contents: read
+
 jobs:
     matrix:
         name: Build matrix
