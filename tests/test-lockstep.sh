@@ -1247,6 +1247,31 @@ assert_lockstep_passes \
 restore_worktree
 
 # ──────────────────────────────────────────────────────────────────────
+# ci-cron-poll-perms-lockstep
+# ──────────────────────────────────────────────────────────────────────
+
+# Drop one write scope (actions: write) from a caller's top-level
+# permissions block — the exact regression GH-140 shipped: a
+# cron-docker-hub-poll.yml caller that no longer grants what the
+# reusable's jobs need, so the run is rejected at startup. The reusable
+# is the single source of truth; removing the caller's grant must surface
+# the missing scope by name.
+echo "Setting up: strip 'actions: write' from check-alpine.yml top-level permissions"
+sed -i '/^    actions: write$/d' "$worktree/.github/workflows/check-alpine.yml"
+assert_lockstep_fails \
+    "ci-cron-poll-perms-lockstep: under-granting caller flagged" \
+    "ci-cron-poll-perms-lockstep" \
+    "actions: write"
+restore_worktree
+
+# Positive control: the unmodified callers pass (catches a future parser
+# weakening that drops the required set and vacuously passes).
+assert_lockstep_passes \
+    "ci-cron-poll-perms-lockstep: clean tree passes" \
+    "ci-cron-poll-perms-lockstep"
+restore_worktree
+
+# ──────────────────────────────────────────────────────────────────────
 # ci-nginx-tag-derivation-lockstep
 # ──────────────────────────────────────────────────────────────────────
 
