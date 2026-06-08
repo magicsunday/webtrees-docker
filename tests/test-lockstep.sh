@@ -1284,6 +1284,20 @@ assert_lockstep_passes \
     "ci-cron-poll-perms-lockstep"
 restore_worktree
 
+# Negative control (a #183 review finding): `write#note` with NO space
+# before the `#` is a single YAML scalar `"write#note"`, NOT a write
+# grant — the workflow would fail at startup. The parser must require a
+# space before an inline comment, so this must be flagged as
+# under-granting, not silently accepted.
+echo "Setting up: append an invalid inline comment (no space) to check-nginx.yml's actions: write"
+sed -i 's/^    actions: write$/    actions: write#invalid/' \
+    "$worktree/.github/workflows/check-nginx.yml"
+assert_lockstep_fails \
+    "ci-cron-poll-perms-lockstep: space-less '#' is a scalar, not a grant" \
+    "ci-cron-poll-perms-lockstep" \
+    "actions: write"
+restore_worktree
+
 # ──────────────────────────────────────────────────────────────────────
 # ci-nginx-tag-derivation-lockstep
 # ──────────────────────────────────────────────────────────────────────
