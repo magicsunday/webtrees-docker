@@ -28,7 +28,7 @@ All four images live on GHCR:
 | Image | Purpose |
 |---|---|
 | `ghcr.io/magicsunday/webtrees-php` | PHP-FPM runtime, **core edition** (vanilla webtrees release). |
-| `ghcr.io/magicsunday/webtrees-php-full` | PHP-FPM runtime, **full edition** (release + custom-module bundle from `setup/composer-full.json`). |
+| `ghcr.io/magicsunday/webtrees-php-full` | PHP-FPM runtime, **full edition** (release + custom-module bundle from `setup/composer-full-<major.minor>.json`). |
 | `ghcr.io/magicsunday/webtrees-nginx` | nginx with the project's vhost + trust-proxy map. Reverse-proxies php-fpm. |
 | `ghcr.io/magicsunday/webtrees-installer` | The wizard itself. Not used by a DIY stack — listed for completeness. |
 

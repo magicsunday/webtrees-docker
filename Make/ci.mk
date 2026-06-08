@@ -201,7 +201,7 @@ ci-env-dist-pins-lockstep: .logo ## Asserts .env.dist WEBTREES_VERSION / WEBTREE
 ci-dockerfile-arg-defaults-lockstep: .logo ## Asserts every `ARG <key>=<default>` in Dockerfile matches .env.dist's mirror of dev/.
 	$(call lockstep,Dockerfile ARG defaults lockstep,check-dockerfile-arg-defaults.sh)
 
-ci-composer-patches-lockstep: .logo ## Asserts setup/composer-core.json and composer-full.json carry identical extra.patches blocks.
+ci-composer-patches-lockstep: .logo ## Asserts setup/composer-core-<major.minor>.json and composer-full-<major.minor>.json carry identical extra.patches blocks.
 	$(call lockstep,composer patches lockstep,check-composer-patches-lockstep.sh)
 
 ci-patches-apply-lockstep: .logo ## Asserts setup/patches/*.patch applies cleanly to every webtrees version in dev/versions.json.
