@@ -322,10 +322,15 @@ jobs:
               env:
                   WT: ${{ matrix.entry.webtrees }}
                   PHP: ${{ matrix.entry.php }}
+                  # Passed via env (not spliced into the run script) so the
+                  # step output cannot inject shell — the word-split below is
+                  # deliberate: tag_args is a space-separated `-t <tag>` list.
+                  TAG_ARGS: ${{ steps.tags.outputs.tag_args }}
               run: |
                   set -euo pipefail
                   base="ghcr.io/magicsunday/webtrees-php:${WT}-php${PHP}"
-                  docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
+                  # shellcheck disable=SC2086
+                  docker buildx imagetools create ${TAG_ARGS} \
                       "${base}-amd64" \
                       "${base}-arm64"
                   # GH-184 attestation gate. With sbom/provenance enabled each
@@ -485,10 +490,15 @@ jobs:
               env:
                   WT: ${{ matrix.entry.webtrees }}
                   PHP: ${{ matrix.entry.php }}
+                  # Passed via env (not spliced into the run script) so the
+                  # step output cannot inject shell — the word-split below is
+                  # deliberate: tag_args is a space-separated `-t <tag>` list.
+                  TAG_ARGS: ${{ steps.tags.outputs.tag_args }}
               run: |
                   set -euo pipefail
                   base="ghcr.io/magicsunday/webtrees-php-full:${WT}-php${PHP}"
-                  docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
+                  # shellcheck disable=SC2086
+                  docker buildx imagetools create ${TAG_ARGS} \
                       "${base}-amd64" \
                       "${base}-arm64"
                   # GH-184 attestation gate — see manifest-php for the rationale.
@@ -1055,7 +1065,7 @@ jobs:
             # `actions/checkout` is solely so the local composite action
             # `./.github/actions/ghcr-login` resolves; nothing else reads repo
             # content. Do NOT remove it thinking it is unused.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
               with:
                   persist-credentials: false
             # docker login → the scanner reads the registry credentials from
