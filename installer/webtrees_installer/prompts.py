@@ -51,18 +51,10 @@ def ask_text(
     *,
     default: str | None,
     value: str | None = None,
-    secret: bool = False,
     stdin: IO[str] | None = None,
     stdout: IO[str] | None = None,
 ) -> str:
-    """Read a free-form string answer. `value` overrides the prompt entirely.
-
-    When `secret` is set the default is never rendered into the visible
-    prompt — echoing a retained password (e.g. one read back from an
-    existing `.env`) would leak it to the terminal and any captured log.
-    A non-empty secret default is still applied on an empty reply; the
-    prompt only signals that a value is kept, without revealing it.
-    """
+    """Read a free-form string answer. `value` overrides the prompt entirely."""
     if value is not None:
         if not value:
             raise PromptError(f"{question}: required")
@@ -71,10 +63,7 @@ def ask_text(
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
 
-    if secret:
-        suffix = " [keep current]" if default else ""
-    else:
-        suffix = f" [{default}]" if default is not None else ""
+    suffix = f" [{default}]" if default is not None else ""
     print(f"{question}{suffix}: ", end="", file=stdout, flush=True)
     reply = stdin.readline().strip()
 
@@ -83,6 +72,31 @@ def ask_text(
     if default is not None:
         return default
     raise PromptError(f"{question}: required")
+
+
+def ask_secret(
+    question: str,
+    *,
+    current: str,
+    stdin: IO[str] | None = None,
+    stdout: IO[str] | None = None,
+) -> str:
+    """Read a secret answer, keeping `current` on an empty reply.
+
+    Unlike `ask_text`, the retained value is never rendered into the
+    visible prompt — echoing a password read back from an existing `.env`
+    would leak it to the terminal and any captured log. `current` reaches
+    only the empty-reply fallback and the boolean hint test, never the
+    printed string, so the secret cannot escape through stdout.
+    """
+    stdin = stdin or sys.stdin
+    stdout = stdout or sys.stdout
+
+    suffix = " [keep current]" if current else ""
+    print(f"{question}{suffix}: ", end="", file=stdout, flush=True)
+    reply = stdin.readline().strip()
+
+    return reply if reply else current
 
 
 def ask_choice(

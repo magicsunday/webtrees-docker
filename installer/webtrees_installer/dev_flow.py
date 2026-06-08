@@ -33,7 +33,7 @@ from webtrees_installer._cli_resolve import resolve_enforce_https
 from webtrees_installer._io import atomic_write
 from webtrees_installer._term import Term
 from webtrees_installer.prereq import check_prerequisites, confirm_overwrite
-from webtrees_installer.prompts import PromptError, ask_text, ask_yesno
+from webtrees_installer.prompts import PromptError, ask_secret, ask_text, ask_yesno
 from webtrees_installer.versions import Catalog, load_catalog
 
 
@@ -311,10 +311,9 @@ def collect_dev_inputs(
     else:
         external_db_host = "db"
 
-    mariadb_root_password = ask_text(
+    mariadb_root_password = ask_secret(
         "MariaDB root password",
-        default=existing.get("MARIADB_ROOT_PASSWORD", ""),
-        secret=True,
+        current=existing.get("MARIADB_ROOT_PASSWORD", ""),
         stdin=stdin, stdout=stdout,
     )
     mariadb_database = ask_text(
@@ -327,10 +326,9 @@ def collect_dev_inputs(
         default=existing.get("MARIADB_USER", "webtrees") or "webtrees",
         stdin=stdin, stdout=stdout,
     )
-    mariadb_password = ask_text(
+    mariadb_password = ask_secret(
         "MariaDB user password",
-        default=existing.get("MARIADB_PASSWORD", ""),
-        secret=True,
+        current=existing.get("MARIADB_PASSWORD", ""),
         stdin=stdin, stdout=stdout,
     )
 
