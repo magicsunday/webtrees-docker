@@ -297,6 +297,33 @@ docker run --rm -it \
 The dev flow writes a `.env` with the compose chain that bind-mounts
 `./app` into phpfpm and brings in buildbox + xdebug + phpMyAdmin.
 
+## Security & image provenance
+
+The published `webtrees-php` / `webtrees-php-full` images are an **immutable
+packaging** of an upstream webtrees release and its **upstream-pinned**
+transitive dependencies. We bundle that dependency set verbatim — we do not
+choose those versions and cannot change a pin without an upstream release. A
+published image can therefore carry a dependency with a known advisory (for
+example a transitive CVE pinned by the bundled webtrees version). Dependency
+CVEs are tracked upstream, not patched here.
+
+Rather than maintaining a hand-written, always-stale per-CVE list, every image
+ships a machine-readable vulnerability surface:
+
+- **SBOM + provenance attestation** on each image (all editions, every arch).
+  Standard vulnerability scanners and registry-native scanning map the exact
+  bundled dependency set onto the *current* advisory database automatically,
+  with zero manual maintenance.
+- A **non-fatal vulnerability scan** runs in the build and publishes its report
+  to the GitHub job summary, so the bundled-dependency advisory state is
+  discoverable without reading raw build logs.
+
+There is **no hard gate** on advisories: the build must faithfully reproduce the
+released webtrees version even when an upstream-pinned dependency carries a CVE,
+so the scan never blocks a build. Images are continuously rebuilt to follow
+upstream releases and base-image / digest movement; consume the attached SBOM
+with your own scanner for the up-to-date advisory state.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

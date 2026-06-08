@@ -190,6 +190,23 @@ jobs:
                   push: true
                   platforms: ${{ matrix.platform.docker }}
                   tags: ghcr.io/magicsunday/webtrees-php:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  # SBOM + max provenance (GH-184): the published image is an
+                  # immutable packaging of upstream-pinned deps we cannot patch,
+                  # so consumer vulnerability scanners and registry-native
+                  # scanning need a machine-readable dependency surface to map
+                  # onto the *current* advisory state with zero manual
+                  # maintenance. With these set, each per-arch build pushes an
+                  # OCI index (the arch manifest PLUS an attestation manifest
+                  # linked by the vnd.docker.reference.digest annotation) rather
+                  # than a flat manifest. The manifest-php `imagetools create`
+                  # step flattens those per-arch index sources into the final
+                  # multi-arch index, carrying the attestation manifests across.
+                  # Because the build can go green while the end tag silently
+                  # drops them, the manifest-* jobs assert the attestation
+                  # manifests are present on the merged tag (the "attestation
+                  # gate") rather than trusting the merge.
+                  sbom: true
+                  provenance: mode=max
                   build-args: |
                       PHP_VERSION=${{ matrix.entry.php }}
                       PHP_DIGEST_REF=${{ steps.php_digest.outputs.value }}
@@ -198,7 +215,25 @@ jobs:
                       BUILD_DATE=${{ github.event.repository.updated_at }}
                       DOCKER_SERVER=ghcr.io/magicsunday
                   cache-from: type=gha,scope=php-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
-                  cache-to: type=gha,mode=max,scope=php-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  # `ignore-error=true` makes a cache EXPORT failure best-effort:
+                  # when the GitHub Actions cache backend returns a 5xx, the
+                  # export is skipped instead of failing an otherwise-green
+                  # build (GH-187 — a backend 504 broke every matrix cell during
+                  # the 2026-06-08 GHA incident; the images only published after
+                  # the backend recovered and the jobs were re-run). The flag is
+                  # a no-op on the happy path, so cache effectiveness is
+                  # unchanged.
+                  #
+                  # Residual limitation: this covers EXPORT only. A `cache-from`
+                  # IMPORT 5xx is still fatal in current BuildKit ("failed to
+                  # load cache key: invalid response status 5xx") — there is no
+                  # import-side `ignore-error` (moby/buildkit#2836, open), so an
+                  # import-side cache outage still relies on the manual rerun
+                  # path (once the backend recovers the rerun is a cache hit).
+                  #
+                  # Invariant enforced by `make ci-cache-ignore-error-lockstep`:
+                  # every `cache-to: type=gha` below must carry this flag.
+                  cache-to: type=gha,mode=max,scope=php-${{ matrix.entry.php }}-${{ matrix.platform.arch }},ignore-error=true
 
     manifest-php:
         name: manifest php ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
@@ -286,6 +321,32 @@ jobs:
                   docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
                       "${base}-amd64" \
                       "${base}-arm64"
+                  # GH-184 attestation gate. With sbom/provenance enabled each
+                  # per-arch source is an OCI index carrying an inlined
+                  # attestation manifest; the multi-arch merge flattens those
+                  # index sources, so the merged tag should keep them. The merge
+                  # CAN silently drop attestations (older tooling, bare-manifest
+                  # sources), and a green build that ships no SBOM at the
+                  # consumable tag defeats the whole issue — so assert they are
+                  # actually present rather than trusting the merge.
+                  # Two arches -> two attestation manifests expected. Separate a
+                  # failed/empty inspect (registry blip, read-after-write lag)
+                  # from a genuine drop so the error message does not misattribute
+                  # a transient inspect failure to a dropped attestation.
+                  raw=$(docker buildx imagetools inspect "${base}" --raw) || raw=""
+                  if [ -z "${raw}" ]; then
+                      echo "::error::could not inspect ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  fi
+                  count=$(jq '[.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length' <<<"${raw}") || {
+                      echo "::error::could not parse imagetools --raw output for ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  }
+                  if [ "${count:-0}" -lt 2 ]; then
+                      echo "::error::merged tag ${base} carries ${count:-0} attestation manifests (expected >= 2); imagetools create dropped them"
+                      exit 1
+                  fi
+                  echo "attestation gate: ${base} carries ${count} attestation manifests"
 
     build-php-full:
         name: php-full ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
@@ -345,6 +406,10 @@ jobs:
                   push: true
                   platforms: ${{ matrix.platform.docker }}
                   tags: ghcr.io/magicsunday/webtrees-php-full:${{ matrix.entry.webtrees }}-php${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  # SBOM + max provenance — see build-php for the rationale and
+                  # the attestation-survives-the-merge verification note.
+                  sbom: true
+                  provenance: mode=max
                   build-args: |
                       PHP_VERSION=${{ matrix.entry.php }}
                       PHP_DIGEST_REF=${{ steps.php_digest.outputs.value }}
@@ -353,7 +418,8 @@ jobs:
                       BUILD_DATE=${{ github.event.repository.updated_at }}
                       DOCKER_SERVER=ghcr.io/magicsunday
                   cache-from: type=gha,scope=php-full-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
-                  cache-to: type=gha,mode=max,scope=php-full-${{ matrix.entry.php }}-${{ matrix.platform.arch }}
+                  # ignore-error=true — best-effort cache export, see build-php.
+                  cache-to: type=gha,mode=max,scope=php-full-${{ matrix.entry.php }}-${{ matrix.platform.arch }},ignore-error=true
 
     manifest-php-full:
         name: manifest php-full ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
@@ -418,6 +484,21 @@ jobs:
                   docker buildx imagetools create ${{ steps.tags.outputs.tag_args }} \
                       "${base}-amd64" \
                       "${base}-arm64"
+                  # GH-184 attestation gate — see manifest-php for the rationale.
+                  raw=$(docker buildx imagetools inspect "${base}" --raw) || raw=""
+                  if [ -z "${raw}" ]; then
+                      echo "::error::could not inspect ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  fi
+                  count=$(jq '[.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length' <<<"${raw}") || {
+                      echo "::error::could not parse imagetools --raw output for ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  }
+                  if [ "${count:-0}" -lt 2 ]; then
+                      echo "::error::merged tag ${base} carries ${count:-0} attestation manifests (expected >= 2); imagetools create dropped them"
+                      exit 1
+                  fi
+                  echo "attestation gate: ${base} carries ${count} attestation manifests"
 
     build-nginx:
         name: nginx ${{ needs.matrix.outputs.nginx_tag }} (${{ matrix.platform.arch }})
@@ -459,13 +540,18 @@ jobs:
                   # rather than the old `echo >> /etc/hosts` workaround.
                   add-hosts: phpfpm=127.0.0.1
                   tags: ghcr.io/magicsunday/webtrees-nginx:${{ needs.matrix.outputs.nginx_tag }}-${{ matrix.platform.arch }}
+                  # SBOM + max provenance — see build-php for the rationale and
+                  # the attestation-survives-the-merge verification note.
+                  sbom: true
+                  provenance: mode=max
                   build-args: |
                       NGINX_BASE=${{ needs.matrix.outputs.nginx_base }}
                       NGINX_CONFIG_REVISION=${{ needs.matrix.outputs.nginx_config_revision }}
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
                   cache-from: type=gha,scope=nginx-${{ matrix.platform.arch }}
-                  cache-to: type=gha,mode=max,scope=nginx-${{ matrix.platform.arch }}
+                  # ignore-error=true — best-effort cache export, see build-php.
+                  cache-to: type=gha,mode=max,scope=nginx-${{ matrix.platform.arch }},ignore-error=true
 
     manifest-nginx:
         name: manifest nginx ${{ needs.matrix.outputs.nginx_tag }}
@@ -512,6 +598,21 @@ jobs:
                       -t "ghcr.io/magicsunday/webtrees-nginx:latest" \
                       "${base}-amd64" \
                       "${base}-arm64"
+                  # GH-184 attestation gate — see manifest-php for the rationale.
+                  raw=$(docker buildx imagetools inspect "${base}" --raw) || raw=""
+                  if [ -z "${raw}" ]; then
+                      echo "::error::could not inspect ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  fi
+                  count=$(jq '[.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length' <<<"${raw}") || {
+                      echo "::error::could not parse imagetools --raw output for ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  }
+                  if [ "${count:-0}" -lt 2 ]; then
+                      echo "::error::merged tag ${base} carries ${count:-0} attestation manifests (expected >= 2); imagetools create dropped them"
+                      exit 1
+                  fi
+                  echo "attestation gate: ${base} carries ${count} attestation manifests"
 
     build-installer:
         name: installer ${{ needs.matrix.outputs.installer_tag }} (${{ matrix.platform.arch }})
@@ -548,8 +649,13 @@ jobs:
                   platforms: ${{ matrix.platform.docker }}
                   push: true
                   tags: ghcr.io/magicsunday/webtrees-installer:${{ needs.matrix.outputs.installer_tag }}-${{ matrix.platform.arch }}
+                  # SBOM + max provenance — see build-php for the rationale and
+                  # the attestation-survives-the-merge verification note.
+                  sbom: true
+                  provenance: mode=max
                   cache-from: type=gha,scope=installer-${{ matrix.platform.arch }}
-                  cache-to: type=gha,scope=installer-${{ matrix.platform.arch }},mode=max
+                  # ignore-error=true — best-effort cache export, see build-php.
+                  cache-to: type=gha,scope=installer-${{ matrix.platform.arch }},mode=max,ignore-error=true
 
     manifest-installer:
         name: manifest installer ${{ needs.matrix.outputs.installer_tag }}
@@ -588,6 +694,21 @@ jobs:
                       -t "ghcr.io/magicsunday/webtrees-installer:latest" \
                       "${base}-amd64" \
                       "${base}-arm64"
+                  # GH-184 attestation gate — see manifest-php for the rationale.
+                  raw=$(docker buildx imagetools inspect "${base}" --raw) || raw=""
+                  if [ -z "${raw}" ]; then
+                      echo "::error::could not inspect ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  fi
+                  count=$(jq '[.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length' <<<"${raw}") || {
+                      echo "::error::could not parse imagetools --raw output for ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  }
+                  if [ "${count:-0}" -lt 2 ]; then
+                      echo "::error::merged tag ${base} carries ${count:-0} attestation manifests (expected >= 2); imagetools create dropped them"
+                      exit 1
+                  fi
+                  echo "attestation gate: ${base} carries ${count} attestation manifests"
 
     smoke-test:
         name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
@@ -900,12 +1021,112 @@ jobs:
               working-directory: ${{ env.E2E_DIR }}
               run: docker compose down -v
 
+    scan-images:
+        name: scan ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }}
+        # Non-fatal CVE surface (GH-184 §2): pull each published webtrees image
+        # and scan it for known vulnerabilities, then publish the result into
+        # the GitHub job summary so the bundled-dependency advisory state is
+        # discoverable without reading raw build logs. Depends on the manifest-*
+        # jobs so the multi-arch tag (with its SBOM attestation) exists first.
+        needs: [matrix, manifest-php, manifest-php-full]
+        runs-on: ubuntu-latest
+        # Image pull + offline DB download + scan; 20m is ample.
+        timeout-minutes: 20
+        # `packages: read` is all the scan needs — it pulls, never pushes.
+        permissions:
+            contents: read
+            packages: read
+        strategy:
+            fail-fast: false
+            matrix:
+                # Only the two webtrees editions carry the upstream-pinned
+                # composer dependency set that #184 is about; nginx/installer
+                # have a negligible application-dependency surface.
+                edition: [core, full]
+                entry: ${{ fromJson(needs.matrix.outputs.php_entries) }}
+        steps:
+            # `actions/checkout` is solely so the local composite action
+            # `./.github/actions/ghcr-login` resolves; nothing else reads repo
+            # content. Do NOT remove it thinking it is unused.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
+            # docker login → the scanner reads the registry credentials from
+            # the docker config to pull the (possibly private) GHCR image.
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # Resolve the fully-qualified image ref. Every matrix value reaches
+            # the shell via `env:` (not GHA template interpolation) and is
+            # regex-validated before use — same env+regex hardening contract as
+            # the manifest-* `Compute tag args` steps.
+            - name: Resolve image ref
+              id: ref
+              env:
+                  EDITION: ${{ matrix.edition }}
+                  WT: ${{ matrix.entry.webtrees }}
+                  PHP: ${{ matrix.entry.php }}
+              run: |
+                  set -euo pipefail
+                  if [[ ! "$WT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.webtrees '$WT' must match X.Y.Z"
+                      exit 1
+                  fi
+                  if [[ ! "$PHP" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::matrix.entry.php '$PHP' must match X.Y"
+                      exit 1
+                  fi
+                  case "$EDITION" in
+                      core) repo=webtrees-php ;;
+                      full) repo=webtrees-php-full ;;
+                      *) echo "::error::unknown edition '$EDITION'"; exit 1 ;;
+                  esac
+                  echo "image=ghcr.io/magicsunday/${repo}:${WT}-php${PHP}" >> "$GITHUB_OUTPUT"
+
+            # Non-blocking by design: `exit-code: 0` keeps the scanner from
+            # failing on findings, and `continue-on-error` is the belt-and-
+            # braces guard so even a scanner crash (DB fetch flake, OOM) cannot
+            # block the faithful build of an upstream-pinned release. The scanner
+            # resolves the multi-arch manifest to linux/amd64 by default; the
+            # composer dependency CVEs that #184 targets are arch-independent, so
+            # a single platform suffices for the advisory surface.
+            - name: Vulnerability scan (non-blocking)
+              id: scan
+              continue-on-error: true
+              uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+              with:
+                  image-ref: ${{ steps.ref.outputs.image }}
+                  format: table
+                  output: scan-report.txt
+                  exit-code: '0'
+                  ignore-unfixed: false
+
+            - name: Publish scan to job summary
+              if: always()
+              env:
+                  IMAGE: ${{ steps.ref.outputs.image }}
+              run: |
+                  set -euo pipefail
+                  {
+                      echo "## Vulnerability scan — ${IMAGE}"
+                      echo ''
+                      echo '```text'
+                      if [ -s scan-report.txt ]; then
+                          cat scan-report.txt
+                      else
+                          echo "(no scan report produced — scan step did not complete)"
+                      fi
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
     notify-on-failure:
         name: Notify on workflow failure
         # IMPORTANT: keep this `needs:` list in sync with every other job
         # in the workflow. GHA has no glob for `needs:`, so a missing entry
         # silently disables failure notification for that job.
-        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, manifest-php, manifest-php-full, manifest-nginx, manifest-installer, smoke-test, demo-import-e2e]
+        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, manifest-php, manifest-php-full, manifest-nginx, manifest-installer, scan-images, smoke-test, demo-import-e2e]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
         timeout-minutes: 5
