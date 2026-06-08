@@ -23,12 +23,12 @@
 # volume and race on `pip install -e .` writes under `make -jN`.
 .NOTPARALLEL: ci-test
 
-.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
+.PHONY: ci-test ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-entrypoint ci-nginx-config ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests
 
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test`. Makefile targets cannot contain `:` in their names, so the
 # recipe is `ci-test`; both are interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-yamllint ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.
@@ -224,6 +224,9 @@ ci-diy-env-vars-lockstep: .logo ## Asserts every env var named in docs/diy.md al
 
 ci-notify-needs-lockstep: .logo ## Asserts build.yml's notify-on-failure needs: covers every other top-level job.
 	$(call lockstep,notify needs lockstep,check-notify-needs.sh)
+
+ci-cron-poll-perms-lockstep: .logo ## Asserts every cron-docker-hub-poll.yml caller grants the top-level permissions its jobs require.
+	$(call lockstep,cron-poll caller perms lockstep,check-cron-poll-caller-perms.sh)
 
 ci-host-lan-ip-detect-tests: .logo ## Regression tests for install's HOST_LAN_IP detection block.
 	echo -e "${FBLUE}▶ host-lan-ip-detect tests${FRESET}"
