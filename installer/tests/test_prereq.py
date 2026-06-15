@@ -64,6 +64,31 @@ def test_check_prerequisites_compose_v1(tmp_path: Path) -> None:
             check_prerequisites(work_dir=tmp_path, docker_sock=sock)
 
 
+def test_check_prerequisites_compose_v3_plus(tmp_path: Path) -> None:
+    """A Compose major newer than v2 (e.g. v5.1.4) is still the plugin → accepted."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="Docker Compose version v5.1.4",
+    ):
+        check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_check_prerequisites_compose_unknown_format(tmp_path: Path) -> None:
+    """An unparseable banner (no `vN.` major) is rejected like a stranger format."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="some unexpected output",
+    ):
+        with pytest.raises(PrereqError, match="Compose v2"):
+            check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
 def test_check_prerequisites_docker_daemon_down(tmp_path: Path) -> None:
     """docker compose version errors → daemon-not-reachable hint."""
     sock = tmp_path / "docker.sock"
