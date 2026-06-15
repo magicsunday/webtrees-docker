@@ -18,7 +18,7 @@ NETWORK_INSPECT_TIMEOUT_S = 10
 # anchored after the major, so minimal or pre-release banners ('… v2',
 # '… 2-rc1') still parse. The legacy v1 standalone prints 'docker-compose
 # version 1.x' (different prefix) and therefore does not match either way.
-_COMPOSE_MAJOR_RE = re.compile(r"^Docker Compose version v?(\d+)")
+_COMPOSE_MAJOR_RE = re.compile(r"^Docker Compose version v?([0-9]+)")
 
 
 class PrereqError(RuntimeError):
