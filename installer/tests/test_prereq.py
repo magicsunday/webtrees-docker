@@ -64,6 +64,78 @@ def test_check_prerequisites_compose_v1(tmp_path: Path) -> None:
             check_prerequisites(work_dir=tmp_path, docker_sock=sock)
 
 
+def test_check_prerequisites_compose_v3_plus(tmp_path: Path) -> None:
+    """A Compose major newer than v2 (e.g. v5.1.4) is still the plugin → accepted."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="Docker Compose version v5.1.4",
+    ):
+        check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_check_prerequisites_compose_no_v_prefix(tmp_path: Path) -> None:
+    """Some distro packages omit the leading 'v' (e.g. 'version 2.29.7') → accepted."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="Docker Compose version 2.29.7",
+    ):
+        check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+@pytest.mark.parametrize(
+    "banner",
+    [
+        pytest.param("Docker Compose version v2", id="v-prefixed-no-dot"),
+        pytest.param("Docker Compose version 2-rc1", id="v-less-prerelease"),
+    ],
+)
+def test_check_prerequisites_compose_minimal_major(
+    tmp_path: Path, banner: str
+) -> None:
+    """A minimal/pre-release banner without a dot after the major still parses."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value=banner,
+    ):
+        check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_check_prerequisites_compose_plugin_major_below_two(tmp_path: Path) -> None:
+    """A plugin-format banner whose major is below 2 (e.g. v1.0.0) is rejected
+    through the `major < 2` comparison branch, not the prefix mismatch."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="Docker Compose version v1.0.0",
+    ):
+        with pytest.raises(PrereqError, match="Compose v2"):
+            check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
+def test_check_prerequisites_compose_unknown_format(tmp_path: Path) -> None:
+    """An unparseable banner (no major after the prefix) is rejected."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="some unexpected output",
+    ):
+        with pytest.raises(PrereqError, match="Compose v2"):
+            check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
 def test_check_prerequisites_docker_daemon_down(tmp_path: Path) -> None:
     """docker compose version errors → daemon-not-reachable hint."""
     sock = tmp_path / "docker.sock"

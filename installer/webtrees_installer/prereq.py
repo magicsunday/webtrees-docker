@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,14 @@ from typing import IO
 
 COMPOSE_VERSION_TIMEOUT_S = 10
 NETWORK_INSPECT_TIMEOUT_S = 10
+
+# Matches the Compose plugin banner 'Docker Compose version vN.M.P' and
+# captures the major N. The leading "v" is optional — some distribution
+# packages print 'Docker Compose version 2.x.y' without it — and nothing is
+# anchored after the major, so minimal or pre-release banners ('… v2',
+# '… 2-rc1') still parse. The legacy v1 standalone prints 'docker-compose
+# version 1.x' (different prefix) and therefore does not match either way.
+_COMPOSE_MAJOR_RE = re.compile(r"^Docker Compose version v?([0-9]+)")
 
 
 class PrereqError(RuntimeError):
@@ -91,12 +100,13 @@ def check_prerequisites(
     # The legacy v1 standalone binary prints 'docker-compose version 1.x'
     # and `docker compose` would not exist at all in that environment, so
     # this rejects the v1 case along with any unexpected stranger format.
-    # Banner format observed on Compose 2.20–2.29; revisit when Compose 3
-    # ships in case the leading "v" or the "v2" prefix changes.
-    if not version.startswith("Docker Compose version v2"):
+    # We accept any plugin major >= 2 (the runner image may ship v3/v4/…),
+    # parsing the major instead of pinning the "v2" prefix.
+    match = _COMPOSE_MAJOR_RE.match(version)
+    if (match is None) or (int(match.group(1)) < 2):
         raise PrereqError(
-            f"Compose v2 required. Got: {version!r}. Update Docker Engine "
-            "to a version that ships the compose plugin."
+            f"Compose v2 (or newer) required. Got: {version!r}. Update Docker "
+            "Engine to a version that ships the compose plugin."
         )
 
 
