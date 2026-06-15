@@ -13,9 +13,11 @@ COMPOSE_VERSION_TIMEOUT_S = 10
 NETWORK_INSPECT_TIMEOUT_S = 10
 
 # Matches the Compose plugin banner 'Docker Compose version vN.M.P' and
-# captures the major N. The legacy v1 standalone prints 'docker-compose
-# version 1.x' (different prefix) and therefore does not match.
-_COMPOSE_MAJOR_RE = re.compile(r"^Docker Compose version v(\d+)\.")
+# captures the major N. The leading "v" is optional — some distribution
+# packages print 'Docker Compose version 2.x.y' without it. The legacy v1
+# standalone prints 'docker-compose version 1.x' (different prefix) and
+# therefore does not match either way.
+_COMPOSE_MAJOR_RE = re.compile(r"^Docker Compose version v?(\d+)\.")
 
 
 class PrereqError(RuntimeError):

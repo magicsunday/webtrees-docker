@@ -76,6 +76,18 @@ def test_check_prerequisites_compose_v3_plus(tmp_path: Path) -> None:
         check_prerequisites(work_dir=tmp_path, docker_sock=sock)
 
 
+def test_check_prerequisites_compose_no_v_prefix(tmp_path: Path) -> None:
+    """Some distro packages omit the leading 'v' (e.g. 'version 2.29.7') → accepted."""
+    sock = tmp_path / "docker.sock"
+    sock.touch()
+
+    with patch(
+        "webtrees_installer.prereq._compose_version",
+        return_value="Docker Compose version 2.29.7",
+    ):
+        check_prerequisites(work_dir=tmp_path, docker_sock=sock)
+
+
 def test_check_prerequisites_compose_unknown_format(tmp_path: Path) -> None:
     """An unparseable banner (no `vN.` major) is rejected like a stranger format."""
     sock = tmp_path / "docker.sock"
