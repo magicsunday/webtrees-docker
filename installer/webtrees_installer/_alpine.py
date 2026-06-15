@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 
 
-ALPINE_BASE_IMAGE = "alpine:3.23"
+ALPINE_BASE_IMAGE = "alpine:3.24"
 
 
 # The smoke-test matrix issues 40+ concurrent helper pulls from the same
