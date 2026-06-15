@@ -6,7 +6,7 @@ volumes:
 
 services:
     init:
-        image: alpine:3.23
+        image: alpine:3.24
         restart: "no"
         volumes:
             - secrets:/secrets
