@@ -325,11 +325,18 @@ RUN apk update && \
 ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
 # Install required PHP extensions.
+# bcmath: not required by the pinned 2.2.x webtrees set this image bundles, but
+# a hard requirement on the dev-main line (webtrees → tecnickcom/tc-lib-pdf →
+# tc-lib-barcode, which requires ext-bcmath). Installed so the runtime image and
+# the buildbox both carry it; the buildbox needs it because a module
+# `composer update` can resolve against dev-main (the modules pin
+# `~2.2.0 || dev-main`).
 # pdo_sqlite is installed alongside pdo_mysql so a future SQLite backend can
 # be selected purely via env var without an image rebuild.
 RUN chmod +x /usr/local/bin/install-php-extensions && \
     install-php-extensions \
         apcu \
+        bcmath \
         exif \
         gd \
         imagick \
