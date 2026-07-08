@@ -1,0 +1,20 @@
+{
+    "format": [
+        "python",
+        "shell"
+    ],
+    "threshold": 0,
+    "reporters": [
+        "console-full"
+    ],
+    "minTokens": 100,
+    "minLines": 5,
+    "path": [
+        "installer/webtrees_installer",
+        "installer/tests",
+        "scripts",
+        "tests"
+    ],
+    "ignore": [],
+    "exitCode": 1
+}

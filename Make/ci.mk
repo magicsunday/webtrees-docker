@@ -92,14 +92,9 @@ ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
 	$(CI_RUN_PYTHON) \
 		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && vulture webtrees_installer --min-confidence 80"
 
-ci-cpd: .logo ## Copy-paste detection for the installer Python package (pylint duplicate-code).
-	echo -e "${FBLUE}▶ cpd (pylint duplicate-code)${FRESET}"
-	# pylint's `duplicate-code` checker is the de-facto standalone CPD
-	# for Python; disabling everything else gives us narrow CPD without
-	# pulling in a second tool. Threshold lives in pyproject.toml
-	# (min-similarity-lines).
-	$(CI_RUN_PYTHON) \
-		-c "pip install -q -e '.[static]' >/dev/null 2>&1 && pylint webtrees_installer"
+ci-cpd: .logo ## Copy-paste detection with jscpd.
+	echo -e "${FBLUE}▶ cpd (jscpd)${FRESET}"
+	docker run --rm -v "$(CURDIR):/repo" -w /repo node:24-alpine sh -c "npx --yes jscpd@5.0.11 --config .jscpd.json --skip-comments --no-tips"
 
 # Resolve the rolling-`latest` image tag (e.g. `2.2.6-php8.5`) from the
 # version manifest. Containerised so the aggregate honours the "docker only"
