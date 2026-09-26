@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import os
 
-
 ALPINE_BASE_IMAGE = "alpine:3.24"
 
 

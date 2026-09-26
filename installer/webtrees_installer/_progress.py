@@ -77,12 +77,11 @@ class ProgressReporter:
     def start(self, label: str) -> None:
         """Open a new stage. Prints `[N/M] label …` to the stream."""
         self._current += 1
-        if self._current > self._total:
-            # Soft guard: an over-counted call would print `[5/4]` which
-            # is a contract bug, but a hard raise here masks the real
-            # failure mode (the calling flow proceeding past its planned
-            # stages). Clamp + continue keeps user output consistent.
-            self._current = self._total
+        # Soft guard: an over-counted call would print `[5/4]` which
+        # is a contract bug, but a hard raise here masks the real
+        # failure mode (the calling flow proceeding past its planned
+        # stages). Clamp + continue keeps user output consistent.
+        self._current = min(self._current, self._total)
         self._stage_start = time.monotonic()
         self._last_tick = self._stage_start
         if self._stream is not None:
@@ -127,7 +126,7 @@ class ProgressReporter:
         self._stage_start = None
 
     @contextmanager
-    def stage(self, label: str) -> Iterator["ProgressReporter"]:
+    def stage(self, label: str) -> Iterator[ProgressReporter]:
         """Context-manager wrapper around `start` + `finish`.
 
         Guarantees the close-out marker is emitted whether the wrapped
