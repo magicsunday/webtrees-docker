@@ -34,7 +34,10 @@ test = [
     "PyYAML>=6.0",
 ]
 static = [
-    "ruff>=0.5",
+    # Bounded to one minor: ruff promotes new rules to stable on minor
+    # releases, and nothing (no Dependabot pip entry) would bump a floor-only
+    # pin deliberately, so each minor otherwise lands as a surprise CI failure.
+    "ruff>=0.16.9,<0.17",
     "mypy>=1.10",
     "vulture>=2.11",
     "pylint>=3.0",
