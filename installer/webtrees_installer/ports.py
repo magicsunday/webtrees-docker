@@ -12,7 +12,6 @@ import subprocess
 
 from webtrees_installer._alpine import get_helper_image
 
-
 # Public knob: callers can pass `timeout_s=PROBE_TIMEOUT_S * 2` or similar
 # to scale the deadline relative to the default without hardcoding seconds.
 #
@@ -113,4 +112,7 @@ def _run_docker_probe(port: int, *, timeout_s: float) -> subprocess.CompletedPro
         capture_output=True,
         text=True,
         timeout=timeout_s,
+        # The caller reads the exit status itself: a non-zero code means
+        # the port is taken, which must not raise.
+        check=False,
     )

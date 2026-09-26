@@ -58,8 +58,12 @@ COPY setup/public /build/public
 # SC2016: the later `grep -q 'merge($this->vendorModules())'` quotes the
 # literal PHP expression — `$this` must NOT be shell-expanded. False
 # positive; suppress.
+# `test -n` rather than `[ -n ]`, and the sed script below single-quoted
+# rather than escaped inside double quotes: Semgrep's Dockerfile parser reads
+# a RUN opening with `[` as exec form and trips over `[^\"]` in a
+# double-quoted string, then leaves this whole instruction unscanned (#219).
 # hadolint ignore=SC2016
-RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
+RUN test -n "${WEBTREES_VERSION}" || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
  # Select the composer manifest matching WEBTREES_VERSION's major.minor.
  # Unknown lines fail loud — adding a new webtrees-major.minor needs a
  # matching setup/composer-core-X.Y.json file.
@@ -72,7 +76,7 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
  # The manifest carries a "~2.X.0" range for the dev bootstrap; the image
  # locks to one exact version so the OCI label and the on-disk install
  # cannot drift.
- && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
+ && sed -i 's|"fisharebest/webtrees": "[^"]*"|"fisharebest/webtrees": "'"${WEBTREES_VERSION}"'"|' composer.json \
  # Pin composer's resolution platform to the target image's PHP version.
  # The composer:2 image ships whatever PHP version Alpine packages (currently
  # 8.5.x); without an explicit platform, composer resolves transitive deps
@@ -197,7 +201,7 @@ COPY setup/public /build/public
 # SC2016: see the webtrees-build stage above — `$this` in the grep
 # pattern is the literal PHP expression, intentionally single-quoted.
 # hadolint ignore=SC2016
-RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
+RUN test -n "${WEBTREES_VERSION}" || { echo "WEBTREES_VERSION cannot be empty" >&2; exit 1; } \
  # Select the per-version manifest. See webtrees-build for the rationale
  # (version-scoped patch sets + chart constraints + plugin allow-lists
  # carried directly in JSON instead of synthesised at build time).
@@ -206,7 +210,7 @@ RUN [ -n "${WEBTREES_VERSION}" ] || { echo "WEBTREES_VERSION cannot be empty" >&
         2.2.*) cp composer-full-2.2.json composer.json ;; \
         *) echo "no composer-full manifest for WEBTREES_VERSION=${WEBTREES_VERSION}" >&2; exit 1 ;; \
     esac \
- && sed -i "s|\"fisharebest/webtrees\": \"[^\"]*\"|\"fisharebest/webtrees\": \"${WEBTREES_VERSION}\"|" composer.json \
+ && sed -i 's|"fisharebest/webtrees": "[^"]*"|"fisharebest/webtrees": "'"${WEBTREES_VERSION}"'"|' composer.json \
  # Mirror the platform-pin from webtrees-build (see comment there) so the
  # full edition's transitive deps resolve against the deployment PHP
  # version, not the composer:2 image's PHP version.

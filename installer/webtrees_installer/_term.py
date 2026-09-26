@@ -17,7 +17,6 @@ import os
 from dataclasses import dataclass
 from typing import IO
 
-
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
 _GREEN = "\033[32m"
@@ -57,7 +56,7 @@ class Term:
     enabled: bool
 
     @classmethod
-    def for_stream(cls, stream: IO[str] | None) -> "Term":
+    def for_stream(cls, stream: IO[str] | None) -> Term:
         return cls(enabled=colour_supported(stream))
 
     def _wrap(self, code: str, text: str) -> str:

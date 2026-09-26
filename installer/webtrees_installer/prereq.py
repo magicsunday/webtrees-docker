@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import IO
 
-
 COMPOSE_VERSION_TIMEOUT_S = 10
 NETWORK_INSPECT_TIMEOUT_S = 10
 
