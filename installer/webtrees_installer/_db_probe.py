@@ -17,7 +17,6 @@ import socket
 
 from webtrees_installer.prompts import PromptError
 
-
 _DEFAULT_TIMEOUT_S = 5.0
 
 
@@ -41,7 +40,7 @@ def probe_external_db(
             f"External DB host {host!r} does not resolve: {exc}. "
             f"Fix DNS or pass --external-db-host with a resolvable name / IP."
         ) from exc
-    except (TimeoutError, socket.timeout) as exc:
+    except TimeoutError as exc:
         raise PromptError(
             f"External DB {host}:{port} did not answer within {timeout:g}s. "
             f"Check that the listener is up and that no firewall sits in front."

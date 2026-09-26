@@ -17,7 +17,6 @@ from importlib import resources
 
 from webtrees_installer.gedcom import Family, GedcomDocument, Person, Sex
 
-
 # Public knobs — same defaults the spec calls out.
 GENERATIONS_DEFAULT = 7
 ROOT_BIRTH_YEAR_DEFAULT = 1850

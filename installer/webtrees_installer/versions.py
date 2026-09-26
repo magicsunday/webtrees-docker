@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_MANIFEST_DIR = Path("/opt/installer/versions")
 """Where the installer image bakes the catalog. Overridden by the
 ``WEBTREES_INSTALLER_MANIFEST_DIR`` env var when running tests or

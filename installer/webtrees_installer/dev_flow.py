@@ -13,7 +13,7 @@ import os
 import socket
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO
 
@@ -398,7 +398,7 @@ def _ask_port(
 # itself, patch ``webtrees_installer.versions.DEFAULT_MANIFEST_DIR``
 # directly — a local alias here would silently no-op because the
 # resolver reads versions.DEFAULT_MANIFEST_DIR.
-from webtrees_installer.versions import (  # noqa: E402
+from webtrees_installer.versions import (
     resolve_manifest_dir as _resolve_manifest_dir,
 )
 
@@ -483,7 +483,7 @@ def run_dev(
     catalog = load_catalog(_resolve_manifest_dir())
     render_dev_env(
         args, catalog=catalog, target_dir=work_dir,
-        generated_at=datetime.now(tz=timezone.utc),
+        generated_at=datetime.now(tz=UTC),
     )
 
     for relative in ("persistent/database", "persistent/media", "app"):
@@ -592,7 +592,7 @@ def _parse_env(path: Path) -> dict[str, str]:
 # Test-patch seam kept as a thin alias so existing test patches on
 # ``webtrees_installer.dev_flow._compose`` keep working. The shared
 # helper in ``webtrees_installer._docker`` is the single implementation.
-from webtrees_installer._docker import run_docker as _compose  # noqa: E402
+from webtrees_installer._docker import run_docker as _compose
 
 
 def _print_dev_banner(*, stdout: IO[str], args: DevArgs) -> None:

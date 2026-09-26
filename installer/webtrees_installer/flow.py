@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO
 
@@ -143,7 +143,7 @@ _FALLBACK_PORT = 28081
 # bake-location patch ``webtrees_installer.versions.DEFAULT_MANIFEST_DIR``
 # directly — a flow-level alias on the constant would silently no-op
 # because resolve_manifest_dir reads versions.DEFAULT_MANIFEST_DIR.
-from webtrees_installer.versions import (  # noqa: E402
+from webtrees_installer.versions import (
     resolve_manifest_dir as _resolve_manifest_dir,
 )
 
@@ -313,7 +313,7 @@ def run_standalone(
         admin_user=admin_user,
         admin_email=admin_email,
         catalog=catalog,
-        generated_at=datetime.now(tz=timezone.utc),
+        generated_at=datetime.now(tz=UTC),
         enforce_https=enforce_https,
         pretty_urls=args.pretty_urls,
         db_type=args.db_type,
