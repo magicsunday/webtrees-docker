@@ -1,0 +1,11 @@
+{
+    "name": "webtrees-docker",
+    "private": true,
+    "description": "Tooling manifest for the repository's own checks, nothing in here is published.",
+    "scripts": {
+        "cpd": "jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"
+    },
+    "devDependencies": {
+        "jscpd": "5.3.2"
+    }
+}

@@ -1,7 +1,6 @@
 {
     "format": [
-        "python",
-        "shell"
+        "python"
     ],
     "threshold": 0,
     "reporters": [
