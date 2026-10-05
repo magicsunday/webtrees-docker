@@ -94,7 +94,7 @@ ci-vulture: .logo ## Scans the installer Python package for dead code (vulture).
 
 ci-cpd: .logo ## Copy-paste detection with jscpd.
 	echo -e "${FBLUE}▶ cpd (jscpd)${FRESET}"
-	docker run --rm -v "$(CURDIR):/repo" -w /repo node:24-alpine sh -c "npx --yes jscpd@5.0.11 --config .jscpd.json --skip-comments --no-tips"
+	docker run --rm --user "$$(id -u):$$(id -g)" -e npm_config_cache=/tmp/.npm -v "$(CURDIR):/repo" -w /repo node:24-alpine sh -c "npm ci --no-audit --no-fund --ignore-scripts && npm run cpd"
 
 # Resolve the rolling-`latest` image tag (e.g. `2.2.6-php8.5`) from the
 # version manifest. Containerised so the aggregate honours the "docker only"

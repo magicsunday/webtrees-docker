@@ -43,3 +43,12 @@ jobs:
 
             - name: Run ci-test aggregate
               run: make ci-test
+
+    # Copy-paste detection also runs inside the aggregate above for a local
+    # run. This job calls the shared lane of the account's `.github`
+    # repository, which installs the locked jscpd and reports under the check
+    # name `cpd / Copy-paste detection`.
+    cpd:
+        uses: magicsunday/.github/.github/workflows/cpd.yml@main
+        permissions:
+            contents: read

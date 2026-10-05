@@ -178,6 +178,10 @@ runs, so a green local run reliably predicts a green GitHub Actions run.
 Today's bundle:
 
 - `make ci-pytest` — installer Python test suite (137+ cases).
+- `make ci-cpd` runs copy-paste detection on the Python sources with the
+  jscpd version pinned in `package.json` and locked in `package-lock.json`.
+  CI also runs it as its own `cpd` job through the shared workflow of the
+  account's `.github` repository. A scan that analyzes no files fails.
 - `make ci-yamllint` — workflow + compose YAML lint (line-length is a
   warning, not an error: GHA `run:` blocks routinely carry long inline
   strings).
