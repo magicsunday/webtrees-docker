@@ -247,8 +247,10 @@ setup_webtrees_dist() {
 #   WEBTREES_TABLE_PREFIX  table prefix (default: wt_)
 #
 # Schema migration: no CLI command exists; the canonical path is the HTTP
-# UpdateDatabaseSchema middleware. We invoke MigrationService::updateSchema
-# directly via php -r to avoid waiting for nginx + curl-with-https quirks.
+# UpdateDatabaseSchema middleware, which calls MigrationService::updateSchema
+# only. The same php -r process then calls MigrationService::seedDatabase so
+# the default user row (user_id -1) exists before the first authenticated
+# page inserts blocks. php -r avoids waiting for nginx.
 setup_webtrees_bootstrap() {
     if [[ -z "${WT_ADMIN_USER:-}" ]]; then
         return 0
@@ -373,7 +375,10 @@ setup_webtrees_bootstrap() {
     fi
 
     # The migration runs MigrationService::updateSchema(...) directly — the
-    # same call the HTTP UpdateDatabaseSchema middleware makes on every request.
+    # same call the HTTP UpdateDatabaseSchema middleware makes on every request —
+    # then MigrationService::seedDatabase() on a fresh lookup. updateSchema
+    # returns a bool, so the seed is a separate statement. The seeders use
+    # updateOrInsert, so a retry after a later step fails does not insert duplicates.
     # Order matters: Webtrees::bootstrap() wires the Registry container and
     # all factories; Console::bootstrap() then reads config.ini.php and opens
     # the DB connection. Without the Webtrees::bootstrap() prefix
@@ -399,6 +404,9 @@ setup_webtrees_bootstrap() {
                     \"WT_SCHEMA_VERSION\",
                     Fisharebest\\Webtrees\\Webtrees::SCHEMA_VERSION
                 );
+            Fisharebest\\Webtrees\\Registry::container()
+                ->get(Fisharebest\\Webtrees\\Services\\MigrationService::class)
+                ->seedDatabase();
             echo \"schema ok\n\";
         "
     '
