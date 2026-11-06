@@ -45,6 +45,8 @@ jobs:
             nginx_tag: ${{ steps.set.outputs.nginx_tag }}
             nginx_config_revision: ${{ steps.set.outputs.nginx_config_revision }}
             installer_tag: ${{ steps.set.outputs.installer_tag }}
+            module_base_node: ${{ steps.set.outputs.module_base_node }}
+            module_base_php: ${{ steps.set.outputs.module_base_php }}
             platforms: ${{ steps.set.outputs.platforms }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,7 +113,21 @@ jobs:
                       echo "::error::dev/installer-version.json .version '$installer_tag' must match X.Y.Z"
                       exit 1
                   fi
+                  # Module base image: Node major from the Dockerfile default (single source of truth), PHP
+                  # minor is the newest one of dev/php-versions.json.
+                  module_base_node=$(sed -n 's/^ARG NODE_VERSION=//p' Dockerfile | head -n 1)
+                  if [[ ! "$module_base_node" =~ ^[0-9]+$ ]]; then
+                      echo "::error::Dockerfile ARG NODE_VERSION '$module_base_node' must match N"
+                      exit 1
+                  fi
+                  module_base_php=$(jq -r '[.supported[][]] | unique | sort_by(split(".") | map(tonumber)) | last' dev/php-versions.json)
+                  if [[ ! "$module_base_php" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::newest PHP minor of dev/php-versions.json '$module_base_php' must match X.Y"
+                      exit 1
+                  fi
                   echo "nginx_base=${nginx_base}" >> "$GITHUB_OUTPUT"
+                  echo "module_base_node=${module_base_node}" >> "$GITHUB_OUTPUT"
+                  echo "module_base_php=${module_base_php}" >> "$GITHUB_OUTPUT"
                   echo "nginx_tag=${nginx_tag}" >> "$GITHUB_OUTPUT"
                   echo "nginx_config_revision=${nginx_config_revision}" >> "$GITHUB_OUTPUT"
                   echo "installer_tag=${installer_tag}" >> "$GITHUB_OUTPUT"
@@ -727,6 +743,115 @@ jobs:
                   fi
                   echo "attestation gate: ${base} carries ${count} attestation manifests"
 
+    build-module-base:
+        name: module-base node${{ needs.matrix.outputs.module_base_node }} php${{ needs.matrix.outputs.module_base_php }} (${{ matrix.platform.arch }})
+        needs: matrix
+        runs-on: ${{ matrix.platform.runner }}
+        # Node binary + PHP CLI + a handful of apk packages and two PHP
+        # extensions; no composer install of webtrees. 30m covers it on the
+        # slower of the two runners.
+        timeout-minutes: 30
+        permissions:
+            contents: read
+            packages: write
+        strategy:
+            fail-fast: false
+            matrix:
+                # Platform matrix — see build-php for the shape and the
+                # manifest-* per-arch coupling.
+                platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # The module targets do not depend on the PHP version, so only the
+            # newest supported PHP minor is published. dev/php_digests.lock
+            # pins the fpm-alpine variant, which is not the base of this
+            # stage, so PHP_DIGEST_REF stays empty and the build follows the
+            # rolling php:<minor>-cli-alpine tag.
+            - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  target: module-base
+                  push: true
+                  platforms: ${{ matrix.platform.docker }}
+                  tags: ghcr.io/magicsunday/webtrees-module-base:node${{ needs.matrix.outputs.module_base_node }}-php${{ needs.matrix.outputs.module_base_php }}-${{ matrix.platform.arch }}
+                  # SBOM + max provenance — see build-php for the rationale and
+                  # the attestation-survives-the-merge verification note.
+                  sbom: true
+                  provenance: mode=max
+                  build-args: |
+                      PHP_VERSION=${{ needs.matrix.outputs.module_base_php }}
+                      NODE_VERSION=${{ needs.matrix.outputs.module_base_node }}
+                      VCS_REF=${{ github.sha }}
+                      BUILD_DATE=${{ github.event.repository.updated_at }}
+                  cache-from: type=gha,scope=module-base-${{ matrix.platform.arch }}
+                  # ignore-error=true — best-effort cache export, see build-php.
+                  cache-to: type=gha,mode=max,scope=module-base-${{ matrix.platform.arch }},ignore-error=true
+
+    manifest-module-base:
+        name: manifest module-base node${{ needs.matrix.outputs.module_base_node }} php${{ needs.matrix.outputs.module_base_php }}
+        needs: [matrix, build-module-base]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # Two tags: the exact one (node<N>-php<X.Y>) and the rolling
+            # node<N> tag the modules reference. Moving the modules to the next
+            # Node major is then a change of the tag in the consumers.
+            - name: Assemble multi-arch manifest
+              env:
+                  NODE: ${{ needs.matrix.outputs.module_base_node }}
+                  PHP: ${{ needs.matrix.outputs.module_base_php }}
+              run: |
+                  set -euo pipefail
+                  if [[ ! "$NODE" =~ ^[0-9]+$ ]]; then
+                      echo "::error::module_base_node '$NODE' must match N"
+                      exit 1
+                  fi
+                  if [[ ! "$PHP" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "::error::module_base_php '$PHP' must match X.Y"
+                      exit 1
+                  fi
+                  base="ghcr.io/magicsunday/webtrees-module-base:node${NODE}-php${PHP}"
+                  docker buildx imagetools create \
+                      -t "${base}" \
+                      -t "ghcr.io/magicsunday/webtrees-module-base:node${NODE}" \
+                      "${base}-amd64" \
+                      "${base}-arm64"
+                  # GH-184 attestation gate — see manifest-php for the rationale.
+                  raw=$(docker buildx imagetools inspect "${base}" --raw) || raw=""
+                  if [ -z "${raw}" ]; then
+                      echo "::error::could not inspect ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  fi
+                  count=$(jq '[.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length' <<<"${raw}") || {
+                      echo "::error::could not parse imagetools --raw output for ${base}; cannot verify SBOM/provenance attestations"
+                      exit 1
+                  }
+                  if [ "${count:-0}" -lt 2 ]; then
+                      echo "::error::merged tag ${base} carries ${count:-0} attestation manifests (expected >= 2); imagetools create dropped them"
+                      exit 1
+                  fi
+                  echo "attestation gate: ${base} carries ${count} attestation manifests"
+
     smoke-test:
         name: smoke ${{ matrix.edition }} ${{ matrix.entry.webtrees }}-${{ matrix.entry.php }} (${{ matrix.platform.arch }})
         needs: [matrix, manifest-php, manifest-php-full, manifest-nginx, manifest-installer]
@@ -1138,12 +1263,76 @@ jobs:
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
 
+    scan-module-base:
+        name: scan module-base node${{ needs.matrix.outputs.module_base_node }}
+        # Non-fatal CVE surface like scan-images: pull the published multi-arch tag, scan it and publish the report
+        # into the job summary. The report lists the packages bundled in the Node distribution (npm and its
+        # dependencies) as well, whose fixes arrive with the next Node release, so findings never fail the run.
+        needs: [matrix, manifest-module-base]
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            packages: read
+        steps:
+            # `actions/checkout` is solely so the local composite action
+            # `./.github/actions/ghcr-login` resolves; nothing else reads repo
+            # content. Do NOT remove it thinking it is unused.
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: ./.github/actions/ghcr-login
+              with:
+                  username: ${{ github.actor }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Resolve image ref
+              id: ref
+              env:
+                  NODE: ${{ needs.matrix.outputs.module_base_node }}
+              run: |
+                  set -euo pipefail
+                  if [[ ! "$NODE" =~ ^[0-9]+$ ]]; then
+                      echo "::error::module_base_node '$NODE' must match N"
+                      exit 1
+                  fi
+                  echo "image=ghcr.io/magicsunday/webtrees-module-base:node${NODE}" >> "$GITHUB_OUTPUT"
+
+            - name: Vulnerability scan (non-blocking)
+              id: scan
+              continue-on-error: true
+              uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+              with:
+                  image-ref: ${{ steps.ref.outputs.image }}
+                  format: table
+                  output: scan-report.txt
+                  exit-code: '0'
+                  ignore-unfixed: true
+
+            - name: Publish scan to job summary
+              if: always()
+              env:
+                  IMAGE: ${{ steps.ref.outputs.image }}
+              run: |
+                  set -euo pipefail
+                  {
+                      echo "## Vulnerability scan — ${IMAGE}"
+                      echo ''
+                      echo '```text'
+                      if [ -s scan-report.txt ]; then
+                          cat scan-report.txt
+                      else
+                          echo "(no scan report produced — scan step did not complete)"
+                      fi
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
     notify-on-failure:
         name: Notify on workflow failure
         # IMPORTANT: keep this `needs:` list in sync with every other job
         # in the workflow. GHA has no glob for `needs:`, so a missing entry
         # silently disables failure notification for that job.
-        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, manifest-php, manifest-php-full, manifest-nginx, manifest-installer, scan-images, smoke-test, demo-import-e2e]
+        needs: [matrix, build-php, build-php-full, build-nginx, build-installer, build-module-base, manifest-php, manifest-php-full, manifest-nginx, manifest-installer, manifest-module-base, scan-images, scan-module-base, smoke-test, demo-import-e2e]
         if: failure() && github.event_name != 'pull_request'
         runs-on: ubuntu-latest
         timeout-minutes: 5
