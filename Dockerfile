@@ -470,7 +470,7 @@ RUN apk add --no-cache \
         nodejs \
         npm \
         openssl \
-        openssh \
+        openssh-client \
         shadow \
         sudo \
         zip
