@@ -132,8 +132,10 @@ module checkout, so run it as the calling user
 because a run as root leaves root-owned files behind. The empty `COMPOSE_RUN`
 makes the recipes call the tools of the image directly, since the image
 contains no Docker. The npm targets that install or build use the separate
-variable `COMPOSE_RUN_USER`, which has to be passed empty as well. The build is triggered
-either manually or by a tag push:
+variable `COMPOSE_RUN_USER`, which has to be passed empty as well. A recipe that
+starts with `set -e` and calls `apk add` aborts as the calling user, because
+`apk add` needs root, so such a recipe has to tolerate that call first. The build is
+triggered either manually or by a tag push:
 
 ```bash
 gh workflow run build.yml --ref main
