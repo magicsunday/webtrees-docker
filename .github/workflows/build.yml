@@ -747,9 +747,9 @@ jobs:
         name: module-base node${{ needs.matrix.outputs.module_base_node }} php${{ needs.matrix.outputs.module_base_php }} (${{ matrix.platform.arch }})
         needs: matrix
         runs-on: ${{ matrix.platform.runner }}
-        # Node binary + PHP CLI + a handful of apk packages and two PHP
-        # extensions; no composer install of webtrees. 30m covers it on the
-        # slower of the two runners.
+        # Node binary, PHP CLI, a handful of apk packages and two PHP
+        # extensions, no composer install of webtrees. The timeout covers
+        # the slower of the two runners.
         timeout-minutes: 30
         permissions:
             contents: read
@@ -757,7 +757,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                # Platform matrix — see build-php for the shape and the
+                # Platform matrix, see build-php for the shape and the
                 # manifest-* per-arch coupling.
                 platform: ${{ fromJson(needs.matrix.outputs.platforms) }}
         steps:
@@ -773,8 +773,8 @@ jobs:
             # The module targets do not depend on the PHP version, so only the
             # newest supported PHP minor is published. dev/php_digests.lock
             # pins the fpm-alpine variant, which is not the base of this
-            # stage, so PHP_DIGEST_REF stays empty and the build follows the
-            # rolling php:<minor>-cli-alpine tag.
+            # stage, so the build follows the rolling php:<minor>-cli-alpine
+            # tag and passes no digest.
             - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
               with:
                   context: .
@@ -783,7 +783,7 @@ jobs:
                   push: true
                   platforms: ${{ matrix.platform.docker }}
                   tags: ghcr.io/magicsunday/webtrees-module-base:node${{ needs.matrix.outputs.module_base_node }}-php${{ needs.matrix.outputs.module_base_php }}-${{ matrix.platform.arch }}
-                  # SBOM + max provenance — see build-php for the rationale and
+                  # SBOM + max provenance, see build-php for the rationale and
                   # the attestation-survives-the-merge verification note.
                   sbom: true
                   provenance: mode=max
@@ -793,7 +793,7 @@ jobs:
                       VCS_REF=${{ github.sha }}
                       BUILD_DATE=${{ github.event.repository.updated_at }}
                   cache-from: type=gha,scope=module-base-${{ matrix.platform.arch }}
-                  # ignore-error=true — best-effort cache export, see build-php.
+                  # ignore-error=true: best-effort cache export, see build-php.
                   cache-to: type=gha,mode=max,scope=module-base-${{ matrix.platform.arch }},ignore-error=true
 
     manifest-module-base:
@@ -836,7 +836,7 @@ jobs:
                       -t "ghcr.io/magicsunday/webtrees-module-base:node${NODE}" \
                       "${base}-amd64" \
                       "${base}-arm64"
-                  # GH-184 attestation gate — see manifest-php for the rationale.
+                  # GH-184 attestation gate, see manifest-php for the rationale.
                   raw=$(docker buildx imagetools inspect "${base}" --raw) || raw=""
                   if [ -z "${raw}" ]; then
                       echo "::error::could not inspect ${base}; cannot verify SBOM/provenance attestations"
@@ -1265,9 +1265,9 @@ jobs:
 
     scan-module-base:
         name: scan module-base node${{ needs.matrix.outputs.module_base_node }}
-        # Non-fatal CVE surface like scan-images: pull the published multi-arch tag, scan it and publish the report
-        # into the job summary. The report lists the packages bundled in the Node distribution (npm and its
-        # dependencies) as well, whose fixes arrive with the next Node release, so findings never fail the run.
+        # Non-fatal CVE surface like scan-images. It pulls the published multi-arch tag, scans it and publishes the
+        # report into the job summary, so findings never fail the run. Unlike scan-images it reports only findings
+        # with a fix, because the image is rebuilt from the rolling bases anyway.
         needs: [matrix, manifest-module-base]
         runs-on: ubuntu-latest
         timeout-minutes: 20
@@ -1276,7 +1276,7 @@ jobs:
             packages: read
         steps:
             # `actions/checkout` is solely so the local composite action
-            # `./.github/actions/ghcr-login` resolves; nothing else reads repo
+            # `./.github/actions/ghcr-login` resolves. Nothing else reads repo
             # content. Do NOT remove it thinking it is unused.
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -1316,13 +1316,13 @@ jobs:
               run: |
                   set -euo pipefail
                   {
-                      echo "## Vulnerability scan — ${IMAGE}"
+                      echo "## Vulnerability scan: ${IMAGE}"
                       echo ''
                       echo '```text'
                       if [ -s scan-report.txt ]; then
                           cat scan-report.txt
                       else
-                          echo "(no scan report produced — scan step did not complete)"
+                          echo "(no scan report produced, the scan step did not complete)"
                       fi
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"

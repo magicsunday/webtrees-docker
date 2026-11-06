@@ -518,7 +518,7 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 # newest one is published.
 FROM node:${NODE_VERSION}-alpine AS node-source
 
-FROM php:${PHP_VERSION}-cli-alpine${PHP_DIGEST_REF} AS module-base
+FROM php:${PHP_VERSION}-cli-alpine AS module-base
 
 ARG PHP_VERSION=8.3
 ARG NODE_VERSION=24
@@ -529,10 +529,10 @@ COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 # libstdc++ is needed by the Node binary and python3 by the catalogue check of the shared i18n
-# workflow. intl and zip are the extensions that
-# Composer and the fuzzy resolver of the lang targets need beyond the CLI
-# defaults. DL3018 (pin apk versions) intentionally suppressed: this image
-# tracks a rolling Alpine base, the same reasoning as in the buildbox stage.
+# workflow. The extensions intl and zip are installed below, because Composer and the fuzzy
+# resolver of the lang targets need them beyond the CLI defaults.
+# DL3018 (pin apk versions) intentionally suppressed. This image tracks a rolling Alpine base,
+# the same reasoning as in the buildbox stage.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \

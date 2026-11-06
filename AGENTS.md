@@ -13,7 +13,7 @@ conventions, audit-loop discipline) live in
 |---|---|
 | Purpose | Docker images + Python wizard for self-hosting [webtrees](https://www.webtrees.net/) |
 | Stacks | Python wizard (`installer/`, ≥3.12), multi-stage `Dockerfile` (PHP-FPM + nginx), bash launchers (`install`, `upgrade`) |
-| Distribution | Container images on `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}`; matrix lives in `dev/versions.json` |
+| Distribution | Container images on `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer,module-base}`; matrix lives in `dev/versions.json` |
 | Entry point for end-users | `curl … /install \| bash` |
 
 ## Repo layout
@@ -24,7 +24,7 @@ conventions, audit-loop discipline) live in
 | `installer/webtrees_installer/templates/*.j2` | Jinja2 sources for the rendered `compose.yaml` / `.env` |
 | `installer/tests/` | pytest suite |
 | `installer/Dockerfile` | Wizard image — separate build, shipped as `installer:<tag>` |
-| `Dockerfile` | Multi-stage build for `php` / `php-full` / `nginx` (stages: `webtrees-build`, `webtrees-build-full`, `php-base`, `php-build`, `php-build-full`, `build-box`, `nginx-build`) |
+| `Dockerfile` | Multi-stage build for `php` / `php-full` / `nginx` / `module-base` (stages: `webtrees-build`, `webtrees-build-full`, `php-base`, `php-build`, `php-build-full`, `build-box`, `node-source`, `module-base`, `nginx-build`). `module-base` is the tooling image for the Make targets of the webtrees modules (Node, gettext, make, git, Composer, PHP CLI), it carries no webtrees |
 | `rootfs/` | Files baked into the runtime images at build time |
 | `compose.yaml` + `compose.*.yaml` | Base + override chain; the wizard picks subsets per mode |
 | `setup/` | Composer manifests (version-scoped `composer-core-<major.minor>.json` / `composer-full-<major.minor>.json`, selected by `WEBTREES_VERSION`) + patch files |
