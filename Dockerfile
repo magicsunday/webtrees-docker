@@ -457,11 +457,9 @@ RUN apk add --no-cache \
         acl \
         findutils \
         git \
-        github-cli \
         jq \
         make \
         ncurses \
-        mariadb-client \
         nano \
         nodejs \
         npm \
