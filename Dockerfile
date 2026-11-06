@@ -531,9 +531,9 @@ COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 # libstdc++ is needed by the Node binary and python3 by the catalogue check of the shared i18n
-# workflow. The extensions gd, intl and zip are installed below, because Composer needs them
-# to resolve webtrees and the fuzzy resolver of the lang targets needs them beyond the CLI
-# defaults.
+# workflow. ncurses provides tput for the colours and util-linux-misc provides column for the
+# help listing of the module Make files. The extensions gd, intl and zip are installed below,
+# because Composer needs them to resolve the module dependencies.
 # DL3018 (pin apk versions) intentionally suppressed. This image tracks a rolling Alpine base,
 # the same reasoning as in the buildbox stage.
 # hadolint ignore=DL3018
@@ -546,9 +546,11 @@ RUN apk add --no-cache \
         jq \
         libstdc++ \
         make \
+        ncurses \
         openssl \
         python3 \
         unzip \
+        util-linux-misc \
         zip && \
     ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx

@@ -147,9 +147,8 @@ git tag v1.2.3 && git push origin v1.2.3
 × `{php, php-full}` plus a single `nginx` and `installer` build. The
 `module-base` image is built independently of that manifest, with the Node
 major from the `Dockerfile` and the newest PHP minor from
-`dev/php-versions.json`. A
-follow-up smoke job spins each `{core, full, demo}` edition up against
-the freshly built images.
+`dev/php-versions.json`. A follow-up smoke job spins each
+`{core, full, demo}` edition up against the freshly built images.
 
 ## Common Make Targets
 
