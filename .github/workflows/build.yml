@@ -113,8 +113,8 @@ jobs:
                       echo "::error::dev/installer-version.json .version '$installer_tag' must match X.Y.Z"
                       exit 1
                   fi
-                  # Module base image: Node major from the Dockerfile default (single source of truth), PHP
-                  # minor is the newest one of dev/php-versions.json.
+                  # Module base image. The Node major comes from the Dockerfile default (single source of truth)
+                  # and the PHP minor is the newest one of dev/php-versions.json.
                   module_base_node=$(sed -n 's/^ARG NODE_VERSION=//p' Dockerfile | head -n 1)
                   if [[ ! "$module_base_node" =~ ^[0-9]+$ ]]; then
                       echo "::error::Dockerfile ARG NODE_VERSION '$module_base_node' must match N"
@@ -747,9 +747,8 @@ jobs:
         name: module-base node${{ needs.matrix.outputs.module_base_node }} php${{ needs.matrix.outputs.module_base_php }} (${{ matrix.platform.arch }})
         needs: matrix
         runs-on: ${{ matrix.platform.runner }}
-        # Node binary, PHP CLI, a handful of apk packages and two PHP
-        # extensions, no composer install of webtrees. The timeout covers
-        # the slower of the two runners.
+        # Node binary, PHP CLI, apk packages and PHP extensions, no composer
+        # install of webtrees. The timeout covers the slowest runner.
         timeout-minutes: 30
         permissions:
             contents: read
@@ -813,7 +812,7 @@ jobs:
                   username: ${{ github.actor }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            # Two tags: the exact one (node<N>-php<X.Y>) and the rolling
+            # Tags: the exact one (node<N>-php<X.Y>) and the rolling
             # node<N> tag the modules reference. Moving the modules to the next
             # Node major is then a change of the tag in the consumers.
             - name: Assemble multi-arch manifest

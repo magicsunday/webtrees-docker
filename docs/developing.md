@@ -123,10 +123,13 @@ ls /tmp/wizard-smoke
 
 ## Image Builds
 
-CI publishes five image families on `ghcr.io/magicsunday/`:
+CI publishes these image families on `ghcr.io/magicsunday/`:
 `webtrees-php`, `webtrees-php-full`, `webtrees-nginx`, `webtrees-installer`, and
 `webtrees-module-base`, the tooling image for the Make targets of the modules
-(tags `node<N>-php<X.Y>` and `node<N>`). The build is triggered
+(tags `node<N>-php<X.Y>` and `node<N>`). It writes into the bind-mounted
+module checkout, so run it as the calling user
+(`docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/app <image> make lang`),
+because a run as root leaves root-owned files behind. The build is triggered
 either manually or by a tag push:
 
 ```bash

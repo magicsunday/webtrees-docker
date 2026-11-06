@@ -513,9 +513,9 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 # PHP CLI. No FPM, no image or database extensions and no webtrees, so the
 # image stays small enough for the container checks of the module CI.
 # Node is taken from the official node image so that it equals the Node of the
-# CI checks, and PHP is the CLI variant of the same PHP minor as the other
-# stages. The module targets do not depend on the PHP version, only the
-# newest one is published.
+# CI checks, and PHP is the CLI variant of the PHP build argument. The module
+# targets do not depend on the PHP version, so CI publishes the newest minor
+# only.
 FROM node:${NODE_VERSION}-alpine AS node-source
 
 FROM php:${PHP_VERSION}-cli-alpine AS module-base
@@ -567,7 +567,7 @@ LABEL org.opencontainers.image.title="Webtrees Module Base" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.ref.name="webtrees-module-base:php${PHP_VERSION}-node${NODE_VERSION}"
+      org.opencontainers.image.ref.name="webtrees-module-base:node${NODE_VERSION}-php${PHP_VERSION}"
 
 
 ##################
