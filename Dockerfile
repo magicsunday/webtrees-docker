@@ -24,6 +24,10 @@ ARG PHP_DIGEST_REF=""
 # `ARG NGINX_BASE` past its FROM to use the value in LABEL etc. — see
 # scoping rules in BuildKit docs.
 ARG NGINX_BASE=1.30
+# Node major of the module base image. It has to equal the Node of the CI checks of the
+# modules (the `node-image` input of the shared i18n and bundle-freshness workflows),
+# because the committed bundles are compared byte for byte.
+ARG NODE_VERSION=24
 
 # Major-pin: `composer:2` auto-rolls within the 2.x line so patch and
 # minor bumps land without a manual update. A stricter pin would block
@@ -499,6 +503,71 @@ LABEL org.opencontainers.image.title="Webtrees Buildbox" \
       org.opencontainers.image.ref.name="webtrees-buildbox:${PHP_VERSION}"
 
 ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
+
+
+##################
+# MODULE BASE    #
+##################
+# Tooling for the Make targets of the webtrees modules (build, lint, lang,
+# dist, release checks): Node and npm, gettext, make, git, Composer and the
+# PHP CLI. No FPM, no image or database extensions and no webtrees, so the
+# image stays small enough for the container checks of the module CI.
+# Node is taken from the official node image so that it equals the Node of the
+# CI checks, and PHP is the CLI variant of the same PHP minor as the other
+# stages. The module targets do not depend on the PHP version, only the
+# newest one is published.
+FROM node:${NODE_VERSION}-alpine AS node-source
+
+FROM php:${PHP_VERSION}-cli-alpine${PHP_DIGEST_REF} AS module-base
+
+ARG PHP_VERSION=8.3
+ARG NODE_VERSION=24
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
+COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+# libstdc++ is needed by the Node binary and python3 by the catalogue check of the shared i18n
+# workflow. intl and zip are the extensions that
+# Composer and the fuzzy resolver of the lang targets need beyond the CLI
+# defaults. DL3018 (pin apk versions) intentionally suppressed: this image
+# tracks a rolling Alpine base, the same reasoning as in the buildbox stage.
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+        bash \
+        curl \
+        findutils \
+        gettext \
+        git \
+        jq \
+        libstdc++ \
+        make \
+        openssl \
+        python3 \
+        unzip \
+        zip && \
+    ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+RUN chmod +x /usr/local/bin/install-php-extensions && \
+    install-php-extensions intl zip && \
+    rm -f /usr/local/bin/install-php-extensions
+
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+
+WORKDIR /app
+
+LABEL org.opencontainers.image.title="Webtrees Module Base" \
+      org.opencontainers.image.description="Node, gettext, make, git, Composer and the PHP CLI for the Make targets of the webtrees modules." \
+      org.opencontainers.image.authors="Rico Sonntag <mail@ricosonntag.de>" \
+      org.opencontainers.image.vendor="Rico Sonntag" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.ref.name="webtrees-module-base:php${PHP_VERSION}-node${NODE_VERSION}"
 
 
 ##################
