@@ -343,7 +343,6 @@ ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/do
 # be selected purely via env var without an image rebuild.
 RUN chmod +x /usr/local/bin/install-php-extensions && \
     install-php-extensions \
-        apcu \
         bcmath \
         exif \
         gd \
