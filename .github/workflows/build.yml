@@ -781,7 +781,7 @@ jobs:
                   target: module-base
                   push: true
                   platforms: ${{ matrix.platform.docker }}
-                  tags: ghcr.io/magicsunday/webtrees-module-base:node${{ needs.matrix.outputs.module_base_node }}-php${{ needs.matrix.outputs.module_base_php }}-${{ matrix.platform.arch }}
+                  tags: ghcr.io/magicsunday/webtrees-docker-module-base:node${{ needs.matrix.outputs.module_base_node }}-php${{ needs.matrix.outputs.module_base_php }}-${{ matrix.platform.arch }}
                   # SBOM + max provenance, see build-php for the rationale and
                   # the attestation-survives-the-merge verification note.
                   sbom: true
@@ -829,10 +829,10 @@ jobs:
                       echo "::error::module_base_php '$PHP' must match X.Y"
                       exit 1
                   fi
-                  base="ghcr.io/magicsunday/webtrees-module-base:node${NODE}-php${PHP}"
+                  base="ghcr.io/magicsunday/webtrees-docker-module-base:node${NODE}-php${PHP}"
                   docker buildx imagetools create \
                       -t "${base}" \
-                      -t "ghcr.io/magicsunday/webtrees-module-base:node${NODE}" \
+                      -t "ghcr.io/magicsunday/webtrees-docker-module-base:node${NODE}" \
                       "${base}-amd64" \
                       "${base}-arm64"
                   # GH-184 attestation gate, see manifest-php for the rationale.
@@ -1295,7 +1295,7 @@ jobs:
                       echo "::error::module_base_node '$NODE' must match N"
                       exit 1
                   fi
-                  echo "image=ghcr.io/magicsunday/webtrees-module-base:node${NODE}" >> "$GITHUB_OUTPUT"
+                  echo "image=ghcr.io/magicsunday/webtrees-docker-module-base:node${NODE}" >> "$GITHUB_OUTPUT"
 
             - name: Vulnerability scan (non-blocking)
               id: scan

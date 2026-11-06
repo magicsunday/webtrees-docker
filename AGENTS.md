@@ -13,7 +13,7 @@ conventions, audit-loop discipline) live in
 |---|---|
 | Purpose | Docker images + Python wizard for self-hosting [webtrees](https://www.webtrees.net/) |
 | Stacks | Python wizard (`installer/`, ≥3.12), multi-stage `Dockerfile` (PHP-FPM + nginx), bash launchers (`install`, `upgrade`) |
-| Distribution | Container images on `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer,module-base}`; matrix lives in `dev/versions.json` |
+| Distribution | Container images on `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}` and `ghcr.io/magicsunday/webtrees-docker-module-base`; matrix lives in `dev/versions.json` |
 | Entry point for end-users | `curl … /install \| bash` |
 
 ## Repo layout

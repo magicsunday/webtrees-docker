@@ -574,7 +574,7 @@ LABEL org.opencontainers.image.title="Webtrees Module Base" \
       org.opencontainers.image.source="https://github.com/magicsunday/webtrees-docker.git" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.ref.name="webtrees-module-base:node${NODE_VERSION}-php${PHP_VERSION}"
+      org.opencontainers.image.ref.name="webtrees-docker-module-base:node${NODE_VERSION}-php${PHP_VERSION}"
 
 
 ##################

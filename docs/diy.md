@@ -23,7 +23,7 @@ For everything else, the wizard is the supported entry point — see
 
 ## Images
 
-All four stack images live on GHCR (the tooling image `webtrees-module-base` is for module maintainers and not part of a stack):
+All four stack images live on GHCR (the tooling image `webtrees-docker-module-base` is for module maintainers and not part of a stack):
 
 | Image | Purpose |
 |---|---|

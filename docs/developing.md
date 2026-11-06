@@ -125,7 +125,7 @@ ls /tmp/wizard-smoke
 
 CI publishes these image families on `ghcr.io/magicsunday/`:
 `webtrees-php`, `webtrees-php-full`, `webtrees-nginx`, `webtrees-installer`, and
-`webtrees-module-base`, the tooling image for the Make targets of the modules
+`webtrees-docker-module-base`, the tooling image for the Make targets of the modules
 (tags `node<N>-php<X.Y>` and `node<N>`). It writes into the bind-mounted
 module checkout, so run it as the calling user
 (`docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/app <image> make lang COMPOSE_RUN=`),
