@@ -813,8 +813,8 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             # Tags: the exact one (node<N>-php<X.Y>) and the rolling
-            # node<N> tag the modules reference. Moving the modules to the next
-            # Node major is then a change of the tag in the consumers.
+            # node<N> tag that the modules are to reference. Moving the modules to
+            # the next Node major is then a change of the tag in the consumers.
             - name: Assemble multi-arch manifest
               env:
                   NODE: ${{ needs.matrix.outputs.module_base_node }}
