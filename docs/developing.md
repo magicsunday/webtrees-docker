@@ -128,8 +128,11 @@ CI publishes these image families on `ghcr.io/magicsunday/`:
 `webtrees-module-base`, the tooling image for the Make targets of the modules
 (tags `node<N>-php<X.Y>` and `node<N>`). It writes into the bind-mounted
 module checkout, so run it as the calling user
-(`docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/app <image> make lang`),
-because a run as root leaves root-owned files behind. The build is triggered
+(`docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/app <image> make lang COMPOSE_RUN=`),
+because a run as root leaves root-owned files behind. The empty `COMPOSE_RUN`
+makes the recipes call the tools of the image directly, since the image
+contains no Docker. The npm targets that install or build use the separate
+variable `COMPOSE_RUN_USER`, which has to be passed empty as well. The build is triggered
 either manually or by a tag push:
 
 ```bash
