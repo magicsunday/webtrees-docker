@@ -123,9 +123,19 @@ ls /tmp/wizard-smoke
 
 ## Image Builds
 
-CI publishes four image families on `ghcr.io/magicsunday/`:
-`webtrees-php`, `webtrees-php-full`, `webtrees-nginx`, and `webtrees-installer`. The build is triggered
-either manually or by a tag push:
+CI publishes these image families on `ghcr.io/magicsunday/`:
+`webtrees-php`, `webtrees-php-full`, `webtrees-nginx`, `webtrees-installer`, and
+`webtrees-module-base`, the tooling image for the Make targets of the modules
+(tags `node<N>-php<X.Y>` and `node<N>`). It writes into the bind-mounted
+module checkout, so run it as the calling user
+(`docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/app <image> make lang COMPOSE_RUN=`),
+because a run as root leaves root-owned files behind. The empty `COMPOSE_RUN`
+makes the recipes call the tools of the image directly, since the image
+contains no Docker. The npm targets that install or build use the separate
+variable `COMPOSE_RUN_USER`, which has to be passed empty as well. A recipe that
+starts with `set -e` and calls `apk add` aborts as the calling user, because
+`apk add` needs root, so such a recipe has to tolerate that call first. The build is
+triggered either manually or by a tag push:
 
 ```bash
 gh workflow run build.yml --ref main
@@ -134,9 +144,11 @@ git tag v1.2.3 && git push origin v1.2.3
 ```
 
 `dev/versions.json` is the manifest. The matrix expands to every entry
-× `{php, php-full}` plus a single `nginx` and `installer` build. A
-follow-up smoke job spins each `{core, full, demo}` edition up against
-the freshly built images.
+× `{php, php-full}` plus a single `nginx` and `installer` build. The
+`module-base` image is built independently of that manifest, with the Node
+major from the `Dockerfile` and the newest PHP minor from
+`dev/php-versions.json`. A follow-up smoke job spins each
+`{core, full, demo}` edition up against the freshly built images.
 
 ## Common Make Targets
 

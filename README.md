@@ -152,7 +152,9 @@ happen to share `standalone` as a default but are orthogonal axes.
   `<project>_app`, `<project>_secrets`.
 - **GHCR** — GitHub Container Registry — where the prebuilt webtrees
   images live. All images are pulled from
-  `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}`.
+  `ghcr.io/magicsunday/webtrees-{php,php-full,nginx,installer}`. The image
+  `webtrees-module-base` is tooling for module maintainers and not part of a
+  stack.
 
 ## What the wizard writes
 
