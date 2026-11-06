@@ -510,10 +510,10 @@ ENTRYPOINT ["/docker-entrypoint.sh", "/opt/user-entrypoint.sh"]
 ##################
 # Tooling for the Make targets of the webtrees modules (build, lint, lang,
 # dist): Node and npm, gettext, make, git, Composer and the PHP CLI. No FPM,
-# no extensions beyond those that Composer needs to resolve webtrees and no
-# webtrees itself, so the image stays small enough for the container checks of
-# the module CI. The release publishing steps use the host tools, such as the
-# GitHub CLI, and are not part of the image.
+# no additional extensions beyond those that Composer needs to resolve webtrees
+# and no webtrees itself, so the image stays small enough for the container
+# checks of the module CI. The release publishing steps use the host tools,
+# such as the GitHub CLI, and are not part of the image.
 # Node is taken from the official node image so that it equals the Node of the
 # CI checks, and PHP is the CLI variant of the PHP build argument. The module
 # targets do not depend on the PHP version, so CI publishes the newest minor
@@ -531,14 +531,16 @@ COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 # libstdc++ is needed by the Node binary and python3 by the catalogue check of the shared i18n
-# workflow. ncurses provides tput for the colours and util-linux-misc provides column for the
-# help listing of the module Make files. The extensions gd, intl and zip are installed below,
-# because Composer needs them to resolve the module dependencies.
+# workflow. ncurses provides tput for the colours, util-linux-misc provides column and coreutils
+# provides the cat with the squeeze option for the help listing of the module Make files.
+# The extensions gd, intl and zip are installed below, because Composer needs them to resolve
+# the module dependencies.
 # DL3018 (pin apk versions) intentionally suppressed. This image tracks a rolling Alpine base,
 # the same reasoning as in the buildbox stage.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \
+        coreutils \
         curl \
         findutils \
         gettext \
