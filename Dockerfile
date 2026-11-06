@@ -455,10 +455,6 @@ RUN install-php-extensions xdebug && \
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         acl \
-        bash \
-        ca-certificates \
-        curl \
-        dcron \
         findutils \
         git \
         github-cli \
@@ -469,7 +465,6 @@ RUN apk add --no-cache \
         nano \
         nodejs \
         npm \
-        openssl \
         openssh-client \
         shadow \
         sudo \
@@ -541,7 +536,6 @@ COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN apk add --no-cache \
         bash \
         coreutils \
-        curl \
         findutils \
         gettext \
         git \
@@ -549,7 +543,6 @@ RUN apk add --no-cache \
         libstdc++ \
         make \
         ncurses \
-        openssl \
         python3 \
         unzip \
         util-linux-misc \
