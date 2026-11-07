@@ -1126,6 +1126,62 @@ test_smtp_prefs_rejects_invalid_ssl_mode() {
 }
 
 
+# The published image calls updateSchema and skips seedDatabase, so this
+# test bind-mounts the source entrypoint. Drop the overlay once a tagged
+# image includes the seed call. updateSchema returns a bool, so the seed
+# is a later statement in the same php -r process, and the stub log must
+# show that order on one invocation.
+test_bootstrap_schema_migration_seeds_default_rows() {
+    local name="bootstrap: schema php -r calls seedDatabase after updateSchema"
+    local vol stub
+    vol=$(mk_vol) || vol_create_failed "$name" || return
+    stub=$(build_stub_image)
+    bootstrap_prep_volume "$vol"
+
+    docker run --rm \
+        -v "$vol:/var/www/html" \
+        -v "$ENTRYPOINT_SRC:/docker-entrypoint.sh:ro" \
+        -e WEBTREES_AUTO_SEED=false \
+        -e ENVIRONMENT=production \
+        -e WT_ADMIN_USER=admin \
+        -e WT_ADMIN_EMAIL=admin@example.org \
+        -e WT_ADMIN_PASSWORD=test1234 \
+        -e MARIADB_HOST=db \
+        -e MARIADB_USER=webtrees \
+        -e MARIADB_DATABASE=webtrees \
+        -e MARIADB_PASSWORD=webtrees \
+        "${PHP_ENV[@]}" \
+        --entrypoint=/docker-entrypoint.sh \
+        "$stub" \
+        true >/dev/null 2>&1 || true
+
+    local log
+    log=$(docker run --rm --entrypoint=/bin/sh -v "$vol:/v" "$IMAGE" \
+        -c 'cat /v/.bootstrap-stub.log 2>/dev/null || true')
+
+    # One stub line is one php invocation. A second process would not
+    # share the container and connection this entrypoint just opened.
+    local migration_line=""
+    local line
+    while IFS= read -r line; do
+        if [[ "$line" == *updateSchema* ]]; then
+            migration_line="$line"
+            break
+        fi
+    done <<<"$log"
+
+    if [[ "$migration_line" == *updateSchema*seedDatabase* ]]; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — seedDatabase did not follow updateSchema in the same php invocation")
+        results+=("      log: $(head -3 <<<"$log" | tr '\n' '|')")
+        fail=$((fail + 1))
+    fi
+
+    vol_rm "$vol"
+}
+
 main() {
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
         printf "Image %s not found locally — build it first (make build).\n" "$IMAGE" >&2
@@ -1160,6 +1216,7 @@ main() {
     test_bootstrap_pretty_urls_unset_omits_flag
     test_bootstrap_pretty_urls_accepts_lowercase_true_alias
     test_bootstrap_pretty_urls_unknown_value_falls_through
+    test_bootstrap_schema_migration_seeds_default_rows
     test_smtp_prefs_noop_when_unset
     test_smtp_prefs_rejects_newline_injection
     test_smtp_prefs_rejects_malformed_port
