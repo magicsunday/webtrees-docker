@@ -260,6 +260,38 @@ test_skip_flag_warns() {
     assert_contains "SKIP=1 → warning logged" "do NOT use in production" "$stderr"
 }
 
+test_checked_in_stub_matches_rendered_placeholder() {
+    # The dev overlay bind-mounts rootfs/etc/nginx/includes, so the
+    # entrypoint renders into the tracked include directory. With the
+    # variable empty the rendered bytes must equal the checked-in file,
+    # otherwise every dev start leaves the working tree modified. The
+    # run uses a scratch copy of the directory as the bind mount. The
+    # copy of the include is replaced by a stale marker first, so the
+    # comparison can only succeed when the entrypoint really rewrote it.
+    local repo_file scratch run_rc name="empty env → bind-mounted include stays byte-identical to the checked-in file"
+    repo_file="$(dirname "$SCRIPT_PATH")/../etc/nginx/includes/trust-proxy-extra.conf"
+    scratch=$(mktemp -d) || return 1
+    cp -r "$(dirname "$repo_file")/." "$scratch/"
+    printf 'stale\n' > "$scratch/trust-proxy-extra.conf"
+    docker run --rm \
+        -e "NGINX_TRUSTED_PROXIES=" \
+        -e "TRUST_PROXY_EXTRA_SKIP_NGINX_T=1" \
+        -v "$SCRIPT_PATH:/35-trust-proxy-extra.sh:ro" \
+        -v "$scratch:/etc/nginx/includes" \
+        --entrypoint /bin/sh \
+        "$NGINX_IMAGE" \
+        -c 'sh /35-trust-proxy-extra.sh' >/dev/null 2>&1
+    run_rc=$?
+    if [[ "$run_rc" -eq 0 ]] && cmp -s "$repo_file" "$scratch/trust-proxy-extra.conf"; then
+        results+=("PASS  $name")
+        pass=$((pass + 1))
+    else
+        results+=("FAIL  $name — run rc $run_rc or rendered bytes differ")
+        fail=$((fail + 1))
+    fi
+    rm -rf "$scratch"
+}
+
 main() {
     if ! docker image inspect "$NGINX_IMAGE" >/dev/null 2>&1; then
         printf "Image %s not found locally — build it first (make build).\n" "$NGINX_IMAGE" >&2
@@ -289,6 +321,7 @@ main() {
     test_high_bit_byte_refused
     test_entry_count_boundary
     test_skip_flag_warns
+    test_checked_in_stub_matches_rendered_placeholder
 
     for line in "${results[@]}"; do
         printf "%s\n" "$line"

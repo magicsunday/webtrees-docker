@@ -227,8 +227,11 @@ NGINX_TRUSTED_PROXIES=10.42.0.0/16,192.168.10.0/24
 The entrypoint rewrites
 `/etc/nginx/includes/trust-proxy-extra.conf` on every container start
 into a second `geo` block whose CIDRs are OR-merged with the baked
-defaults into `$trusted_proxy`. Hard rules enforced by the entrypoint
-(fail-closed — startup aborts loudly on violation):
+defaults into `$trusted_proxy`. The checked-in file is byte-identical to
+the placeholder rendered for an empty variable, so the development
+stack, which bind-mounts `rootfs/etc/nginx/includes`, leaves the working
+tree unchanged until you set `NGINX_TRUSTED_PROXIES`. Hard rules
+enforced by the entrypoint (fail-closed — startup aborts loudly on violation):
 
 | Refusal | Why |
 |---|---|

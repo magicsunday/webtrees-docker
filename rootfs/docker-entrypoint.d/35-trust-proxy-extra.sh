@@ -37,9 +37,12 @@
 # entrypoint chain aborts. The rendered file is intentionally left on
 # disk so logs reflect the actual input; the container CrashLoopBackOffs
 # until the operator corrects NGINX_TRUSTED_PROXIES, and the next boot
-# rewrites cleanly. Keep the placeholder geo block byte-identical to the
-# baked stub in /etc/nginx/includes/trust-proxy-extra.conf so a future
-# variable rename doesn't drift between image-build and runtime.
+# rewrites cleanly. Keep write_placeholder() byte-identical to the
+# checked-in /etc/nginx/includes/trust-proxy-extra.conf (comments
+# included) so a variable rename does not drift between image-build and
+# runtime, and so a dev stack that bind-mounts the includes directory
+# leaves the tracked file unchanged on a start with an empty variable.
+# tests/test-trust-proxy-extra.sh pins that equality.
 
 set -eu
 
@@ -50,7 +53,7 @@ write_placeholder() {
     cat > "$OUT" <<'EOF'
 # Auto-rendered by docker-entrypoint.d/35-trust-proxy-extra.sh.
 # NGINX_TRUSTED_PROXIES is unset or empty, so $trusted_proxy_extra
-# resolves to 0 for every client; only $trusted_proxy_default applies.
+# resolves to 0 for every client. Only $trusted_proxy_default applies.
 geo $trusted_proxy_extra {
     default 0;
 }
