@@ -28,29 +28,13 @@ from types import ModuleType
 import pytest
 
 
-def _resolve_repo_root() -> Path | None:
-    """Resolve the repo root using the WT_REPO_ROOT precedence pattern.
-
-    Mirrors `test_mariadb_pin_lockstep._resolve_repo_root` — see that
-    file for the rationale.
-    """
-    env_root = os.environ.get("WT_REPO_ROOT")
-    if env_root:
-        return Path(env_root)
-    try:
-        return Path(__file__).resolve().parents[2]
-    except IndexError:
-        return None
-
-
-def _load_bumper() -> ModuleType:
+def _load_bumper(root: Path | None) -> ModuleType:
     """Load `scripts/bump/bump-nginx.py` by file path.
 
     Hyphen-in-name forces `importlib.util` over the standard import
     machinery. Fail-loud-in-CI discipline matches the rewriter test:
     bogus WT_REPO_ROOT inside CI must not silently skip coverage.
     """
-    root = _resolve_repo_root()
     if root is None:
         pytest.skip("repo root not reachable")
     script = root / "scripts" / "bump" / "bump-nginx.py"
@@ -70,9 +54,9 @@ def _load_bumper() -> ModuleType:
 
 
 @pytest.fixture(scope="module")
-def bumper() -> ModuleType:
+def bumper(resolved_repo_root: Path | None) -> ModuleType:
     """The bumper module, loaded once per test module."""
-    return _load_bumper()
+    return _load_bumper(resolved_repo_root)
 
 
 def _seed_repo(root: Path, tag: str = "1.30-r1") -> None:
@@ -511,10 +495,12 @@ def test_main_argv_positional_before_flag_fails_loud(
     assert "flags must precede the positional" in err
 
 
-def test_script_is_executable_under_python3() -> None:
+def test_script_is_executable_under_python3(
+    resolved_repo_root: Path | None,
+) -> None:
     """Smoke-execute the script as a subprocess so any syntax-level
     breakage surfaces at PR time rather than at maintenance time."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None:
         pytest.skip("repo root not reachable")
     script = root / "scripts" / "bump" / "bump-nginx.py"

@@ -33,22 +33,7 @@ from types import ModuleType
 import pytest
 
 
-def _resolve_repo_root() -> Path | None:
-    """Resolve the repo root using the WT_REPO_ROOT precedence pattern.
-
-    Mirrors `test_mariadb_pin_lockstep._resolve_repo_root`. See that
-    file for the rationale.
-    """
-    env_root = os.environ.get("WT_REPO_ROOT")
-    if env_root:
-        return Path(env_root)
-    try:
-        return Path(__file__).resolve().parents[2]
-    except IndexError:
-        return None
-
-
-def _load_rewriter() -> ModuleType:
+def _load_rewriter(root: Path | None) -> ModuleType:
     """Load the rewriter script by file path.
 
     The script has a hyphen in its name and lives outside any package,
@@ -61,7 +46,6 @@ def _load_rewriter() -> ModuleType:
     cannot lose rewriter coverage. Only a host-shell run without
     `WT_REPO_ROOT` falls through to the skip path.
     """
-    root = _resolve_repo_root()
     if root is None:
         pytest.skip("repo root not reachable")
     script = root / "scripts" / "rewrite-readme-badges.py"
@@ -83,9 +67,9 @@ def _load_rewriter() -> ModuleType:
 
 
 @pytest.fixture(scope="module")
-def rewriter() -> ModuleType:
+def rewriter(resolved_repo_root: Path | None) -> ModuleType:
     """The rewriter module, loaded once per test module."""
-    return _load_rewriter()
+    return _load_rewriter(resolved_repo_root)
 
 
 def test_rewrite_substitutes_both_badges(rewriter: ModuleType) -> None:
@@ -320,13 +304,16 @@ def test_main_natural_sort_handles_pre_release_in_catalog(
     assert "webtrees-2.3.0%7C2.3.0-beta.1-blue" in body
 
 
-def test_script_is_executable_under_python3(tmp_path: Path) -> None:
+def test_script_is_executable_under_python3(
+    tmp_path: Path,
+    resolved_repo_root: Path | None,
+) -> None:
     """Smoke-execute the script as a subprocess so any syntax-level
     breakage (indentation, shebang, top-level import error) surfaces
     at PR time. Invokes the script with explicit `--versions` /
     `--readme` paths so the test never depends on cwd or on any real
     dev/versions.json file in the host's working directory."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None:
         pytest.skip("repo root not reachable")
     script = root / "scripts" / "rewrite-readme-badges.py"
@@ -474,6 +461,7 @@ def test_main_exits_one_when_only_php_badge_is_missing(
 
 def test_main_default_paths_resolve_relative_to_cwd(
     tmp_path: Path,
+    resolved_repo_root: Path | None,
 ) -> None:
     """Pins the workflow's no-arg invocation contract: check-versions.yml
     runs `python3 scripts/rewrite-readme-badges.py` with no flags and
@@ -481,7 +469,7 @@ def test_main_default_paths_resolve_relative_to_cwd(
     workflow's cwd. A future refactor that changed the argparse default
     literals would break the workflow but pass every other test, so
     this is the only place pinning the default-path semantics."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None:
         pytest.skip("repo root not reachable")
     script = root / "scripts" / "rewrite-readme-badges.py"

@@ -34,18 +34,6 @@ _TAG_RE = re.compile(
 )
 
 
-def _resolve_repo_root() -> Path | None:
-    """Mirror of test_mariadb_pin_lockstep's resolver — see that file
-    for the precedence rationale."""
-    env_root = os.environ.get("WT_REPO_ROOT")
-    if env_root:
-        return Path(env_root)
-    try:
-        return Path(__file__).resolve().parents[2]
-    except IndexError:
-        return None
-
-
 def _looks_like_repo_root(root: Path) -> bool:
     """Anchor-file check: a candidate path is a real repo root iff both
     `dev/versions.json` and `installer/pyproject.toml` exist underneath
@@ -70,11 +58,13 @@ _TAG_SITES = (
 )
 
 
-def test_nginx_tag_matches_canonical_across_all_sites() -> None:
+def test_nginx_tag_matches_canonical_across_all_sites(
+    resolved_repo_root: Path | None,
+) -> None:
     """Every test-side `webtrees-nginx:X.Y-rN` literal must agree with
     the `.tag` field of dev/nginx-version.json. The CI bump pipeline
     bumps the canonical JSON; this test catches stragglers."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None or not _looks_like_repo_root(root):
         if os.environ.get("WT_REPO_ROOT"):
             pytest.fail(
