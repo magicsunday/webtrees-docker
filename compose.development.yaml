@@ -137,16 +137,16 @@ services:
     # overlay alongside this one to bind APP_PORT on the host.
 
     # Browser for testing with web-based debugger and CDP endpoint.
-    # Debugger UI:  http://localhost:3000
+    # Debugger UI:  http://localhost:3000/debugger/
     # CDP endpoint: ws://localhost:3000
-    # Live view:    http://localhost:3000 → Sessions tab
+    # Certificate errors are not ignored by the browser itself. A client opts in
+    # per connection with the ignoreHTTPSErrors=true query parameter on the
+    # endpoint URL, as .mcp.json does.
     browser:
-        image: browserless/chrome:latest
+        image: ghcr.io/browserless/chromium:latest
         restart: unless-stopped
         environment:
-            - CONNECTION_TIMEOUT=600000
-            - IGNORE_HTTPS_ERRORS=true
-            - DEFAULT_LAUNCH_ARGS=["--ignore-certificate-errors","--no-sandbox"]
+            - TIMEOUT=600000
         ports:
             - "${BROWSER_PORT:-3000}:3000"
         networks:
