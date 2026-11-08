@@ -33,9 +33,10 @@ CI_IMAGE_HADOLINT := hadolint/hadolint:latest
 # shell script via a shebang-scan in ci-shellcheck.
 CI_IMAGE_SHELLCHK := koalaman/shellcheck:stable
 
-# yamllint for workflow + compose YAML. cytopia/yamllint is a minimal
-# debian-slim wrapper around the upstream Python package.
-CI_IMAGE_YAMLLINT := cytopia/yamllint:latest
+# yamllint for workflow + compose YAML. The tag is the release number of
+# the pipelinecomponents wrapper, not the yamllint version. CI_RUN_YAMLLINT
+# sets the entrypoint explicitly.
+CI_IMAGE_YAMLLINT := pipelinecomponents/yamllint:0.35.27
 
 # =============================================================================
 # CI run wrappers — full `docker run` invocations consumers expand verbatim.
@@ -90,4 +91,5 @@ CI_RUN_SHELLCHK := $(_CI_RUN_BASE) \
 CI_RUN_YAMLLINT := $(_CI_RUN_BASE) \
 	-v "$(CURDIR):/work" \
 	-w /work \
+	--entrypoint yamllint \
 	$(CI_IMAGE_YAMLLINT)
