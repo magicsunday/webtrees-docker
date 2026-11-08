@@ -33,6 +33,7 @@ def _resolve_repo_root() -> Path | None:
 def test_launcher_passes_the_certificate_opt_in_in_the_cdp_endpoint(
     tmp_path: Path,
 ) -> None:
+    """The launcher hands the CDP endpoint to Playwright with the opt-in."""
     root = _resolve_repo_root()
     if root is None or not (root / ".mcp.json").is_file():
         pytest.skip("repository root with .mcp.json is not reachable")
