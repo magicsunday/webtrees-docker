@@ -18,18 +18,6 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 
-def _resolve_repo_root() -> Path | None:
-    """Same precedence as the lockstep tests: `WT_REPO_ROOT` first, then the
-    checkout the test file lives in."""
-    env_root = os.environ.get("WT_REPO_ROOT")
-    if env_root:
-        return Path(env_root)
-    try:
-        return Path(__file__).resolve().parents[2]
-    except IndexError:
-        return None
-
-
 @pytest.mark.parametrize(
     ("reported_url", "expected_netloc", "expected_query"),
     [
@@ -49,13 +37,14 @@ def _resolve_repo_root() -> Path | None:
 )
 def test_launcher_passes_the_certificate_opt_in_in_the_cdp_endpoint(
     tmp_path: Path,
+    resolved_repo_root: Path | None,
     reported_url: str,
     expected_netloc: str,
     expected_query: dict[str, list[str]],
 ) -> None:
     """The launcher hands the CDP endpoint to Playwright with the opt-in,
     whether or not the reported debugger URL already carries a query."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None or not (root / ".mcp.json").is_file():
         pytest.skip("repository root with .mcp.json is not reachable")
 

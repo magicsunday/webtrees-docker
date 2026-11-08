@@ -32,26 +32,15 @@ from pathlib import Path
 import pytest
 
 
-def _resolve_repo_root() -> Path | None:
-    """Resolve the repo root using the WT_REPO_ROOT precedence pattern."""
-    env_root = os.environ.get("WT_REPO_ROOT")
-    if env_root:
-        return Path(env_root)
-    try:
-        return Path(__file__).resolve().parents[2]
-    except IndexError:
-        return None
-
-
 def _make_available(root: Path) -> bool:
     """True iff `make` is on PATH and the maintenance.mk recipe loads."""
     return (root / "Make" / "maintenance.mk").is_file()
 
 
 @pytest.fixture(scope="module")
-def repo_root() -> Path:
+def repo_root(resolved_repo_root: Path | None) -> Path:
     """The repo root path."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None:
         pytest.skip("repo root not reachable")
     if not _make_available(root):

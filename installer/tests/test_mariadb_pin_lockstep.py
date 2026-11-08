@@ -33,29 +33,6 @@ _PIN_RE = re.compile(
 )
 
 
-def _resolve_repo_root() -> Path | None:
-    """Resolve the repo root.
-
-    Precedence:
-    1. ``WT_REPO_ROOT`` env var — set by Make/ci.mk's ci-pytest so the
-       test can walk the full tree even though only ``installer/`` is
-       the working dir.
-    2. ``parents[2]`` of this file — works for host-shell pytest runs
-       from inside the repo.
-
-    Returns ``None`` when neither candidate exists (test file moved /
-    `parents[2]` raises IndexError); the caller fails loud instead of
-    silently skipping.
-    """
-    env_root = os.environ.get("WT_REPO_ROOT")
-    if env_root:
-        return Path(env_root)
-    try:
-        return Path(__file__).resolve().parents[2]
-    except IndexError:
-        return None
-
-
 _PIN_SITES = (
     "installer/webtrees_installer/templates/compose.standalone.j2",
     "installer/webtrees_installer/templates/compose.traefik.j2",
@@ -74,11 +51,13 @@ def _looks_like_repo_root(root: Path) -> bool:
     ).is_file()
 
 
-def test_mariadb_pin_consistent_across_all_sites() -> None:
+def test_mariadb_pin_consistent_across_all_sites(
+    resolved_repo_root: Path | None,
+) -> None:
     """Every shipped compose file that pins MariaDB must agree on the
     same X.Y minor. A drift would let the check-mariadb.yml cron silently
     track the wrong baseline."""
-    root = _resolve_repo_root()
+    root = resolved_repo_root
     if root is None or not _looks_like_repo_root(root):
         # CI must set WT_REPO_ROOT to the bind-mounted full repo. Skip
         # only when running from outside a real repo (e.g. an installed
