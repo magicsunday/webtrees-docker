@@ -30,6 +30,17 @@ directly (appending a row to `dev/versions.json` and regenerating the
 README badges) rather than a tracking issue — see the workflow file
 itself for the exact loop semantics.
 
+## Renovate stays out of the pins
+
+Renovate proposes the updates of the GitHub Actions and of the npm
+packages of this repository, nothing else. `renovate.json` enables only
+those two managers on purpose. The image tags of the `Dockerfile` and the
+compose files, their digest pins, the PHP matrix and the Python tool pins
+move through the check workflows and the bump scripts of this document,
+because they are tied to the rows of `dev/versions.json`, to the nginx
+lockstep and to the images that this repository publishes. A manager for
+Docker or Python would propose changes that break those ties.
+
 ## Trust model and recommended invocation
 
 Two entry points exist for every bump:
