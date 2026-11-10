@@ -31,6 +31,7 @@ conventions, audit-loop discipline) live in
 | `dev/versions.json` | PHP × webtrees matrix the build workflow expands |
 | `dev/php-versions.json` | Single source of truth for supported PHP minors; `.supported` drives the auto-bump fan-out and is enforced against `versions.json` rows by `ci-php-versions-lockstep` |
 | `dev/nginx-version.json` | Canonical nginx pin (`nginx_base`, `config_revision`, `tag`); enforced across 5 mirror sites by `installer/tests/test_nginx_tag_lockstep.py` |
+| `renovate.json` | Renovate config: extends the shared preset of the account and enables only the managers for GitHub Actions and npm. Image tags and digest pins move through the check workflows, the bump scripts or by hand, and the Python tool pins are bounded by hand, see `docs/maintenance.md` |
 | `.github/workflows/build.yml` | Image build + smoke matrix (manual / tag-triggered) |
 | `.github/workflows/check-versions.yml` | Daily cron polling upstream webtrees releases (opens an auto-bump PR that atomically updates `dev/versions.json` + README badges) |
 | `.github/workflows/check-alpine.yml` | Daily cron polling Docker Hub for new Alpine minors |
