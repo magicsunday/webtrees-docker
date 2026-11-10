@@ -35,11 +35,12 @@ itself for the exact loop semantics.
 Renovate proposes the updates of the GitHub Actions and of the npm
 packages of this repository, nothing else. `renovate.json` enables only
 those two managers on purpose. The image tags of the `Dockerfile` and the
-compose files, their digest pins, the PHP matrix and the Python tool pins
-move through the check workflows and the bump scripts of this document,
-because they are tied to the rows of `dev/versions.json`, to the nginx
-lockstep and to the images that this repository publishes. A manager for
-Docker or Python would propose changes that break those ties.
+compose files and their digest pins are tied to the rows of
+`dev/versions.json`, to the lockstep checks and to the images that this
+repository publishes. They move through the check workflows and the bump
+scripts of this document, or by hand where none exists. The Python tool
+pins in `installer/pyproject.toml` are bounded by hand on purpose. A
+manager for Docker or Python would propose changes that break those ties.
 
 ## Trust model and recommended invocation
 
