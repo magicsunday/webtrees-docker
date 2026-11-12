@@ -170,9 +170,9 @@ Every non-trivial change goes through an audit loop before commit:
    gets fixed in-session, never dismissed as "preexisting" or "not my
    change".
 7. **Local CI green before push**: `make ci-test` exits 0 before any
-   commit lands on main. The local pipeline mirrors what CI runs, except
-the YAML lint, which runs only in the shared workflow of the security
-caller (see `docs/developing.md`).
+   commit lands on main. It runs the checks of the `ci-test` workflow.
+   The jobs of the security and build workflows run only in GitHub Actions
+   (see `docs/developing.md`).
 8. **One commit per finished task**: when a task wraps up and is
    verified green, commit it. Don't batch into end-of-session dumps.
 

@@ -1,8 +1,8 @@
 name: ci:test
 
-# Mirror of `make ci-test`: pytest + hadolint + entrypoint
-# integration tests. Runs on every push to main and every pull request so
-# the local "green before commit" discipline is enforced upstream too.
+# Runs `make ci-test` (pytest, linters, lockstep checks, entrypoint
+# integration tests) and the shared copy-paste detection. Runs on every push
+# to main and every pull request.
 
 on:
     push:

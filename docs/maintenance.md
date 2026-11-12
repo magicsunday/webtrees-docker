@@ -230,9 +230,9 @@ historical specs) and Dockerfile variant tags (`php:8.5-fpm-alpine`,
 make ci-test
 ```
 
-`ci-test` runs the local CI bundle (pytest + lint + lockstep +
-entrypoint). The YAML lint is not part of it, it runs only in the security
-workflow on GitHub. Open a PR; CI rebuilds every Alpine-derived image stage.
+`ci-test` runs the checks of the `ci-test` workflow (pytest + lint +
+lockstep + entrypoint). The jobs of the security and build workflows run
+only in GitHub Actions. Open a PR; CI rebuilds every Alpine-derived image stage.
 
 ## Bumping a PHP minor
 
