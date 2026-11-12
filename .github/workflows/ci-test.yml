@@ -1,6 +1,6 @@
 name: ci:test
 
-# Mirror of `make ci-test`: pytest + yamllint + hadolint + entrypoint
+# Mirror of `make ci-test`: pytest + hadolint + entrypoint
 # integration tests. Runs on every push to main and every pull request so
 # the local "green before commit" discipline is enforced upstream too.
 

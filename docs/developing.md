@@ -194,9 +194,6 @@ Today's bundle:
   jscpd version pinned in `package.json` and locked in `package-lock.json`.
   CI also runs it as its own `cpd` job through the shared workflow of the
   account's `.github` repository. A scan that analyzes no files fails.
-- `make ci-yamllint` — workflow + compose YAML lint (line-length is a
-  warning, not an error: GHA `run:` blocks routinely carry long inline
-  strings).
 - `make ci-hadolint` — Dockerfile lint at the `error` failure threshold;
   warnings stay visible but do not fail the build.
 - `make ci-*-lockstep` — drift checks across canonical pin sources

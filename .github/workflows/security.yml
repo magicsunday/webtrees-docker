@@ -43,6 +43,8 @@ jobs:
 
     yamllint:
         uses: magicsunday/.github/.github/workflows/yamllint.yml@main
+        with:
+            paths: '.github/ compose.yaml compose.development.yaml compose.external.yaml compose.modules.yaml compose.pma.yaml compose.publish.yaml compose.traefik.yaml templates/portainer/compose.yaml'
         permissions:
             contents: read
 

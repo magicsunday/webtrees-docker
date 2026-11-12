@@ -60,7 +60,7 @@ in the commit message if it is non-obvious.
 - `${var:-default}` for safe defaulting; bare `$var` under `set -u`
   aborts the script.
 - Centralised CI tooling images: every `docker run` against a
-  standalone image (python, jq, hadolint, shellcheck, yamllint) goes
+  standalone image (python, jq, hadolint, shellcheck) goes
   through `$(CI_RUN_*)` in `Make/images.mk` or `ci_run_jq` /
   `ci_run_jq_stdin` in `scripts/lib/images.env`. Direct `docker run
   --rm` is reserved for entries that don't yet have a wrapper.
