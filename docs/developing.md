@@ -184,8 +184,14 @@ Run `make help` for the full list.
 
 ### `make ci-test` — green-before-commit
 
-`make ci-test` bundles every static-analysis + unit-test step that CI also
-runs, so a green local run reliably predicts a green GitHub Actions run.
+`make ci-test` bundles the static-analysis + unit-test steps that CI also
+runs, so a green local run reliably predicts a green GitHub Actions run
+with one exception. The YAML lint runs only in the `yamllint` job of the
+security workflow (`.github/workflows/security.yml`), which calls the
+shared workflow of the account's `.github` repository. Its `paths` input
+covers the `.github/` directory, every compose file at the repository
+root and the portainer compose template. It is not part of `make
+ci-test`, so a YAML lint finding shows up only on the pull request.
 
 Today's bundle:
 
@@ -207,9 +213,10 @@ Today's bundle:
   against the canonical published php image (tag resolved from
   `dev/versions.json`).
 
-Every check has its own sub-target for fast iteration. Add new checks to
-this aggregate (not as a separate workflow) — the single-source-of-truth
-property is what makes the local-CI parity useful.
+Every check of the aggregate has its own sub-target for fast iteration.
+Add new checks to this aggregate (not as a separate workflow) — the
+single-source-of-truth property is what makes the local-CI parity useful.
+The shared-only YAML lint above is the documented exception.
 
 ## Module Developer Workflow
 
