@@ -189,11 +189,10 @@ workflow (`.github/workflows/ci-test.yml`) runs. That workflow runs the same
 target and also calls the shared copy-paste detection. Run it green before a
 commit.
 
-Other workflows of this repository run only in GitHub Actions and have no
-local target. One example is the security workflow
-(`.github/workflows/security.yml`) with its yamllint job, which lints the
-`.github/` directory, the compose files at the repository root and the
-portainer compose template through its `paths` input.
+The security workflow (`.github/workflows/security.yml`) has a yamllint job,
+which lints the `.github/` directory, the compose files at the repository root
+and the portainer compose template through its `paths` input. No `make` target
+runs that lint.
 
 Today's bundle:
 

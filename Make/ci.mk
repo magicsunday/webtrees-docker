@@ -3,8 +3,7 @@
 #
 # `make ci-test` bundles the static-analysis and unit-test checks of the
 # `ci-test` workflow, and it is the local way to run them before a commit
-# lands. Other workflows of this repository, for example the security workflow
-# with its yamllint job, run only in GitHub Actions and have no target here.
+# lands. The yamllint job of the security workflow has no target here.
 #
 # Sub-targets stay individually invocable for fast iteration. New checks of the
 # `ci-test` workflow land here (not as separate workflows).

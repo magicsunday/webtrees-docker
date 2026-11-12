@@ -231,10 +231,7 @@ make ci-test
 ```
 
 `ci-test` runs the checks of the `ci-test` workflow, among them pytest, lint,
-lockstep and entrypoint checks. Other workflows, for example the security
-workflow, run only in GitHub Actions. Open a PR. The image build runs
-through the `build.yml` workflow, which is started by hand with
-`workflow_dispatch` or by pushing a `v*` tag.
+lockstep and entrypoint checks. Open a PR.
 
 ## Bumping a PHP minor
 
