@@ -44,5 +44,5 @@ jobs:
                   1. Review release notes for Alpine ${VER} (busybox / musl / apk changes).
                   2. Update `ALPINE_BASE_IMAGE` in `installer/webtrees_installer/_alpine.py` to `"alpine:${VER}"`.
                   3. Run `make ci-alpine-lockstep` locally — surfaces every literal `alpine:X.Y` reference still on the old pin so it can be sed-replaced.
-                  4. Run `make ci-test` for the full local CI bundle (pytest + lint + lockstep + entrypoint).
+                  4. Run `make ci-test` for the local CI bundle (pytest + lint + lockstep + entrypoint).
                   5. Open a PR; CI rebuilds every Alpine-derived image stage.

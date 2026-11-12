@@ -1,12 +1,14 @@
 # =============================================================================
 # CI test aggregate
 #
-# `make ci-test` bundles every static-analysis + unit-test check that should
-# pass before a commit lands. One local command, green here means green in CI.
+# `make ci-test` bundles the static-analysis + unit-test checks that should
+# pass before a commit lands. One local command, and green here means green
+# in CI with one exception. The YAML lint runs only in GitHub Actions, in the
+# `yamllint` job of the security workflow, and never locally.
 #
 # Sub-targets stay individually invocable for fast iteration. New checks land
 # here (not as separate workflows) so the aggregate stays the single source of
-# truth.
+# truth for the local checks, the shared-only YAML lint aside.
 #
 # Heavy lifting runs in ephemeral docker containers (linters, type-checkers,
 # language toolchains) — no Python / Node / PHP install needed on the host.
@@ -28,7 +30,7 @@
 # Naming note: documentation and tracking issues call this aggregate
 # `ci:test`. Makefile targets cannot contain `:` in their names, so the
 # recipe is `ci-test`; both are interchangeable in conversation.
-ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-cache-ignore-error-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-launchers-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs every local CI check (pytest + lint + lockstep + entrypoint + nginx-config tests).
+ci-test: ci-prereqs ci-pytest ci-ruff ci-mypy ci-vulture ci-cpd ci-hadolint ci-shellcheck ci-alpine-lockstep ci-images-lockstep ci-readme-badge-lockstep ci-php-versions-lockstep ci-nginx-tag-derivation-lockstep ci-php-digests-lockstep ci-versions-latest-semver-max-lockstep ci-env-dist-pins-lockstep ci-dockerfile-arg-defaults-lockstep ci-composer-patches-lockstep ci-patches-apply-lockstep ci-portainer-templates-lockstep ci-healthcheck-lockstep ci-port-default-lockstep ci-tls-verify-lockstep ci-diy-env-vars-lockstep ci-notify-needs-lockstep ci-cron-poll-perms-lockstep ci-cache-ignore-error-lockstep ci-lockstep-tests ci-shared-scripts-tests ci-launchers-tests ci-host-lan-ip-detect-tests ci-entrypoint ci-nginx-config ## Runs the local CI checks (pytest + lint + lockstep + entrypoint + nginx-config tests).
 	echo -e "${FGREEN}✓ All ci-test checks passed${FRESET}"
 
 ci-prereqs: .logo ## Verifies the host-side tools the ci-test pipeline, make help, and the bundled shell scripts shell out to.

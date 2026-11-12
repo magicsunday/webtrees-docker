@@ -178,7 +178,7 @@ Buildbox + application:
 | `make apply-config` | Re-apply the webtrees configuration to an existing install. |
 | `make cache-clear` | Clear the webtrees cache directory. |
 | `make test` | Run the entrypoint state-machine tests on the host. |
-| `make ci-test` | Run the full local CI aggregate — green here is the precondition for every commit. |
+| `make ci-test` | Run the local CI aggregate — green here is the precondition for every commit. |
 
 Run `make help` for the full list.
 
@@ -186,12 +186,12 @@ Run `make help` for the full list.
 
 `make ci-test` bundles the static-analysis + unit-test steps that CI also
 runs, so a green local run reliably predicts a green GitHub Actions run
-with one exception. The YAML lint runs only in the `yamllint` job of the
-security workflow (`.github/workflows/security.yml`), which calls the
-shared workflow of the account's `.github` repository. Its `paths` input
-covers the `.github/` directory, every compose file at the repository
-root and the portainer compose template. It is not part of `make
-ci-test`, so a YAML lint finding shows up only on the pull request.
+with one exception. The YAML lint runs only in GitHub Actions, in the
+`yamllint` job of the security workflow (`.github/workflows/security.yml`),
+which calls the shared workflow of the account's `.github` repository. Its
+`paths` input covers the `.github/` directory, every compose file at the
+repository root and the portainer compose template. It never runs locally
+and is not part of `make ci-test`.
 
 Today's bundle:
 
