@@ -230,9 +230,10 @@ historical specs) and Dockerfile variant tags (`php:8.5-fpm-alpine`,
 make ci-test
 ```
 
-`ci-test` runs the checks of the `ci-test` workflow (pytest + lint +
-lockstep + entrypoint). The jobs of the security and build workflows run
-only in GitHub Actions. Open a PR; CI rebuilds every Alpine-derived image stage.
+`ci-test` runs the checks of the `ci-test` workflow, among them pytest, lint,
+lockstep and entrypoint checks. Other workflows, for example the security
+workflow, run only in GitHub Actions. Open a PR. CI rebuilds every
+Alpine-derived image stage.
 
 ## Bumping a PHP minor
 
