@@ -178,14 +178,21 @@ Buildbox + application:
 | `make apply-config` | Re-apply the webtrees configuration to an existing install. |
 | `make cache-clear` | Clear the webtrees cache directory. |
 | `make test` | Run the entrypoint state-machine tests on the host. |
-| `make ci-test` | Run the full local CI aggregate — green here is the precondition for every commit. |
+| `make ci-test` | Run the checks of the `ci-test` workflow locally. Run it green before every commit. |
 
 Run `make help` for the full list.
 
-### `make ci-test` — green-before-commit
+### `make ci-test`
 
-`make ci-test` bundles every static-analysis + unit-test step that CI also
-runs, so a green local run reliably predicts a green GitHub Actions run.
+`make ci-test` is the local way to run the checks that the `ci-test`
+workflow (`.github/workflows/ci-test.yml`) runs. That workflow runs the same
+target and also calls the shared copy-paste detection. Run it green before a
+commit.
+
+The security workflow (`.github/workflows/security.yml`) has a yamllint job,
+which lints the `.github/` directory, the compose files at the repository root
+and the portainer compose template through its `paths` input. No `make` target
+runs that lint.
 
 Today's bundle:
 
@@ -194,11 +201,8 @@ Today's bundle:
   jscpd version pinned in `package.json` and locked in `package-lock.json`.
   CI also runs it as its own `cpd` job through the shared workflow of the
   account's `.github` repository. A scan that analyzes no files fails.
-- `make ci-yamllint` — workflow + compose YAML lint (line-length is a
-  warning, not an error: GHA `run:` blocks routinely carry long inline
-  strings).
-- `make ci-hadolint` — Dockerfile lint at the `error` failure threshold;
-  warnings stay visible but do not fail the build.
+- `make ci-hadolint` lints `Dockerfile` and `installer/Dockerfile` at the
+  `warning` failure threshold, so a warning or an error fails the target.
 - `make ci-*-lockstep` — drift checks across canonical pin sources
   (image pins, port defaults, JSON catalog ↔ `.env.dist`, nginx tag
   derivation, etc.). See `dev/README.md` for the invariant table and
@@ -210,9 +214,9 @@ Today's bundle:
   against the canonical published php image (tag resolved from
   `dev/versions.json`).
 
-Every check has its own sub-target for fast iteration. Add new checks to
-this aggregate (not as a separate workflow) — the single-source-of-truth
-property is what makes the local-CI parity useful.
+Every check of the aggregate has its own sub-target for fast iteration.
+Add new checks of the `ci-test` workflow to this aggregate (not as a
+separate workflow).
 
 ## Module Developer Workflow
 

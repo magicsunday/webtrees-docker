@@ -230,8 +230,8 @@ historical specs) and Dockerfile variant tags (`php:8.5-fpm-alpine`,
 make ci-test
 ```
 
-`ci-test` runs the full local CI bundle (pytest + lint + lockstep +
-entrypoint). Open a PR; CI rebuilds every Alpine-derived image stage.
+`ci-test` runs the checks of the `ci-test` workflow, among them pytest, lint,
+lockstep and entrypoint checks. Open a PR.
 
 ## Bumping a PHP minor
 

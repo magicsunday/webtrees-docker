@@ -91,4 +91,4 @@ applied patch can be distinguished from an empty apply.
    longer applies. Either regenerate the patch's context anchors against
    the new version, or drop the patch reference from the manifest of the
    version line that's outgrown it.
-3. Run `make ci-test` for the full lockstep + lint pass.
+3. Run `make ci-test` for the lockstep and lint checks.
