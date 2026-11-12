@@ -45,4 +45,4 @@ jobs:
                   2. Update `ALPINE_BASE_IMAGE` in `installer/webtrees_installer/_alpine.py` to `"alpine:${VER}"`.
                   3. Run `make ci-alpine-lockstep` locally — surfaces every literal `alpine:X.Y` reference still on the old pin so it can be sed-replaced.
                   4. Run `make ci-test` for the checks of the ci-test workflow, for example pytest, lint, lockstep and entrypoint.
-                  5. Open a PR; CI rebuilds every Alpine-derived image stage.
+                  5. Open a PR. The image build runs through the `build.yml` workflow, which is started by hand with `workflow_dispatch` or by pushing a `v*` tag.
