@@ -6,6 +6,6 @@
         "cpd": "jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"
     },
     "devDependencies": {
-        "jscpd": "5.3.2"
+        "jscpd": "5.4.3"
     }
 }
