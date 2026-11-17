@@ -19,8 +19,8 @@ Behaviour:
      See docs/maintenance.md → Stable-only policy.
   4. sed-replace every `webtrees-nginx:<OLD_TAG>` literal in the five
      mirror sites enforced by `test_nginx_tag_lockstep._TAG_SITES`.
-  5. Print a next-steps reminder (review release notes, smoke matrix,
-     PR open).
+  5. Print a next-steps reminder (review release notes, PR open, image
+     build).
 
 Exit codes:
   0 — bump applied; mirrors in sync.
@@ -223,8 +223,8 @@ def bump(root: pathlib.Path, new_minor: str, config_revision: int = 1) -> int:
     print("Next steps:")
     print(f"  1. Review release notes for nginx {new_minor}.")
     print("  2. Run `make ci-pytest ci-lockstep-tests ci-nginx-config`.")
-    print("  3. Open a PR; `build.yml` will rebuild the nginx image stage.")
-    print("  4. After merge, pull the new image on the live host:")
+    print("  3. Open a PR. `build.yml` builds the images on a `v*` release tag or when it is started by hand.")
+    print("  4. After the image is built, pull it on the live host:")
     print(f"     docker pull ghcr.io/magicsunday/webtrees-nginx:{new_tag}")
     return 0
 

@@ -23,7 +23,7 @@
 # they delegate to the same scripts, so behaviour is identical.
 #
 # See docs/maintenance.md for the per-image procedure (release-note
-# review focus, smoke-matrix steps, post-merge image pull) and the
+# review focus, the image build, the image pull) and the
 # trust-model section.
 
 #### Maintenance

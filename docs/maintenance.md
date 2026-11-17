@@ -137,8 +137,10 @@ image. A directive-level regression surfaces here.
 
 ### 4. Ship
 
-  * Open a PR. `build.yml` rebuilds the nginx image stage on push.
-  * After merge, pull the new image on the live host:
+  * Open a PR. `build.yml` builds the images when a `v*` release tag is pushed
+    or when the workflow is started by hand. A push to a branch does not
+    rebuild the nginx image stage.
+  * After the image is built, pull it on the live host:
     `docker pull ghcr.io/magicsunday/webtrees-nginx:<new-tag>`.
   * Close the tracking issue with a comment linking the merge commit.
 

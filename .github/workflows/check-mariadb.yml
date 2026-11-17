@@ -46,4 +46,4 @@ jobs:
                   2. Run `./scripts/bump/bump-mariadb.sh ${VER}` — syncs all four shipped compose sites (standalone + traefik templates, dev compose, Portainer compose) enforced by the lockstep test. (`make bump-mariadb VERSION=${VER}` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)
                   3. Test the upgrade on a snapshot first; major-minor moves may need `mariadb-upgrade` on existing volumes.
                   4. Run `make ci-pytest ci-lockstep-tests` locally.
-                  5. Open a PR; CI re-runs the smoke matrix against the new pin.
+                  5. Open a PR. The smoke matrix runs with `build.yml` on a `v*` release tag or when it is started by hand.

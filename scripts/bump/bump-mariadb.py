@@ -127,7 +127,7 @@ def bump(root: pathlib.Path, new_minor: str) -> int:
     print("  2. Verify the upgrade path (test on a snapshot; major-minor "
           "moves may need `mariadb-upgrade`).")
     print("  3. Run `make ci-pytest ci-lockstep-tests`.")
-    print("  4. Open a PR; CI re-runs the smoke matrix against the new pin.")
+    print("  4. Open a PR. The smoke matrix runs with `build.yml` on a `v*` release tag or when it is started by hand.")
     return 0
 
 

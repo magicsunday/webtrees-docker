@@ -1,7 +1,7 @@
 name: ci:test
 
 # Runs `make ci-test` and the shared copy-paste detection. Runs on pushes to
-# main and on pull requests that target main.
+# main, on pull requests that target main and when started by hand.
 
 on:
     push:
