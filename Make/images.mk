@@ -14,8 +14,8 @@
 # major version bumps.
 
 # Python toolchain (pytest, ruff, mypy, vulture, pylint). 3.13-slim is the
-# debian-slim base; bumps must update the installer Dockerfile's FROM
-# pin too — `ci-python-pin-lockstep` enforces.
+# debian-slim base; a bump of the minor version also updates the FROM
+# pin of the installer Dockerfile by hand. No check compares the two.
 CI_IMAGE_PYTHON   := python:3.13-slim
 
 # jq CLI for the versions-manifest queries in ci-* targets and the
@@ -55,7 +55,7 @@ _CI_RUN_PYTHON_BASE := $(_CI_RUN_BASE) \
 	-w /app \
 	--entrypoint sh
 
-# ci-{ruff,mypy,vulture,cpd}: installer-only.
+# ci-{ruff,mypy,vulture}: installer-only.
 CI_RUN_PYTHON := $(_CI_RUN_PYTHON_BASE) $(CI_IMAGE_PYTHON)
 
 # ci-pytest: adds repo-root :ro + WT_REPO_ROOT so lockstep tests can

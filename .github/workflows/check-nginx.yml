@@ -55,5 +55,5 @@ jobs:
                   1. Review release notes for nginx ${VER} (config-format / module-set changes).
                   2. Run `./scripts/bump/bump-nginx.sh ${VER}` — updates `dev/nginx-version.json` and syncs the 5 mirror sites enforced by the lockstep test. (`make bump-nginx VERSION=${VER}` is the equivalent convenience form for trusted-local invocations; see docs/maintenance.md for the trust-model trade-off.)
                   3. Run `make ci-pytest ci-lockstep-tests ci-nginx-config` locally.
-                  4. Open a PR; `build.yml` rebuilds the nginx image stage.
-                  5. After merge, pull the new image on the live host: `docker pull ghcr.io/magicsunday/webtrees-nginx:${VER}-r1`.
+                  4. Open a PR. `build.yml` builds the images on a `v*` release tag or when it is started by hand, not on a push to a branch.
+                  5. After the image is built, pull it on the live host: `docker pull ghcr.io/magicsunday/webtrees-nginx:${VER}-r1`.

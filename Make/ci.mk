@@ -19,7 +19,7 @@
 #### CI & Lint
 
 # ci-test runs serially: the python sub-targets (ci-pytest / ci-ruff /
-# ci-mypy / ci-vulture / ci-cpd) share the `webtrees-ci-pip-cache`
+# ci-mypy / ci-vulture) share the `webtrees-ci-pip-cache`
 # volume and race on `pip install -e .` writes under `make -jN`.
 .NOTPARALLEL: ci-test
 
@@ -69,7 +69,7 @@ ci-pytest: .logo ## Runs the installer Python test suite in a throwaway Python c
 	$(CI_RUN_PYTHON_WITH_REPO) \
 		-c "apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends make >/dev/null && pip install -q -e '.[test]' >/dev/null 2>&1 && pytest -q"
 
-# All four ci-{ruff,mypy,vulture,cpd} targets share the same install
+# The ci-{ruff,mypy,vulture} targets share the same install
 # step against the installer's `.[static]` optional-deps. The targets
 # are intentionally separate (rather than a single ci-static aggregate)
 # so a developer iterating on one check can run it without paying for
