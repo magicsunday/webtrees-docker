@@ -20,7 +20,6 @@ leaves stragglers, so the gap cannot reappear.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 
@@ -32,15 +31,6 @@ import pytest
 _TAG_RE = re.compile(
     r"webtrees-nginx:([0-9]+\.[0-9]+-r[0-9]+)"
 )
-
-
-def _looks_like_repo_root(root: Path) -> bool:
-    """Anchor-file check: a candidate path is a real repo root iff both
-    `dev/versions.json` and `installer/pyproject.toml` exist underneath
-    it. Symmetric with test_mariadb_pin_lockstep's guard."""
-    return (root / "dev" / "versions.json").is_file() and (
-        root / "installer" / "pyproject.toml"
-    ).is_file()
 
 
 # Sites that pin `webtrees-nginx:X.Y-rN` as a load-bearing reference and
@@ -59,23 +49,12 @@ _TAG_SITES = (
 
 
 def test_nginx_tag_matches_canonical_across_all_sites(
-    resolved_repo_root: Path | None,
+    validated_repo_root: Path,
 ) -> None:
     """Every test-side `webtrees-nginx:X.Y-rN` literal must agree with
     the `.tag` field of dev/nginx-version.json. The CI bump pipeline
     bumps the canonical JSON; this test catches stragglers."""
-    root = resolved_repo_root
-    if root is None or not _looks_like_repo_root(root):
-        if os.environ.get("WT_REPO_ROOT"):
-            pytest.fail(
-                f"WT_REPO_ROOT={os.environ['WT_REPO_ROOT']!r} does not "
-                f"resolve to a real repo root. Fix the bind-mount in "
-                f"Make/ci.mk's ci-pytest target."
-            )
-        pytest.skip(
-            f"repo root not reachable from {root} — running from an "
-            f"installed wheel or partial checkout."
-        )
+    root = validated_repo_root
 
     canonical = json.loads(
         (root / "dev" / "nginx-version.json").read_text(encoding="utf-8")
