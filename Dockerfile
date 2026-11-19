@@ -114,8 +114,8 @@ RUN test -n "${WEBTREES_VERSION}" || { echo "WEBTREES_VERSION cannot be empty" >
  # Surface every security advisory the bundled (immutable) dependency set
  # carries, in the build log, on every build. Non-fatal by design: it must not
  # break the faithful packaging of a released webtrees version, but it also
- # never hides a CVE. Goes clean on its own once upstream bumps off the
- # affected versions — nothing is permanently ignored.
+ # never hides a CVE. The listing ends once upstream bumps off the affected
+ # versions and the manifest drops its ignore entries.
  && { composer audit --no-dev --format=plain || true; } \
  # Verify each patch actually applied. composer-patches only logs a warning
  # on failure, so we grep for sentinels we planted in the patch files. If a

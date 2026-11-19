@@ -14,7 +14,6 @@ other three. This test enforces that all four sites agree.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -41,40 +40,13 @@ _PIN_SITES = (
 )
 
 
-def _looks_like_repo_root(root: Path) -> bool:
-    """Anchor-file check: a candidate path is a real repo root iff both
-    `dev/versions.json` and `installer/pyproject.toml` exist underneath
-    it. The pair is unique to this repo, so accidental matches against
-    e.g. a partial wheel checkout are excluded."""
-    return (root / "dev" / "versions.json").is_file() and (
-        root / "installer" / "pyproject.toml"
-    ).is_file()
-
-
 def test_mariadb_pin_consistent_across_all_sites(
-    resolved_repo_root: Path | None,
+    validated_repo_root: Path,
 ) -> None:
     """Every shipped compose file that pins MariaDB must agree on the
     same X.Y minor. A drift would let the check-mariadb.yml cron silently
     track the wrong baseline."""
-    root = resolved_repo_root
-    if root is None or not _looks_like_repo_root(root):
-        # CI must set WT_REPO_ROOT to the bind-mounted full repo. Skip
-        # only when running from outside a real repo (e.g. an installed
-        # wheel's test-extras suite); fail loud inside CI where the env
-        # var is the load-bearing wire — a silent skip there would let
-        # mariadb-pin drift through unguarded.
-        if os.environ.get("WT_REPO_ROOT"):
-            pytest.fail(
-                f"WT_REPO_ROOT={os.environ['WT_REPO_ROOT']!r} does not "
-                f"resolve to a real repo root (missing dev/versions.json "
-                f"or installer/pyproject.toml). Fix the bind-mount in "
-                f"Make/ci.mk's ci-pytest target."
-            )
-        pytest.skip(
-            f"repo root not reachable from {root} — running from an "
-            f"installed wheel or partial checkout."
-        )
+    root = validated_repo_root
 
     pins: dict[str, str] = {}
     for relative in _PIN_SITES:

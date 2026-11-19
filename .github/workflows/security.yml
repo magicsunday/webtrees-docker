@@ -54,7 +54,21 @@ jobs:
         # every open pull request red without any change in it, and
         # dependency-review already covers what a pull request changes.
         if: github.event_name != 'pull_request'
+        # The build copies one manifest of setup/ to composer.json, so each
+        # file there is audited by its own call. The matrix must name exactly
+        # the files of setup/, which the installer test suite checks.
+        strategy:
+            fail-fast: false
+            matrix:
+                file:
+                    - composer-core-2.1.json
+                    - composer-core-2.2.json
+                    - composer-full-2.1.json
+                    - composer-full-2.2.json
         uses: magicsunday/.github/.github/workflows/composer-audit.yml@main
+        with:
+            working-directory: setup
+            composer-file: ${{ matrix.file }}
         permissions:
             contents: read
 
