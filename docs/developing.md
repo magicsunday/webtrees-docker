@@ -194,6 +194,12 @@ which lints the `.github/` directory, the compose files at the repository root
 and the portainer compose template through its `paths` input. No `make` target
 runs that lint.
 
+Its `composer-audit` job audits the Composer manifests of `setup/`. The build
+copies one of them to `composer.json`, so the repository root has none, and the
+job calls the shared audit once per file through a matrix. A manifest added to
+`setup/` needs a matrix entry, which `make ci-pytest` enforces through
+`installer/tests/test_composer_audit_lockstep.py`.
+
 Today's bundle:
 
 - `make ci-pytest` — installer Python test suite (137+ cases).
