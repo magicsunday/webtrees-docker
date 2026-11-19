@@ -65,7 +65,7 @@ jobs:
                     - composer-core-2.2.json
                     - composer-full-2.1.json
                     - composer-full-2.2.json
-        uses: magicsunday/.github/.github/workflows/composer-audit.yml@GH-328
+        uses: magicsunday/.github/.github/workflows/composer-audit.yml@main
         with:
             working-directory: setup
             composer-file: ${{ matrix.file }}
