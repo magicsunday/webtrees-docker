@@ -198,7 +198,10 @@ Its `composer-audit` job audits the Composer manifests of `setup/`. The build
 copies one of them to `composer.json`, so the repository root has none, and the
 job calls the shared audit once per file through a matrix. A manifest added to
 `setup/` needs a matrix entry, which `make ci-pytest` enforces through
-`installer/tests/test_composer_audit_lockstep.py`.
+`installer/tests/test_composer_audit_lockstep.py`. The advisories that the
+pinned webtrees releases carry are ignored by id with a reason in each manifest
+under `config.policy.advisories.ignore-id`, so the job fails when a new advisory
+appears. The build copies the manifest, so it carries the same ignore entries.
 
 Today's bundle:
 
